@@ -2,6 +2,7 @@
 import {
   PLAYABLE, ZONES, GRADES, WEAPONS, ARMOR_KINDS, ACCESSORY_KINDS, TALENTS, SOUL_KINDS,
   COMPANION_CLASSES, CHARMS, SECRET_TOTAL, MEDAL_TIERS, MEDAL_STEP, OPT_LABEL, MOB_REWARD,
+  AVATARS, avatarOf, SKILLS, SKILL_IDS, HEAL_SKILL_IDS,
 } from './data.js';
 import { CloudAdapter } from './save.js';
 
@@ -24,6 +25,66 @@ export function createUI(game, THREE) {
     mapT: 0,
   };
   const worldLayer = $('worldLayer');
+
+  // ---------- HUD 아바타 프로필 ----------
+  const avatarEl = $('avatar');
+  avatarEl.innerHTML = `<span class="av-face"><i class="av-head"></i><i class="av-hair"></i><i class="av-ribbon"></i><i class="av-eye l"></i><i class="av-eye r"></i></span><span class="lv-chip" id="lvChip">Lv.1</span>`;
+  const hex = (n) => '#' + (n >>> 0).toString(16).padStart(6, '0');
+  function renderAvatar() {
+    const A = avatarOf(game.state ? game.state.avatar : 'boyA');
+    avatarEl.dataset.avatar = A.id;
+    avatarEl.title = `${A.name} · ${A.short}`;
+    avatarEl.style.setProperty('--av-skin', hex(A.skin));
+    avatarEl.style.setProperty('--av-uni', hex(A.uniform));
+    avatarEl.style.setProperty('--av-accent', hex(A.accent || A.uniform));
+    avatarEl.style.setProperty('--av-hair', hex(A.hair));
+    avatarEl.style.setProperty('--av-ribbon', hex(A.ribbon || A.accent || A.uniform));
+    avatarEl.classList.toggle('has-ribbon', A.hairStyle === 'bob' || A.hairStyle === 'long');
+    avatarEl.classList.toggle('long-hair', A.hairStyle === 'long');
+    avatarEl.classList.toggle('hooded', !!A.hood);
+  }
+
+  // ---------- HUD 스킬 슬롯 ----------
+  const skillBar = document.createElement('div');
+  skillBar.id = 'skillBar';
+  skillBar.className = 'skill-bar';
+  $('hud').appendChild(skillBar);
+  ui.skillT = 0;
+
+  ui.renderSkillBar = function () {
+    if (!game.state || !game.state.skills) return;
+    const s = game.state.skills;
+    skillBar.innerHTML = `<button class="skill-auto ${s.auto ? 'on' : ''}" data-skill-auto title="자동 사용">⚡</button>` +
+      s.slots.map((id, i) => {
+        const def = id ? SKILLS[id] : null;
+        const cd = id ? Math.ceil(s.cds[id] || 0) : 0;
+        return `<button class="skill-slot ${def ? '' : 'empty'}" data-skill-slot="${i}" data-skill-id="${id || ''}" title="${def ? def.name : '스킬 슬롯'} · ${def ? def.mp + ' MP' : '비어 있음'}">
+          <span>${def ? def.icon : '＋'}</span>${cd > 0 ? `<i class="cd">${cd}</i>` : ''}
+        </button>`;
+      }).join('');
+  };
+
+  skillBar.addEventListener('click', (ev) => {
+    const auto = ev.target.closest('[data-skill-auto]');
+    if (auto) {
+      const on = game.toggleSkillAuto();
+      ui.toast(on ? '스킬 자동 사용을 켰어요.' : '스킬 자동 사용을 껐어요.', '');
+      ui.renderSkillBar();
+      return;
+    }
+    const btn = ev.target.closest('[data-skill-slot]');
+    if (!btn) return;
+    const id = btn.dataset.skillId;
+    if (!id) { ui.openSkills(); return; }
+    const r = game.castSkill(id);
+    if (!r.ok) {
+      const msg = r.reason === 'mp' ? '마나가 부족해요.' : r.reason === 'cooldown' ? '아직 쿨다운이에요.' : r.reason === 'target' ? '사거리 안에 적이 없어요.' : '아직 배우지 않은 스킬이에요.';
+      ui.toast(msg, 'bad');
+    } else {
+      ui.toast(`${SKILLS[id].icon} ${SKILLS[id].name}!`, 'good');
+      ui.renderSkillBar();
+    }
+  });
 
   // ---------- 좌표 ----------
   const v3 = new THREE.Vector3();
@@ -146,6 +207,7 @@ export function createUI(game, THREE) {
     const s = game.state;
     const d = game.derived();
     const p = game.player;
+    renderAvatar();
     $('pcName').textContent = '스쿨히어로';
     $('pcZone').textContent = game.zone.name;
     $('lvChip').textContent = 'Lv.' + s.level;
@@ -248,14 +310,22 @@ export function createUI(game, THREE) {
       if (ui._rerender) { ui._rerender = false; renderEquipSlots(); }
       renderHud();
     }
+    ui.skillT = (ui.skillT || 0) + dt;
+    if (ui.skillT > 0.2) { ui.skillT = 0; ui.renderSkillBar(); }
     ui.mapT += dt;
     if (ui.mapT > 0.07) { ui.mapT = 0; drawMinimap(); }
 
-    // 몬스터 태그
+    // 몬스터 태그 (복귀 중 상태 표시)
     for (const [e, el] of ui.tags) {
       if (!e.alive) {
         if (e.deadT > 0.5 || !e.mesh.parent) { el.remove(); ui.tags.delete(e); }
         continue;
+      }
+      const stateKey = e.leashing ? 'return' : e.targetType === 'tank' ? 'tank' : '';
+      if (e._tagState !== stateKey) {
+        e._tagState = stateKey;
+        const name = el.querySelector('.et-name');
+        if (name) name.innerHTML = `Lv.${e.level} ${e.def.name}` + (stateKey === 'return' ? ' <b style="color:#8fd8ff">복귀 중</b>' : stateKey === 'tank' ? ' <b style="color:#ffd479">탱커</b>' : '');
       }
       const far = Math.hypot(e.x - game.player.x, e.z - game.player.z) > 17;
       const p = project(e.x, e.headY + 0.35, e.z);
@@ -268,6 +338,8 @@ export function createUI(game, THREE) {
         if (fill) fill.style.width = pct(e.hp, e.maxHp);
       }
     }
+    // 시작 튜토리얼 진행 판단
+    if (ui.tutorialStep) ui.tickTutorial();
     // 말풍선
     const pl = game.player;
     if (pl) {
@@ -318,6 +390,190 @@ export function createUI(game, THREE) {
     setTimeout(() => el.remove(), 900);
   };
   ui.medalFx = function () { ui.levelUpFx(); };
+
+  // ---------- 졸업식 차원이동 인트로 ----------
+  ui.showIntro = function () {
+    if (document.getElementById('introOverlay')) return;
+    const ov = document.createElement('div');
+    ov.id = 'introOverlay';
+    ov.className = 'intro-overlay';
+    ov.innerHTML = `
+      <div class="intro-card">
+        <div class="intro-art-wrap"><img class="intro-art" id="introArt" src="./assets/intro-portal.png" alt="졸업식 날 열린 차원 포탈"></div>
+        <div class="intro-body">
+          <div class="intro-kicker">졸업식 · 그날</div>
+          <h2>운동장에 빛의 소용돌이가 열렸다</h2>
+          <p>졸업식이 끝나던 순간, 하늘에서 빛이 쏟아지고 발밑이 휘어졌어요.<br>
+          손을 뻗은 순간 — 눈앞에 펼쳐진 건 서울이 뒤틀린 차원의 세계.<br>
+          <b>“이 세계를 뚫고 강해지면, 지구로 돌아갈 수 있어.”</b></p>
+          <div class="intro-btns">
+            <button class="btn ghost" data-intro-skip>건너뛰기</button>
+            <button class="btn gold" data-intro-start>모험 시작</button>
+          </div>
+        </div>
+      </div>`;
+    document.getElementById('app').appendChild(ov);
+    game.paused = true;
+    const close = () => {
+      game.state.introSeen = true;
+      game.save();
+      game.flushSave();
+      ov.classList.add('gone');
+      setTimeout(() => ov.remove(), 380);
+      game.paused = false;
+      ui.startTutorial();
+    };
+    ov.querySelector('[data-intro-skip]').addEventListener('click', close);
+    ov.querySelector('[data-intro-start]').addEventListener('click', close);
+  };
+
+  // ---------- 3단계 시작 튜토리얼 ----------
+  ui.tutorialStep = 0;
+  ui.tutStart = null;
+  function tutorialBox() {
+    let box = document.getElementById('tutorialBox');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'tutorialBox';
+      box.className = 'tutorial-box hidden';
+      $('hud').appendChild(box);
+      box.addEventListener('click', (ev) => {
+        if (ev.target.closest('[data-tut-skip]')) ui.finishTutorial();
+      });
+    }
+    return box;
+  }
+  const TUT_TEXT = {
+    1: '① 조이스틱이나 <b>WASD</b>로 움직여 보세요',
+    2: '<b>사거리 안의 적</b>을 자동으로 공격해요 · 하나 처치해 보세요',
+    3: '오른쪽 위 <b>지도</b>와 <b>가방·스킬</b>을 열어 보세요',
+  };
+  function renderTutorial() {
+    const box = tutorialBox();
+    if (!ui.tutorialStep || !game.state.tutorial || game.state.tutorial.done) { box.classList.add('hidden'); return; }
+    box.classList.remove('hidden');
+    box.innerHTML = `<div class="tut-top"><span>시작 가이드</span><b>${ui.tutorialStep} / 3</b></div>
+      <div class="tut-text">${TUT_TEXT[ui.tutorialStep]}</div>
+      <div class="tut-dots">${[1, 2, 3].map((n) => `<i class="${n <= ui.tutorialStep ? 'on' : ''}"></i>`).join('')}</div>
+      <button class="tut-skip" data-tut-skip>건너뛰기</button>`;
+  }
+  function setTutorial(step) {
+    ui.tutorialStep = step;
+    game.state.tutorial.step = step;
+    game.save();
+    renderTutorial();
+  }
+  ui.startTutorial = function () {
+    const t = game.state.tutorial || { step: 1, done: false };
+    if (t.done || ui.tutorialStep) return;
+    ui.tutorialStep = Math.max(1, Math.min(3, t.step || 1));
+    ui.tutStart = { x: game.player.x, z: game.player.z, kills: game.state.kills };
+    renderTutorial();
+    game.tutorialHook = (evt) => {
+      if (evt === 'view') { ui.finishTutorial(); return; }
+      if (evt === 'kill' && ui.tutorialStep === 2) { setTutorial(3); return; }
+      if (evt === 'move' && ui.tutorialStep === 1) ui.tickTutorial();
+    };
+  };
+  ui.tickTutorial = function () {
+    if (!ui.tutorialStep) return;
+    const box = tutorialBox();
+    box.classList.toggle('hidden', game.zone && game.zone.id !== 1);
+    if (ui.tutorialStep === 1 && ui.tutStart) {
+      const moved = Math.hypot(game.player.x - ui.tutStart.x, game.player.z - ui.tutStart.z);
+      if (moved > 2.2) setTutorial(2);
+    } else if (ui.tutorialStep === 2 && ui.tutStart) {
+      if (game.state.kills > ui.tutStart.kills) setTutorial(3);
+    }
+  };
+  ui.finishTutorial = function () {
+    if (!game.state.tutorial || game.state.tutorial.done) { ui.tutorialStep = 0; return; }
+    ui.tutorialStep = 0;
+    game.state.tutorial = { step: 3, done: true };
+    game.tutorialHook = null;
+    game.save();
+    const box = document.getElementById('tutorialBox');
+    if (box) box.classList.add('hidden');
+    ui.toast('시작 가이드 완료! 이제 자유롭게 모험하세요.', 'good');
+  };
+  ui.tutorialInfo = () => ({
+    step: ui.tutorialStep,
+    done: !!(game.state.tutorial && game.state.tutorial.done),
+    visible: !!document.getElementById('tutorialBox') && !document.getElementById('tutorialBox').classList.contains('hidden'),
+  });
+
+  // ---------- 스킬북 ----------
+  ui.openSkills = function () {
+    if (!game.state || !game.state.skills) return;
+    const s = game.state.skills;
+    const books = game.state.skillbooks || {};
+    const slotRow = s.slots.map((id, i) => {
+      const def = id ? SKILLS[id] : null;
+      return `<div class="sslot ${def ? '' : 'empty'}">
+        <b>${i + 1}</b><span class="ss-ico">${def ? def.icon : '＋'}</span>
+        <span class="ss-name">${def ? def.name : '비어 있음'}</span>
+        ${def ? `<button class="ss-x" data-clear="${i}">✕</button>` : ''}
+      </div>`;
+    }).join('');
+    const cards = SKILL_IDS.map((id) => {
+      const def = SKILLS[id];
+      const learned = s.learned.includes(id);
+      const n = books[id] || 0;
+      const kindLabel = def.kind === 'attack' ? '공격' : def.kind === 'heal' ? '회복' : '지원';
+      const slotBtns = learned ? `<div class="slot-picks">${s.slots.map((x, i) => `<button class="slot-pick ${x === id ? 'on' : ''}" data-assign="${id}" data-slot="${i}">${i + 1}</button>`).join('')}</div>` : '';
+      const act = learned
+        ? `<span class="sk-done">배움</span>${slotBtns}`
+        : n > 0 ? `<button class="btn gold" data-learn="${id}">배우기</button><span class="hint">보유 ${n}</span>`
+          : '<span class="hint">보스 처치로 획득</span>';
+      return `<div class="skill-card ${learned ? 'learned' : ''} ${n > 0 ? 'hasbook' : ''}">
+        <div class="sk-ico">${def.icon}</div>
+        <div class="sk-body">
+          <div class="sk-name">${def.name} <span class="sk-kind">${kindLabel}</span></div>
+          <div class="sk-desc">${def.desc}</div>
+          <div class="sk-meta">MP ${def.mp} · 쿨다운 ${def.cd}초${def.mult ? ` · 피해 ×${def.mult}` : ''}</div>
+        </div>
+        <div class="sk-act">${act}</div>
+      </div>`;
+    }).join('');
+    const html = `${head('📖 스킬북', `배운 스킬 ${s.learned.length} / ${SKILL_IDS.length}`)}
+      <div class="skill-top">
+        <span class="hint">구역 보스를 처치하면 스킬북이 떨어집니다. 배운 스킬은 최대 4칸 슬롯에 장착하세요.</span>
+        <button class="btn ${s.auto ? 'gold' : 'ghost'}" data-auto>${s.auto ? '⚡ 자동 사용 중' : '⚡ 자동 사용 꺼짐'}</button>
+      </div>
+      <div class="skill-slots">${slotRow}</div>
+      <div class="skill-list">${cards}</div>`;
+    const sheet = openSheet(html, 'skills-sheet');
+    sheet.querySelector('[data-auto]').addEventListener('click', () => {
+      game.toggleSkillAuto();
+      ui.renderSkillBar();
+      ui.openSkills();
+    });
+    sheet.querySelectorAll('[data-learn]').forEach((el) => el.addEventListener('click', () => {
+      const id = el.dataset.learn;
+      const r = game.learnSkill(id);
+      if (r.ok) { ui.toast(`${SKILLS[id].icon} ${SKILLS[id].name}을(를) 배웠어요!`, 'gold'); ui.openSkills(); }
+      else ui.toast('아직 이 스킬의 스킬북이 없어요.', 'bad');
+    }));
+    sheet.querySelectorAll('[data-assign]').forEach((el) => el.addEventListener('click', () => {
+      game.assignSkill(parseInt(el.dataset.slot, 10), el.dataset.assign);
+      ui.openSkills();
+    }));
+    sheet.querySelectorAll('[data-clear]').forEach((el) => el.addEventListener('click', () => {
+      game.assignSkill(parseInt(el.dataset.clear, 10), null);
+      ui.openSkills();
+    }));
+  };
+  ui.skillCastFx = function (id) {
+    const def = SKILLS[id];
+    if (!def || !game.player) return;
+    const p = project(game.player.x, 2.0, game.player.z);
+    const el = document.createElement('div');
+    el.className = 'skill-cast';
+    el.innerHTML = `${def.icon} <b>${def.name}</b>`;
+    el.style.left = p.x + 'px'; el.style.top = p.y + 'px';
+    worldLayer.appendChild(el);
+    setTimeout(() => el.remove(), 900);
+  };
 
   // ---------- 모달 공통 ----------
   const root = $('modalRoot');
@@ -393,13 +649,16 @@ export function createUI(game, THREE) {
       </div>`;
     }).join('') : `<div class="hint">아직 장비가 없어요. 몬스터를 처치해 보세요!</div>`;
 
+    const bookCount = Object.values(game.state.skillbooks || {}).reduce((a, b) => a + b, 0);
     const html = `${head('🎒 장비와 가방', `공격력 ${d.attack} · 방어력 ${d.defense}`)}
-      <div class="tab-row"><button class="tab on">장비</button><button class="tab" data-jump="merge">합성</button></div>
+      <div class="tab-row"><button class="tab on">장비</button><button class="tab" data-jump="merge">합성</button><button class="tab ${bookCount ? 'glow' : ''}" data-jump="skills">스킬북${bookCount ? ` ${bookCount}` : ''}</button></div>
       <div style="margin-bottom:10px">${equipRows}</div>
       <div class="hint" style="margin:4px 2px 9px">가방 · 아이템을 누르면 바로 장착됩니다. 같은 등급 3개를 모으면 합성으로 승급할 수 있어요.</div>
       <div class="item-grid">${grid}</div>`;
     const sheet = openSheet(html);
     sheet.querySelector('[data-jump="merge"]').addEventListener('click', () => ui.openMerge());
+    const skillsJump = sheet.querySelector('[data-jump="skills"]');
+    if (skillsJump) skillsJump.addEventListener('click', () => { if (game.tutorialHook) game.tutorialHook('view'); ui.openSkills(); });
     sheet.querySelectorAll('[data-item]').forEach((el) => {
       el.addEventListener('click', () => {
         const [kind, fam, g] = el.dataset.item.split(':');
@@ -543,6 +802,7 @@ export function createUI(game, THREE) {
           <div class="nm">${c.name} <span style="font-size:9px;color:${g.color}">${g.name}</span></div>
           <div class="cls">${cls.role} · ${cls.name}</div>
           <div class="lv">Lv.${c.lv || 1} · 공격 ${Math.round(cls.atk * (1 + ((c.lv || 1) - 1) * 0.22) * (1 + (c.grade || 0) * 0.16))}</div>
+          <div class="lv">체력 ${(() => { const live = (game.companions || []).find((x) => x.data && x.data.id === c.id); return live ? `${Math.round(live.hp)} / ${live.maxHp}` : `${Math.round(cls.hp * (1 + (c.grade || 0) * 0.12))}`; })()}</div>
         </div>
         <button class="btn ${inParty ? 'ghost' : ''}" data-party="${c.id}">${inParty ? '대기' : '동행'}</button>
       </div>`;
@@ -734,14 +994,18 @@ export function createUI(game, THREE) {
   };
 
   // ---------- 설정 · 밸런스 편집 ----------
-  ui.openSettings = function (tab = 'weapon') {
+  ui.openSettings = function (tab) {
     const b = game.balance;
+    const admin = game.isAdmin();
+    const lockedTabs = ['weapon', 'item', 'mob'];
+    if (!admin && (!tab || lockedTabs.includes(tab))) tab = 'account';
+    if (!tab) tab = 'weapon';
     const tabs = `<div class="tab-row">
-      <button class="tab ${tab === 'weapon' ? 'on' : ''}" data-tab="weapon">무기</button>
+      ${admin ? `<button class="tab ${tab === 'weapon' ? 'on' : ''}" data-tab="weapon">무기</button>
       <button class="tab ${tab === 'item' ? 'on' : ''}" data-tab="item">아이템</button>
-      <button class="tab ${tab === 'mob' ? 'on' : ''}" data-tab="mob">몬스터</button>
-      <button class="tab" data-tab="bestiary">몹 도감</button>
-      <button class="tab" data-tab="account">계정</button>
+      <button class="tab ${tab === 'mob' ? 'on' : ''}" data-tab="mob">몬스터</button>` : '<span class="admin-lock">🔒 밸런스 수정은 관리자 전용</span>'}
+      <button class="tab ${tab === 'bestiary' ? 'on' : ''}" data-tab="bestiary">몹 도감</button>
+      <button class="tab ${tab === 'account' ? 'on' : ''}" data-tab="account">계정</button>
     </div>`;
 
     let body = '';
@@ -768,10 +1032,15 @@ export function createUI(game, THREE) {
       const where = acc.mode === 'guest' ? '이 기기 (게스트)' : (acc.hasCloud ? '계정 저장 (여러 기기)' : '이 기기');
       const last = acc.status && acc.status.savedAt ? new Date(acc.status.savedAt).toLocaleString('ko-KR') : '아직 없음';
       const ver = acc.status && acc.status.version ? 'v' + acc.status.version : '-';
+      const byCode = (() => { try { return localStorage.getItem('sh.admin') === game.adminCode; } catch (e) { return false; } })();
       body = `<div class="account-row"><span>아이디</span><b>${acc.userId || '게스트'}</b></div>
         <div class="account-row"><span>저장 위치</span><b>${where}</b></div>
         <div class="account-row"><span>최근 저장</span><b>${last}</b></div>
         <div class="account-row"><span>저장 버전</span><b>${ver}</b></div>
+        <div class="account-row"><span>밸런스 편집</span><b style="color:${game.isAdmin() ? '#8dffc0' : '#a9b6cf'}">${game.isAdmin() ? '관리자 ✓' : '일반 사용자'}</b></div>
+        ${game.isAdmin()
+    ? (byCode ? '<button class="btn ghost" data-admin-off style="width:100%;margin-top:10px">관리자 인증 해제</button>' : '')
+    : '<div class="hint" style="margin-top:8px">무기·아이템·몬스터 밸런스 수정은 관리자 계정 또는 관리자 코드로만 할 수 있어요.</div><div class="connect-row"><input id="adminCode" placeholder="관리자 코드"><button class="btn" data-admin-on>확인</button></div>'}
         <div class="hint" style="margin-top:8px">다른 기기와 이어서 하려면 가족 연결 코드를 넣어 주세요.</div>
         <div class="connect-row"><input id="connectCode" placeholder="연결 코드"><button class="btn" data-connect>연결</button></div>
         <button class="btn ghost" data-logout style="width:100%;margin-top:12px">로그아웃</button>`;
@@ -794,14 +1063,16 @@ export function createUI(game, THREE) {
       }).join('');
     }
 
-    const html = `${head('⚙️ 설정', '밸런스 · 데이터 편집')}
+    const html = `${head('⚙️ 설정', admin ? '밸런스 · 데이터 편집' : '계정 · 도감')}
       ${tabs}
       <div class="settings-body">${body}</div>
-      <div class="hint" style="margin:10px 0 8px">바꾼 수치는 저장하면 바로 적용되고, 이 기기에 보관됩니다.</div>
+      ${admin
+        ? `<div class="hint" style="margin:10px 0 8px">바꾼 수치는 저장하면 바로 적용되고, 이 기기에 보관됩니다.</div>
       <div style="display:flex;gap:8px">
         <button class="btn gold" data-save style="flex:1">저장</button>
         <button class="btn ghost" data-reset-balance style="flex:0 0 auto">기본값</button>
-      </div>`;
+      </div>`
+        : '<div class="hint admin-note" style="margin:10px 0 4px">🔒 무기·아이템·몬스터 밸런스 수정은 관리자만 할 수 있어요.</div>'}`;
     const sheet = openSheet(html, 'settings-sheet');
     sheet.querySelectorAll('[data-tab]').forEach((el) => el.addEventListener('click', () => {
       if (el.dataset.tab === 'bestiary') ui.openBestiary();
@@ -826,7 +1097,29 @@ export function createUI(game, THREE) {
         location.reload();
       });
     }
-    sheet.querySelector('[data-save]').addEventListener('click', () => {
+    const adminOn = sheet.querySelector('[data-admin-on]');
+    if (adminOn) {
+      adminOn.addEventListener('click', () => {
+        const code = (sheet.querySelector('#adminCode') || {}).value || '';
+        if (game.enableAdmin(code)) {
+          ui.toast('관리자 인증 완료 · 밸런스 편집이 열렸습니다.', 'good');
+          ui.openSettings('weapon');
+        } else {
+          ui.toast('관리자 코드가 맞지 않아요.', 'bad');
+        }
+      });
+    }
+    const adminOff = sheet.querySelector('[data-admin-off]');
+    if (adminOff) {
+      adminOff.addEventListener('click', () => {
+        game.disableAdmin();
+        ui.toast('관리자 인증을 해제했어요.', '');
+        ui.openSettings('account');
+      });
+    }
+    const saveBtn = sheet.querySelector('[data-save]');
+    if (saveBtn) saveBtn.addEventListener('click', () => {
+      if (!game.isAdmin()) { ui.toast('밸런스 수정은 관리자만 할 수 있어요.', 'bad'); return; }
       const next = JSON.parse(JSON.stringify(game.balance));
       sheet.querySelectorAll('input[data-w]').forEach((inp) => {
         const v = parseFloat(inp.value);
@@ -844,7 +1137,9 @@ export function createUI(game, THREE) {
       ui.toast('설정을 저장했어요. 전투에 바로 적용됩니다.', 'good');
       ui.openSettings(tab);
     });
-    sheet.querySelector('[data-reset-balance]').addEventListener('click', () => {
+    const resetBtn = sheet.querySelector('[data-reset-balance]');
+    if (resetBtn) resetBtn.addEventListener('click', () => {
+      if (!game.isAdmin()) { ui.toast('밸런스 수정은 관리자만 할 수 있어요.', 'bad'); return; }
       game.resetBalance();
       ui.toast('밸런스를 기본값으로 되돌렸어요.', 'good');
       ui.openSettings(tab);
@@ -872,18 +1167,19 @@ export function createUI(game, THREE) {
   };
 
   // ---------- 입력 ----------
-  $('minimapFrame').addEventListener('click', () => ui.openWorldMap());
+  $('minimapFrame').addEventListener('click', () => { if (game.tutorialHook) game.tutorialHook('view'); ui.openWorldMap(); });
   $('medalBlock').addEventListener('click', () => ui.openZoneInfo());
   document.querySelectorAll('[data-open]').forEach((el) => {
     el.addEventListener('click', () => {
       const k = el.dataset.open;
-      if (k === 'bag') ui.openBag();
+      if (k === 'bag') { if (game.tutorialHook) game.tutorialHook('view'); ui.openBag(); }
       else if (k === 'merge') ui.openMerge();
       else if (k === 'souls') ui.openSouls();
       else if (k === 'stats') ui.openStats();
       else if (k === 'companions') ui.openCompanions();
       else if (k === 'quests') ui.openQuests();
       else if (k === 'help') ui.openHelp();
+      else if (k === 'skills') { if (game.tutorialHook) game.tutorialHook('view'); ui.openSkills(); }
       else if (k === 'settings') ui.openSettings();
     });
   });
@@ -949,6 +1245,8 @@ export function createUI(game, THREE) {
 
   // 초기화
   renderEquipSlots();
+  renderAvatar();
+  ui.renderSkillBar();
   renderHud();
 
   return ui;

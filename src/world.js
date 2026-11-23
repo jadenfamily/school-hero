@@ -176,17 +176,35 @@ function groundTexture(THREE, theme, zoneId, rnd) {
 }
 
 // ---------- 캐릭터 ----------
-export function makePlayer(THREE, family = 'slash') {
+// av: data.js 의 AVATARS 항목 (없으면 남학생 A 기본값)
+export function makePlayer(THREE, family = 'slash', av = null) {
   const g = new THREE.Group();
-  const skin = 0xf2c9a0;
-  const uniform = 0x3a5288, pants = 0x3f4859, shoe = 0x23262e, hair = 0x1b1b22;
-  const legL = box(THREE, 0.16, 0.5, 0.18, pants); legL.position.set(-0.13, 0.25, 0);
-  const legR = box(THREE, 0.16, 0.5, 0.18, pants); legR.position.set(0.13, 0.25, 0);
+  const A = av || {
+    id: 'boyA', skin: 0xf2c9a0, uniform: 0x3a5288, accent: 0x4864a8, pants: 0x3f4859,
+    hair: 0x1b1b22, hairStyle: 'short', ribbon: 0, skirt: false,
+  };
+  const skin = A.skin;
+  const uniform = A.uniform, pants = A.pants, hair = A.hair;
+  const accent = A.accent || uniform;
+  const shoe = 0x23262e;
+  const legL = box(THREE, 0.16, 0.5, 0.18, A.skirt ? skin : pants); legL.position.set(-0.13, 0.25, 0);
+  const legR = box(THREE, 0.16, 0.5, 0.18, A.skirt ? skin : pants); legR.position.set(0.13, 0.25, 0);
   const shoeL = box(THREE, 0.2, 0.1, 0.28, shoe); shoeL.position.set(-0.13, 0.05, 0.03);
   const shoeR = box(THREE, 0.2, 0.1, 0.28, shoe); shoeR.position.set(0.13, 0.05, 0.03);
   const body = box(THREE, 0.5, 0.58, 0.3, uniform); body.position.y = 0.79;
   const shirt = box(THREE, 0.16, 0.36, 0.02, 0xf4f7ff); shirt.position.set(0, 0.87, 0.16);
-  const tie = box(THREE, 0.06, 0.2, 0.02, 0xd04848); tie.position.set(0, 0.9, 0.18);
+  const tie = box(THREE, 0.06, 0.2, 0.02, A.skirt ? (A.ribbon || 0xd04848) : 0xd04848); tie.position.set(0, 0.9, 0.18);
+  // 스커트(여학생) · 후드(남학생 B)
+  const extras = [];
+  if (A.skirt) {
+    const skirt = cyl(THREE, 0.27, 0.4, 0.34, uniform, 8); skirt.position.y = 0.46; extras.push(skirt);
+    const skirtTrim = cyl(THREE, 0.395, 0.405, 0.05, accent, 8); skirtTrim.position.y = 0.31; extras.push(skirtTrim);
+  }
+  if (A.hood) {
+    const hood = sphere(THREE, 0.3, uniform, 8); hood.position.set(0, 1.04, -0.14); hood.scale.set(1.15, 0.7, 0.85); extras.push(hood);
+    const string = box(THREE, 0.02, 0.22, 0.02, 0xf2e6cc); string.position.set(0.06, 0.92, 0.17); extras.push(string);
+    const string2 = box(THREE, 0.02, 0.22, 0.02, 0xf2e6cc); string2.position.set(-0.06, 0.92, 0.17); extras.push(string2);
+  }
   const head = sphere(THREE, 0.22, skin); head.position.y = 1.24;
   const hairTop = sphere(THREE, 0.235, hair); hairTop.position.set(0, 1.3, -0.01); hairTop.scale.set(1, 0.8, 1);
   const fringe = box(THREE, 0.4, 0.12, 0.1, hair); fringe.position.set(0, 1.34, 0.15);
@@ -195,8 +213,28 @@ export function makePlayer(THREE, family = 'slash') {
   const collar = box(THREE, 0.36, 0.07, 0.26, 0xf7faff); collar.position.set(0, 1.04, 0.03);
   const pack = box(THREE, 0.36, 0.32, 0.16, 0xb06a34); pack.position.set(0, 0.85, -0.23);
   const packTrim = box(THREE, 0.38, 0.07, 0.18, 0xffd257); packTrim.position.set(0, 0.96, -0.23);
-  const shoulderL = box(THREE, 0.13, 0.1, 0.24, 0x4864a8); shoulderL.position.set(-0.26, 1.03, 0);
-  const shoulderR = box(THREE, 0.13, 0.1, 0.24, 0x4864a8); shoulderR.position.set(0.26, 1.03, 0);
+  const shoulderL = box(THREE, 0.13, 0.1, 0.24, accent); shoulderL.position.set(-0.26, 1.03, 0);
+  const shoulderR = box(THREE, 0.13, 0.1, 0.24, accent); shoulderR.position.set(0.26, 1.03, 0);
+  // 헤어 스타일별 추가 머리
+  if (A.hairStyle === 'long') {
+    const backHair = box(THREE, 0.42, 0.6, 0.14, hair); backHair.position.set(0, 1.05, -0.17); extras.push(backHair);
+    const sideL = box(THREE, 0.1, 0.46, 0.2, hair); sideL.position.set(-0.23, 1.12, 0); extras.push(sideL);
+    const sideR = box(THREE, 0.1, 0.46, 0.2, hair); sideR.position.set(0.23, 1.12, 0); extras.push(sideR);
+    const ribbonL = box(THREE, 0.1, 0.08, 0.06, A.ribbon || 0x8fd0ff); ribbonL.position.set(-0.2, 1.34, 0.06); extras.push(ribbonL);
+  } else if (A.hairStyle === 'bob') {
+    const sideL = box(THREE, 0.11, 0.3, 0.22, hair); sideL.position.set(-0.22, 1.19, -0.02); extras.push(sideL);
+    const sideR = box(THREE, 0.11, 0.3, 0.22, hair); sideR.position.set(0.22, 1.19, -0.02); extras.push(sideR);
+    const backHair = box(THREE, 0.36, 0.24, 0.1, hair); backHair.position.set(0, 1.16, -0.16); extras.push(backHair);
+    const bowL = sphere(THREE, 0.075, A.ribbon || 0xff9ec4, 6); bowL.position.set(-0.24, 1.32, 0.06); bowL.scale.set(1.4, 1, 0.6); extras.push(bowL);
+    const bowR = sphere(THREE, 0.075, A.ribbon || 0xff9ec4, 6); bowR.position.set(0.24, 1.32, 0.06); bowR.scale.set(1.4, 1, 0.6); extras.push(bowR);
+  } else if (A.hairStyle === 'messy') {
+    for (let i = 0; i < 4; i++) {
+      const spike = cone(THREE, 0.06, 0.16, hair, 4);
+      spike.position.set((i - 1.5) * 0.1, 1.44, (i % 2 ? 0.06 : -0.06));
+      spike.rotation.z = (i - 1.5) * 0.25;
+      extras.push(spike);
+    }
+  }
   const armL = box(THREE, 0.14, 0.46, 0.16, uniform); armL.position.set(-0.32, 0.86, 0);
   const armR = new THREE.Group(); armR.position.set(0.32, 0.9, 0);
   const armRBox = box(THREE, 0.14, 0.44, 0.16, uniform); armRBox.position.y = -0.2; armR.add(armRBox);
@@ -260,9 +298,9 @@ export function makePlayer(THREE, family = 'slash') {
   const aura = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.58, 22), new THREE.MeshBasicMaterial({ color: 0x8fd8ff, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false }));
   aura.rotation.x = -Math.PI / 2; aura.position.y = 0.05;
   g.add(legL, legR, shoeL, shoeR, body, shirt, tie, head, hairTop, fringe, eyeL, eyeR, armL, armR, collar, pack, packTrim, shoulderL, shoulderR, aura, blobShadow(THREE, 0.62));
+  for (const e of extras) g.add(e);
   g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-  g.userData.aura = aura;
-  g.userData = { armR, weapon, body, head, family };
+  g.userData = { armR, armL, weapon, body, head, hairTop, family, avatar: A, aura };
   g.scale.setScalar(1.0);
   return g;
 }

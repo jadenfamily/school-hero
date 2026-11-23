@@ -59,6 +59,94 @@ export const ACCESSORY_KINDS = {
   earring:  { id: 'earring',  name: '귀걸이', icon: '🌙', theme: '민첩' },
 };
 
+// ---------- 아바타(학생 4종) ----------
+// 색·머리 모양·리본이 3D 필드 캐릭터와 HUD 프로필에 그대로 반영된다.
+export const AVATARS = [
+  {
+    id: 'boyA', name: '남학생 A', short: '네이비 교복', icon: '👦',
+    skin: 0xf2c9a0, uniform: 0x3a5288, accent: 0x4864a8, pants: 0x3f4859,
+    hair: 0x1b1b22, hairStyle: 'short', ribbon: 0, skirt: false,
+  },
+  {
+    id: 'girlA', name: '여학생 A', short: '네이비 교복 · 긴 머리', icon: '👧',
+    skin: 0xf6d3b3, uniform: 0x323c68, accent: 0x4a5a9c, pants: 0x2c3350,
+    hair: 0x2a1a14, hairStyle: 'long', ribbon: 0x8fd0ff, skirt: true,
+  },
+  {
+    id: 'boyB', name: '남학생 B', short: '베이지 후드 교복', icon: '🧑',
+    skin: 0xefc49b, uniform: 0xc7b083, accent: 0x8f7a52, pants: 0x5a5344,
+    hair: 0x4a3324, hairStyle: 'messy', ribbon: 0, skirt: false, hood: true,
+  },
+  {
+    id: 'girlB', name: '여학생 B', short: '단발 · 리본', icon: '👩',
+    skin: 0xf7d8bd, uniform: 0x5b5478, accent: 0x8e86b8, pants: 0x3b3652,
+    hair: 0x3b2a24, hairStyle: 'bob', ribbon: 0xff9ec4, skirt: true,
+  },
+];
+export const AVATAR_MAP = Object.fromEntries(AVATARS.map((a) => [a.id, a]));
+export function avatarOf(id) { return AVATAR_MAP[id] || AVATARS[0]; }
+
+// ---------- 판타지 스킬북 ----------
+// kind: attack(공격) · heal(회복) · support(지원)
+// auto: 자동 사용 조건 판단에 쓰이는 힌트
+const SK = (o) => o;
+export const SKILLS = {
+  fireball: SK({
+    id: 'fireball', name: '파이어볼', icon: '🔥', kind: 'attack', element: 'fire',
+    mp: 14, cd: 4.5, mult: 2.2, range: 10, radius: 2.6, target: 'enemy', auto: 'enemy',
+    desc: '불덩이를 날려 폭발 범위 안의 적 모두에게 화염 피해를 줍니다.',
+  }),
+  icebolt: SK({
+    id: 'icebolt', name: '아이스볼트', icon: '❄️', kind: 'attack', element: 'ice',
+    mp: 9, cd: 3.4, mult: 1.5, range: 10, slow: 0.5, slowT: 3.2, target: 'enemy', auto: 'enemy',
+    desc: '얼음 화살을 쏘아 피해를 주고 3초 동안 이동 속도를 절반으로 늦춥니다.',
+  }),
+  firewall: SK({
+    id: 'firewall', name: '파이어월', icon: '🧨', kind: 'attack', element: 'fire',
+    mp: 18, cd: 8.5, mult: 0.6, range: 8, radius: 2.8, duration: 5, target: 'enemy', auto: 'enemy',
+    desc: '전방에 5초 동안 타오르는 불길 장판을 만들어 계속 피해를 줍니다.',
+  }),
+  swordwave: SK({
+    id: 'swordwave', name: '검기 날리기', icon: '🌪️', kind: 'attack', element: 'blade',
+    mp: 10, cd: 3.2, mult: 1.7, range: 9, target: 'enemy', auto: 'enemy',
+    desc: '전방으로 참격파를 날려 일직선의 적을 베어냅니다.',
+  }),
+  whirlwind: SK({
+    id: 'whirlwind', name: '회전 베기', icon: '🌀', kind: 'attack', element: 'blade',
+    mp: 12, cd: 4.2, mult: 1.55, radius: 4.2, target: 'self', auto: 'enemy',
+    desc: '몸을 돌려 주변 모든 적을 한 번에 벱니다.',
+  }),
+  multishot: SK({
+    id: 'multishot', name: '멀티샷', icon: '🎯', kind: 'attack', element: 'arrow',
+    mp: 11, cd: 3.6, mult: 0.8, range: 10, shots: 5, spread: 0.55, target: 'enemy', auto: 'enemy',
+    desc: '부채꼴로 화살 3~5발을 동시에 쏘아 여러 적을 공격합니다.',
+  }),
+  pierce: SK({
+    id: 'pierce', name: '관통 사격', icon: '➡️', kind: 'attack', element: 'arrow',
+    mp: 10, cd: 4.2, mult: 1.9, range: 13, pierce: 5, target: 'enemy', auto: 'enemy',
+    desc: '고속 화살이 일직선의 적을 꿰뚫고 지나갑니다.',
+  }),
+  heal1: SK({
+    id: 'heal1', name: '단일 힐', icon: '💚', kind: 'heal',
+    mp: 10, cd: 5, healPct: 0.35, healFlat: 18, target: 'ally', auto: 'hurt',
+    desc: '가장 체력이 낮은 주인공·동료 한 명을 크게 회복합니다.',
+  }),
+  healAll: SK({
+    id: 'healAll', name: '단체 힐', icon: '💖', kind: 'heal',
+    mp: 20, cd: 9, healPct: 0.22, healFlat: 10, target: 'party', auto: 'hurtAll',
+    desc: '주인공과 동행 중인 동료 모두의 체력을 회복합니다.',
+  }),
+  cleanse: SK({
+    id: 'cleanse', name: '독 해제', icon: '🧼', kind: 'support',
+    mp: 8, cd: 6, healPct: 0.08, healFlat: 6, target: 'self', auto: 'poison',
+    desc: '늪지 독·디버프를 즉시 풀고 소량 회복합니다.',
+  }),
+};
+export const SKILL_IDS = Object.keys(SKILLS);
+export const HEAL_SKILL_IDS = ['heal1', 'healAll', 'cleanse'];
+
+// 스킬북이 없는 상태에서 보스가 떨어뜨릴 책을 고를 때 쓰는 순서
+// (모두 배웠으면 골드로 대체)
 export const GRADE_ADJ = ['낡은', '단단한', '빛나는', '영웅의', '전설의', '신화의'];
 export const WEAPON_BASE = {
   sword: '학생회 장검', dagger: '급식 단검', axe: '체육 도끼', mace: '철퇴',

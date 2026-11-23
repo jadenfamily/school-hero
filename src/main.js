@@ -58,12 +58,17 @@ async function boot() {
     if (session.state) game.applyState(session.state);
     const ui = createUI(game, THREE);
     game.ui = ui;
+    // 새 모험이면 시작 화면에서 고른 아바타를, 이어하기면 저장된 아바타를 쓴다.
+    if (!session.state || !session.state.avatar) game.setAvatar(session.avatar || 'boyA');
     game.start();
     window.__GAME__ = game;
 
     if (session.repaired) ui.toast('저장 데이터가 손상되어 마지막 정상 기록으로 복구했어요.', 'good');
     if (session.mode === 'guest') ui.toast('게스트 모드 · 이 기기에만 저장됩니다.', '');
     else if (session.where === 'cloud') ui.toast(`${store.userId} 계정으로 불러왔어요.`, 'good');
+    // 졸업식 차원이동 인트로 → 3단계 시작 튜토리얼
+    if (!session.state || !game.state.introSeen) ui.showIntro();
+    else ui.startTutorial();
   } catch (e) {
     console.warn('시작하지 못했습니다:', e && e.message);
     loadingText.innerHTML = '게임을 시작하지 못했어요.<br>인터넷 연결을 확인한 뒤 새로고침해 주세요.';
