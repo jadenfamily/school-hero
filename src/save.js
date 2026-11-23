@@ -185,7 +185,8 @@ export class SaveManager {
   get hasCloud() { return !!this.cloud; }
 
   async login(userId, password, { cloud = this.cloud } = {}) {
-    this.userId = String(userId || '').trim();
+    const clean = String(userId || '').trim().replace(/[^\w가-힣-]/g, '').slice(0, 20);
+    this.userId = clean || 'guest';
     this.cloud = cloud;
     this.password = String(password || '');
     this.keys = await deriveKeys(this.userId, this.password);
