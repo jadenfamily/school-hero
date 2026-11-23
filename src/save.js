@@ -291,6 +291,13 @@ export class SaveManager {
     return { ok: true, version, where };
   }
 
+  async clearLocal() {
+    try {
+      localStorage.removeItem(`sh.device.${this.userId}`);
+      localStorage.removeItem(`sh.lastgood.${this.userId}`);
+    } catch (e) { /* 무시 */ }
+  }
+
   // 저장 파일 무결성만 따로 확인 (테스트/진단용)
   async verify(envelope) {
     if (!this.keys) return { ok: false, reason: 'noAccount' };

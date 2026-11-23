@@ -168,10 +168,9 @@ export function createGame(THREE) {
   };
 
   game.resetSave = async function () {
-    try {
-      localStorage.removeItem('sh.lastgood.' + (game.store ? game.store.userId : 'guest'));
-      localStorage.removeItem('sh.device.' + (game.store ? game.store.userId : 'guest'));
-    } catch (e) { /* 무시 */ }
+    if (game.store && game.store.clearLocal) await game.store.clearLocal();
+    game.applyState(null);
+    try { await game.flushSave(); } catch (e) { /* 다음 저장 때 다시 시도 */ }
   };
 
   // ---------- 능력치 ----------

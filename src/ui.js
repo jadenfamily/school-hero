@@ -865,8 +865,8 @@ export function createUI(game, THREE) {
       </ul>
       <button class="btn ghost" data-reset style="width:100%;margin-top:12px">처음부터 다시 시작</button>`;
     const sheet = openSheet(html);
-    sheet.querySelector('[data-reset]').addEventListener('click', () => {
-      game.resetSave();
+    sheet.querySelector('[data-reset]').addEventListener('click', async () => {
+      await game.resetSave();
       location.reload();
     });
   };
