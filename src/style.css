@@ -225,9 +225,8 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#0a0f1c;colo
 /* ---------- 모달 ---------- */
 #modalRoot{position:fixed;inset:0;z-index:20;pointer-events:none}
 .overlay{
-  position:absolute;inset:0;background:rgba(5,8,15,.62);backdrop-filter:blur(3px);
-  display:flex;align-items:center;justify-content:center;padding:16px;pointer-events:auto;
-  animation:fadeIn .18s ease-out
+  position:absolute;inset:0;background:rgba(5,8,15,.72);
+  display:flex;align-items:center;justify-content:center;padding:16px;pointer-events:auto
 }
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 .sheet{
@@ -235,9 +234,9 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#0a0f1c;colo
   background:linear-gradient(180deg,rgba(24,31,50,.98),rgba(13,18,30,.99));
   border:1px solid rgba(255,255,255,.2);border-radius:22px;padding:16px 16px 18px;
   box-shadow:0 24px 60px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.1);
-  animation:sheetIn .2s cubic-bezier(.2,.9,.3,1.2)
+  animation:sheetIn .18s cubic-bezier(.2,.9,.3,1.2)
 }
-@keyframes sheetIn{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes sheetIn{from{transform:translateY(10px) scale(.98)}to{transform:none}}
 .sheet-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
 .sheet-title{font-size:16px;font-weight:900;letter-spacing:.3px;display:flex;align-items:center;gap:7px}
 .sheet-title small{font-size:10px;font-weight:700;color:var(--txt-dim)}
