@@ -376,6 +376,7 @@ export function makeHumanoid3D(THREE, opts = {}) {
   let capeCol = opts.capeColor || null;
   if (!capeCol && opts.armorFam && ARMOR_KINDS[opts.armorFam]) capeCol = ARMOR_KINDS[opts.armorFam].cape;
   if (!capeCol) capeCol = accent;
+  const trimCol = opts.trimColor || null; // 코스튬 장식색 (벨트·오라에 반영)
 
   const skinM = mat(THREE, skin);
   const uniM = mat(THREE, uniform);
@@ -406,7 +407,7 @@ export function makeHumanoid3D(THREE, opts = {}) {
   const body = new THREE.Group(); body.userData.baseY = 0; g.add(body);
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.55, 0.3), uniM);
   torso.position.y = 0.85; body.add(torso);
-  const belt = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.08, 0.32), gradeM);
+  const belt = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.08, 0.32), trimCol ? mat(THREE, trimCol) : gradeM);
   belt.position.y = 0.6; body.add(belt);
   const cape = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.72, 0.05), capeM);
   cape.position.set(0, 0.82, -0.19); body.add(cape);
@@ -457,7 +458,7 @@ export function makeHumanoid3D(THREE, opts = {}) {
   // 등급 오라 (희귀 이상)
   if (grade >= 2) {
     const aura = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.52, 24),
-      new THREE.MeshBasicMaterial({ color: gradeCol, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false }));
+      new THREE.MeshBasicMaterial({ color: trimCol || gradeCol, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false }));
     aura.rotation.x = -Math.PI / 2; aura.position.y = 0.02; g.add(aura);
   }
 
@@ -481,6 +482,7 @@ export function makePlayer(THREE, family = 'sword', av = null, equip = null, app
   return makeHumanoid3D(THREE, {
     avatar: A, weaponFam: weapon.fam, grade: weapon.grade || 0,
     armorFam: armor ? armor.fam : null, capeColor: armor && armor.capeColor ? armor.capeColor : null,
+    trimColor: armor && armor.trimColor ? armor.trimColor : null,
   });
 }
 // ---------- 몬스터 · 동료 외형 ----------
