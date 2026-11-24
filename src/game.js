@@ -5,7 +5,7 @@ import {
   itemOptions, defaultBalance, MOB_REWARD, OPT_LABEL,
   AVATARS, AVATAR_MAP, avatarOf, SKILLS, SKILL_IDS, HEAL_SKILL_IDS,
   COMPANION_SKILLS, SKILL_BOOK_CLASS, COMPANION_SKILL_MAX_LEVEL,
-  BOSS_TIMER, BOSS_LABEL, EVOLVE_NEED, SOUL_KINDS, COSTUMES, COSTUME_MAP, COSTUME_PULL_COST, COSTUME_MAX_LEVEL, COSTUME_LEVEL_MULT, COMPANION_PULL_COST,
+  BOSS_TIMER, BOSS_LABEL, EVOLVE_NEED, SOUL_KINDS, COSTUMES, COSTUME_MAP, COSTUME_PULL_COST, COSTUME_MAX_LEVEL, costumeLevelMult, COMPANION_PULL_COST,
   ELEMENTS, ELEM_BEATS, EARTH_GATE,
 } from './data.js';
 import { buildWorld, makePlayer, makeMonster, makeCompanion, groundHeight, districtAt, worldPos, WORLD_HALF } from './world.js';
@@ -447,7 +447,7 @@ export function createGame(THREE) {
     const c = COSTUME_MAP[id];
     const out = {};
     if (!c || !c.stats) return out;
-    const m = COSTUME_LEVEL_MULT[game.costumeLevel(id) || 1];
+    const m = costumeLevelMult(game.costumeLevel(id) || 1);
     for (const [k, v] of Object.entries(c.stats)) out[k] = Math.max(1, Math.round(v * m));
     return out;
   };
@@ -888,7 +888,7 @@ export function createGame(THREE) {
     const e = {
       def, mesh, x, z, home: { x, z }, hp, maxHp: hp,
       atk: ov.atk, speed: def.speed, radius: mesh.userData.radius || 0.5,
-      stunT: 0, slowT: 0, tauntT: 0, reward: { xp: ov.xp, gold: ov.gold },
+      stunT: 0, slowT: 0, tauntT: 0, heroHit: false, reward: { xp: ov.xp, gold: ov.gold },
       headY: mesh.userData.headY || 1, state: 'idle', wanderT: Math.random() * 2,
       wander: { x, z }, atkCd: 1 + Math.random(), hitFlash: 0, alive: true,
       isBoss: def.boss === 'boss', isMid: def.boss === 'mid', isField: def.boss === 'field',
@@ -1133,6 +1133,9 @@ export function createGame(THREE) {
         e.targetType = 'player'; e.targetComp = null;
       }
     }
+    // 주인공이 직접 때린 몹은 "인식" 상태가 된다 (동료 공격 판단용).
+    // opts.attacker가 없으면 주인공 공격이다 (주인공 근접타격·주인공 투사체).
+    if (!opts.attacker) e.heroHit = true;
     // 타격감: 짧은 넉백 + 흔들림 + 카메라 진동
     const pl = game.player;
     if (pl && !e.fixed) {
@@ -1374,6 +1377,8 @@ export function createGame(THREE) {
   }
 
   // 무기별 공격 모션: 검 가로 베기 · 단검 찌르기 · 도끼/둔기 내려찍기 · 활/석궁 조준 · 지팡이/책 시전
+  // — 모션이 작아 폰에서 안 보인다는 피드백을 받아, 무기마다 크게 다르게 과장했다.
+  // — 무기를 바꿔 들면 0.45초간 플러리시(무기 들어올려 한 바퀴 돌리기)가 뜬다 (p.switchT).
   function animateArm(p, m, dt) {
     const armR = m.userData.armR;
     const armL = m.userData.armL;
@@ -1381,28 +1386,38 @@ export function createGame(THREE) {
     const fam = p.atkFam || 'sword';
     const k = p.atkAnim > 0 ? 1 - p.atkAnim / (p.atkAnimMax || 0.22) : 1;
     const on = p.atkAnim > 0;
+    const sw = p.switchT > 0 ? 1 - p.switchT / 0.45 : 0; // 무기 교체 플러리시 진행도 (0→1)
+    const swOn = sw > 0 && sw < 1;
     let rx = 0, rz = 0, lx = 0;
-    if (on) {
+    if (swOn) {
+      // 플러리시: 오른팔을 높이 들고 무기를 한 바퀴 돌린다
+      rx = -2.3 * Math.sin(sw * Math.PI);
+      rz = -0.6 * Math.sin(sw * Math.PI);
+      lx = -0.5 * Math.sin(sw * Math.PI);
+    } else if (on) {
       if (fam === 'dagger') {
-        rx = -0.2 - Math.sin(k * Math.PI) * 1.1;
-        rz = Math.sin(k * Math.PI) * 0.15;
+        rx = -0.2 - Math.sin(k * Math.PI) * 1.5;
+        rz = Math.sin(k * Math.PI) * 0.2;
       } else if (fam === 'axe' || fam === 'mace') {
-        rx = k < 0.45 ? -2.5 + k * 1.2 : 1.0 - (k - 0.45) * 1.4;
+        rx = k < 0.45 ? -2.9 + k * 1.4 : 1.2 - (k - 0.45) * 1.6;
         rz = 0;
-      } else if (fam === 'bow' || fam === 'crossbow') {
-        rx = -1.45;
-        lx = -1.15;
+      } else if (fam === 'bow') {
+        rx = -1.45 - Math.sin(k * Math.PI) * 0.25; // 당겼다가 놓는 반동
+        lx = -1.15 - Math.sin(k * Math.PI) * 0.2;
+      } else if (fam === 'crossbow') {
+        rx = -1.3 - Math.sin(k * Math.PI) * 0.35; // 연사 반동
+        lx = -1.0;
       } else if (fam === 'staff' || fam === 'book') {
-        rx = -1.2 - Math.sin(k * Math.PI) * 0.5;
-        rz = Math.sin(k * Math.PI) * 0.3;
+        rx = -1.2 - Math.sin(k * Math.PI) * 0.9;
+        rz = Math.sin(k * Math.PI) * 0.45;
       } else {
-        rx = -0.3 - Math.sin(k * Math.PI) * 1.7;
-        rz = -1.1 + Math.sin(k * Math.PI) * 1.9;
+        rx = -0.3 - Math.sin(k * Math.PI) * 2.2;
+        rz = -1.1 + Math.sin(k * Math.PI) * 2.4;
       }
     }
-    armR.rotation.x = rx + (p.moving ? Math.sin(p.walkT) * 0.2 : 0);
+    armR.rotation.x = rx + (p.moving && !on ? Math.sin(p.walkT) * 0.2 : 0);
     armR.rotation.z = rz;
-    if (armL) armL.rotation.x = lx + (p.moving ? -Math.sin(p.walkT) * 0.2 : 0);
+    if (armL) armL.rotation.x = lx + (p.moving && !on ? -Math.sin(p.walkT) * 0.2 : 0);
     // 3D 휴머노이드 걷기·공격 모션 (userData에 다리·몸통·무기그룹이 있을 때만)
     const legL = m.userData.legL, legR = m.userData.legR;
     const body = m.userData.body, weaponGroup = m.userData.weaponGroup;
@@ -1410,32 +1425,39 @@ export function createGame(THREE) {
     if (legL) legL.rotation.x = walkSwing;
     if (legR) legR.rotation.x = -walkSwing;
     let bobY = p.moving ? Math.abs(Math.sin(p.walkT)) * 0.05 : Math.sin(game.time * 2.1) * 0.012;
-    let lungeZ = 0, leanX = 0, wgX = 0, wgZ = 0, wgY = 0;
-    if (on && weaponGroup) {
+    let lungeZ = 0, leanX = 0, wgX = 0, wgZ = 0, wgY = 0, twistY = 0, wgSpin = 0, dropY = 0;
+    if (swOn && weaponGroup) {
+      wgY = Math.sin(sw * Math.PI) * 0.3;
+      wgSpin = sw * Math.PI * 2;
+    } else if (on && weaponGroup) {
       if (fam === 'dagger') {
-        // 찌르기: 몸통 돌진 + 무기 전진
+        // 찌르기: 몸통 깊게 돌진 + 무기 전진 + 몸 비틀기
         const lunge = Math.sin(k * Math.PI);
-        lungeZ = lunge * 0.22; wgZ = lunge * 0.3;
+        lungeZ = lunge * 0.45; wgZ = lunge * 0.6; twistY = lunge * 0.3;
       } else if (fam === 'axe' || fam === 'mace') {
-        // 들어올렸다 내리찍기: 무기 뒤로 젖혔다 앞으로 휘두르기 + 몸통 숙이기
-        if (k < 0.45) { wgX = 0.7 * (1 - k / 0.45); leanX = -0.1; }
-        else { const s = (k - 0.45) / 0.55; wgX = -0.9 * Math.sin(s * Math.PI); leanX = 0.16 * Math.sin(s * Math.PI); }
+        // 들어올렸다 내리찍기: 무기 뒤로 젖혔다 앞으로 휘두르기 + 몸통 깊게 숙이기 + 내려앉기
+        if (k < 0.45) { wgX = 1.0 * (1 - k / 0.45); leanX = -0.14; }
+        else { const s = (k - 0.45) / 0.55; wgX = -1.2 * Math.sin(s * Math.PI); leanX = 0.3 * Math.sin(s * Math.PI); dropY = 0.09 * Math.sin(s * Math.PI); }
       } else if (fam === 'staff' || fam === 'book') {
-        // 시전: 무기 들어올리기
-        wgY = Math.sin(k * Math.PI) * 0.15;
+        // 시전: 무기 높이 들어올리기
+        wgY = Math.sin(k * Math.PI) * 0.35;
       } else if (fam === 'sword') {
-        // 베기: 무기 가로 휘두르기
-        wgZ = Math.sin(k * Math.PI) * 0.5;
+        // 베기: 무기 크게 가로 휘두르기 + 몸통 비틀기 + 살짝 돌진
+        wgZ = Math.sin(k * Math.PI) * 0.85;
+        twistY = Math.sin(k * Math.PI) * 0.55;
+        lungeZ = Math.sin(k * Math.PI) * 0.14;
       }
     }
     if (body) {
-      body.position.y = (body.userData.baseY || 0) + bobY;
+      body.position.y = (body.userData.baseY || 0) + bobY - dropY;
       body.position.z = lungeZ;
       body.rotation.x = leanX;
+      body.rotation.y = twistY;
     }
     if (weaponGroup) {
       weaponGroup.rotation.x = wgX;
       weaponGroup.rotation.z = wgZ;
+      weaponGroup.rotation.y = wgSpin;
       weaponGroup.position.y = -0.48 + wgY;
     }
   }
@@ -1498,15 +1520,14 @@ export function createGame(THREE) {
         game.dealDamage(e, dmgBase, { heavy: fam === 'axe' || fam === 'mace' });
       }
       weaponSwingFx(fam, p, a, W, hits);
-      // 검: 확률 추가타 / 둔기: 확률 기절
+      // 검: 확률 추가타 (두 번째 휘두르기 모션과 함께 0.15초 뒤에 들어간다) / 둔기: 확률 기절
       if (hits.length) {
         if (W.extra && Math.random() < W.extra) {
           const t = hits[0];
-          specialHit(t, 'double');
-          game.dealDamage(t, dmgBase * 0.6, { canCrit: false });
+          if (t.alive) p.extraSwing = { t, dmg: dmgBase * 0.6, fam, at: game.time + 0.15 };
         }
         if (W.stun && Math.random() < W.stun) {
-          for (const t of hits) if (t.alive) { t.stunT = 1.2; stunStars(t.x, groundY(t.x, t.z) + t.headY + 0.4, t.z); specialHit(t, 'stun'); }
+          for (const t of hits) if (t.alive) { t.stunT = 1.2; stunStars(t.x, groundY(t.x, t.z) + t.headY + 0.4, t.z, 1.2); specialHit(t, 'stun'); }
         }
       }
     }
@@ -1554,50 +1575,84 @@ export function createGame(THREE) {
   }
 
   // 무기 휘두르기: 바닥 부채꼴 잔상 없이 몸 동작 + 짧은 궤적만.
-  // 이중타격 · 치명타 · 스턴 같은 특수 판정에서만 화려한 타격 이펙트가 터진다.
+  // — 무기마다 확실히 다르게 보이게 과장했다 (검 베기 호 · 단검 찌르기 궤적 · 도끼/둔기 충격파 ·
+  //   활/석궁 발사 섬광+궤적선 · 지팡이/책 시전 섬광). 데미지·쿨다운은 그대로, 연출만 바꾼다.
   function weaponSwingFx(fam, p, a, W, hits) {
     const fx = Math.sin(a), fz = Math.cos(a);
     const gy = groundY(p.x, p.z);
     if (fam === 'dagger') {
-      for (let i = 0; i < 2; i++) {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.06, W.range * 0.8), fxMat(0xdff4ff, 0.5));
-        m.position.set(p.x + fx * W.range * 0.45, gy + 1.05 + i * 0.12, p.z + fz * W.range * 0.45);
+      for (let i = 0; i < 3; i++) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, W.range), fxMat(0xdff4ff, 0.75));
+        m.position.set(p.x + fx * W.range * 0.45, gy + 1.05 + i * 0.1, p.z + fz * W.range * 0.45);
         m.rotation.y = a;
-        addFx(m, 0.13, (f, k) => { m.material.opacity = k * 0.45; }, 'dagger:motion');
+        addFx(m, 0.16, (f, k) => { m.material.opacity = k * 0.7; }, 'dagger:motion');
       }
-      dustBurst(p.x + fx * 0.6, p.z + fz * 0.6, 0xdff4ff, 2);
+      dustBurst(p.x + fx * 0.6, p.z + fz * 0.6, 0xdff4ff, 4);
     } else if (fam === 'axe' || fam === 'mace') {
-      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.11, 6, 5), fxMat(fam === 'axe' ? 0xffcf8a : 0xffe0a0, 0.8));
+      const col = fam === 'axe' ? 0xffcf8a : 0xffe0a0;
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.17, 6, 5), fxMat(col, 0.9));
       const y0 = fam === 'axe' ? 2.3 : 2.0;
       tip.position.set(p.x + fx * 0.9, gy + y0, p.z + fz * 0.9);
-      addFx(tip, 0.24, (f, k) => { tip.position.y = gy + 0.25 + (1 - k) * y0 * 0.75; tip.material.opacity = k * 0.8; }, 'melee:tip');
-      dustBurst(p.x + fx * 1.1, p.z + fz * 1.1, fam === 'axe' ? 0xffd6a0 : 0xfff0c0, 3);
+      addFx(tip, 0.24, (f, k) => { tip.position.y = gy + 0.25 + (1 - k) * y0 * 0.75; tip.material.opacity = k * 0.9; }, 'melee:tip');
+      // 내려찍는 지점에 충격파 링 + 먼지
+      const ring = flatRing(p.x + fx * 1.1, p.z + fz * 1.1, 0.25, 0.8, col, 0.85, 0.12);
+      addFx(ring, 0.35, (f, k) => { ring.scale.setScalar(1 + (1 - k) * 2.0); ring.material.opacity = k * 0.8; }, 'melee:shock');
+      dustBurst(p.x + fx * 1.1, p.z + fz * 1.1, fam === 'axe' ? 0xffd6a0 : 0xfff0c0, 8);
     } else if (fam === 'bow' || fam === 'crossbow') {
-      const flash = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 5), fxMat(0xffe0a0, 0.85));
+      const flash = new THREE.Mesh(new THREE.SphereGeometry(0.22, 6, 5), fxMat(0xffe0a0, 0.9));
       flash.position.set(p.x + fx * 0.6, gy + 1.1, p.z + fz * 0.6);
-      addFx(flash, 0.12, (f, k) => { flash.scale.setScalar(1 + (1 - k) * 1.6); flash.material.opacity = k; }, 'ranged:muzzle');
+      addFx(flash, 0.16, (f, k) => { flash.scale.setScalar(1 + (1 - k) * 1.8); flash.material.opacity = k; }, 'ranged:muzzle');
+      // 발사 궤적선 (활은 길게, 석궁은 짧고 굵게)
+      const len = fam === 'bow' ? 2.0 : 1.3;
+      const streak = new THREE.Mesh(new THREE.BoxGeometry(fam === 'bow' ? 0.06 : 0.1, 0.06, len), fxMat(0xfff0c0, 0.8));
+      streak.position.set(p.x + fx * (0.6 + len / 2), gy + 1.1, p.z + fz * (0.6 + len / 2));
+      streak.rotation.y = a;
+      addFx(streak, 0.14, (f, k) => { streak.material.opacity = k * 0.75; }, 'ranged:streak');
     } else if (fam === 'staff' || fam === 'book') {
-      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.16, 7, 6), fxMat(fam === 'staff' ? 0xb58cff : 0x9ff0ff, 0.9));
+      const col = fam === 'staff' ? 0xb58cff : 0x9ff0ff;
+      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.3, 7, 6), fxMat(col, 0.95));
       orb.position.set(p.x + fx * 0.7, gy + 1.25, p.z + fz * 0.7);
-      addFx(orb, 0.22, (f, k) => { orb.scale.setScalar(0.6 + (1 - k) * 1.5); orb.material.opacity = k; }, 'cast:orb');
-    } else {
-      dustBurst(p.x + fx * 0.7, p.z + fz * 0.7, 0xeaf6ff, 2);
-      for (let i = 0; i < 2; i++) {
-        const st = new THREE.Mesh(new THREE.SphereGeometry(0.085, 6, 5), fxMat(0xdff2ff, 0.7));
-        const sa = a + (i - 0.5) * 1.3;
-        st.position.set(p.x + Math.sin(sa) * W.range * 0.75, gy + 1.0, p.z + Math.cos(sa) * W.range * 0.75);
-        addFx(st, 0.15, (f, k) => { st.material.opacity = k * 0.6; st.position.y += 0.01; }, 'sword:motion');
+      addFx(orb, 0.3, (f, k) => { orb.scale.setScalar(0.6 + (1 - k) * 1.8); orb.material.opacity = k; }, 'cast:orb');
+      // 지팡이 끝 섬광 + 위로 솟는 마법 불꽃
+      const flash = new THREE.Mesh(new THREE.SphereGeometry(0.34, 8, 6), fxMat(col, 0.85));
+      flash.position.set(p.x + fx * 0.7, gy + 1.5, p.z + fz * 0.7);
+      addFx(flash, 0.2, (f, k) => { flash.scale.setScalar(1 + (1 - k) * 2.0); flash.material.opacity = k * 0.8; }, 'cast:flash');
+      for (let i = 0; i < 4; i++) {
+        const sp = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 5), fxMat(col, 0.9));
+        sp.position.set(p.x + fx * 0.7, gy + 1.3, p.z + fz * 0.7);
+        addFx(sp, 0.35, (f, k) => {
+          const t = 1 - k;
+          sp.position.set(p.x + fx * 0.7 + Math.cos(i * 1.7) * t * 0.5, gy + 1.3 + t * 0.9, p.z + fz * 0.7 + Math.sin(i * 1.7) * t * 0.5);
+          sp.material.opacity = k * 0.85;
+        }, 'cast:spark');
       }
+    } else {
+      // 검: 앞에 큰 베기 호 (토러스 조각) + 궤적 점들 + 먼지
+      const arcG = new THREE.Group();
+      const arc = new THREE.Mesh(new THREE.TorusGeometry(W.range * 0.8, 0.07, 6, 24, 2.2), fxMat(0xdff2ff, 0.85));
+      arc.rotation.x = -Math.PI / 2;
+      arcG.add(arc);
+      arcG.position.set(p.x, gy + 1.0, p.z);
+      arcG.rotation.y = a - (Math.PI / 2 + 1.1);
+      addFx(arcG, 0.18, (f, k) => { arcG.scale.setScalar(0.85 + (1 - k) * 0.3); arc.material.opacity = k * 0.8; }, 'sword:arc');
+      for (let i = 0; i < 3; i++) {
+        const st = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 5), fxMat(0xdff2ff, 0.8));
+        const sa = a + (i - 1) * 0.9;
+        st.position.set(p.x + Math.sin(sa) * W.range * 0.8, gy + 1.0, p.z + Math.cos(sa) * W.range * 0.8);
+        addFx(st, 0.16, (f, k) => { st.material.opacity = k * 0.7; }, 'sword:motion');
+      }
+      dustBurst(p.x + fx * 0.7, p.z + fz * 0.7, 0xeaf6ff, 3);
     }
   }
 
   // ---------- 특수 판정 타격 이펙트 (파박!) ----------
   // 치명타 · 이중타격 · 스턴에만 PNG 임팩트가 크게 터진다.
   let impactTex = null;
+  // 치명타 · 이중타격 · 스턴 — 폰에서도 한눈에 보이게 크게 (임팩트 + 파편 + 충격파 + 섬광)
   const SPECIAL = {
-    crit: { label: '치명타!', size: 2.5, shake: 0.34, color: 0xffd257 },
-    double: { label: '이중타격!', size: 2.0, shake: 0.24, color: 0x9fe0ff },
-    stun: { label: '스턴!', size: 2.2, shake: 0.26, color: 0xffe066 },
+    crit: { label: '치명타!', size: 3.6, shake: 0.34, color: 0xffd257 },
+    double: { label: '이중타격!', size: 2.9, shake: 0.24, color: 0x9fe0ff },
+    stun: { label: '스턴!', size: 3.0, shake: 0.26, color: 0xffe066 },
   };
   function specialHit(e, kind) {
     const c = SPECIAL[kind] || SPECIAL.crit;
@@ -1608,18 +1663,24 @@ export function createGame(THREE) {
     m.renderOrder = 30;
     scene.add(m);
     const base = c.size * (e.isBoss || e.isField ? 1.35 : e.isMid ? 1.15 : 1);
-    addFx(m, 0.34, (fx, k) => {
+    addFx(m, 0.45, (fx, k) => {
       m.rotation.set(0, Math.atan2(camera.position.x - e.x, camera.position.z - e.z), 0);
       m.scale.setScalar(base * (0.55 + (1 - k) * 0.75));
       m.material.opacity = Math.min(1, k * 1.8);
       m.position.y = y + (1 - k) * 0.15;
     }, 'special:impact');
-    for (let i = 0; i < 7; i++) {
-      const sp = new THREE.Mesh(new THREE.OctahedronGeometry(0.09, 0), fxMat(c.color, 0.95));
+    // 바닥 충격파 링 + 섬광 (치명타가 터졌다는 게 멀리서도 보이게)
+    const burst = flatRing(e.x, e.z, 0.2, 0.6, c.color, 0.9, 0.14);
+    addFx(burst, 0.4, (fx, k) => { burst.scale.setScalar(1 + (1 - k) * 3.2); burst.material.opacity = k * 0.85; }, 'special:ring');
+    const flash = new THREE.Mesh(new THREE.SphereGeometry(0.32, 8, 6), fxMat(c.color, 0.9));
+    flash.position.set(e.x, y, e.z);
+    addFx(flash, 0.25, (fx, k) => { flash.scale.setScalar(1 + (1 - k) * 2.6); flash.material.opacity = k * 0.85; }, 'special:flash');
+    for (let i = 0; i < 12; i++) {
+      const sp = new THREE.Mesh(new THREE.OctahedronGeometry(0.13, 0), fxMat(c.color, 0.95));
       sp.position.set(e.x, y, e.z);
-      const ang = (i / 7) * TAU + Math.random();
-      const spd = 2.4 + Math.random() * 2.6;
-      addFx(sp, 0.3 + Math.random() * 0.12, (fx, k) => {
+      const ang = (i / 12) * TAU + Math.random();
+      const spd = 3.2 + Math.random() * 3.2;
+      addFx(sp, 0.35 + Math.random() * 0.12, (fx, k) => {
         const t = 1 - k;
         sp.position.set(e.x + Math.cos(ang) * spd * t, y + Math.sin(ang * 2) * 0.5 * t, e.z + Math.sin(ang) * spd * t);
         sp.material.opacity = k;
@@ -1647,23 +1708,28 @@ export function createGame(THREE) {
     }
   }
 
-  function stunStars(x, y, z) {
-    for (let i = 0; i < 3; i++) {
-      const m = new THREE.Mesh(new THREE.OctahedronGeometry(0.09, 0), fxMat(0xffe066, 0.95));
+  // 기절 별: 머리 위에서 기절 시간 내내 크게 돈다
+  // (주인공이 둔기로 적을 기절시킬 때 + 바바리안 둔기가 주인공을 기절시킬 때)
+  function stunStars(x, y, z, dur = 1.2) {
+    for (let i = 0; i < 5; i++) {
+      const m = new THREE.Mesh(new THREE.OctahedronGeometry(0.16, 0), fxMat(0xffe066, 0.95));
       m.position.set(x, y, z);
-      addFx(m, 1.0, (fx) => {
-        const t = (fx.max - fx.life) * 4 + (i / 3) * TAU;
-        m.position.set(x + Math.cos(t) * 0.42, y + Math.sin(t * 2) * 0.12, z + Math.sin(t) * 0.42);
-        m.rotation.y += 0.2;
+      addFx(m, dur, (fx) => {
+        const t = (fx.max - fx.life) * 5 + (i / 5) * TAU;
+        m.position.set(x + Math.cos(t) * 0.5, y + Math.sin(t * 2) * 0.14, z + Math.sin(t) * 0.5);
+        m.rotation.y += 0.25;
         m.material.opacity = Math.min(1, fx.life * 2);
       }, 'mace:stars');
     }
   }
 
   function hitBurst(x, z, color) {
-    const m = new THREE.Mesh(new THREE.SphereGeometry(0.18, 7, 5), fxMat(color, 0.9));
+    // 투사체 명중 섬광 — 지팡이/활/석궁이 닿았다는 게 보이게 크게 + 충격파 링
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.28, 7, 5), fxMat(color, 0.95));
     m.position.set(x, groundY(x, z) + 0.9, z);
-    addFx(m, 0.2, (fx, k) => { m.scale.setScalar(1 + (1 - k) * 2.2); m.material.opacity = k; }, 'hit:burst');
+    addFx(m, 0.24, (fx, k) => { m.scale.setScalar(1 + (1 - k) * 2.6); m.material.opacity = k; }, 'hit:burst');
+    const ring = flatRing(x, z, 0.15, 0.5, color, 0.85, 0.14);
+    addFx(ring, 0.3, (fx, k) => { ring.scale.setScalar(1 + (1 - k) * 2.4); ring.material.opacity = k * 0.8; }, 'hit:ring');
   }
 
   // ---------- 원거리 ----------
@@ -1672,27 +1738,29 @@ export function createGame(THREE) {
     const basic = (c, op = 1) => new THREE.MeshBasicMaterial({ color: c, transparent: op < 1, opacity: op, depthWrite: false });
     const add = (c, op = 1) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: op, depthWrite: false, blending: THREE.AdditiveBlending });
     if (style === 'arrow' || style === 'pierce') {
-      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.86, 6), basic(0xdcc39a));
+      // 화살: 길고 밝은 화살 + 비행 궤적이 보이는 꼬리 (폰에서도 보여야 한다)
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1.1, 6), basic(0xe8cf9e));
       shaft.rotation.x = Math.PI / 2; g.add(shaft);
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.24, 4), basic(0xe9f2ff));
-      tip.rotation.x = Math.PI / 2; tip.position.z = 0.52; g.add(tip);
-      for (const s of [-.06, .06]) {
-        const f = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.13, 0.2), basic(0xffffff));
-        f.position.set(0, s, -0.34); f.rotation.x = 0.3; g.add(f);
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.3, 4), basic(0xe9f2ff));
+      tip.rotation.x = Math.PI / 2; tip.position.z = 0.66; g.add(tip);
+      for (const s of [-.07, .07]) {
+        const f = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.16, 0.26), basic(0xffffff));
+        f.position.set(0, s, -0.44); f.rotation.x = 0.3; g.add(f);
       }
-      const glowM = new THREE.Mesh(new THREE.SphereGeometry(0.1, 6, 5), add(style === 'pierce' ? (color || 0xbfe6ff) : 0xfff0c0, 0.35));
+      const glowM = new THREE.Mesh(new THREE.SphereGeometry(0.13, 6, 5), add(style === 'pierce' ? (color || 0xbfe6ff) : 0xfff0c0, 0.5));
       glowM.position.z = 0.1; g.add(glowM);
-      if (style === 'pierce') {
-        const trail = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 1.7), add(color || 0xbfe6ff, 0.45));
-        trail.position.z = -0.6; g.add(trail);
-      }
+      const trail = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 1.9), add(style === 'pierce' ? (color || 0xbfe6ff) : 0xffe9a8, 0.5));
+      trail.position.z = -0.75; g.add(trail);
     } else if (style === 'bolt') {
-      const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.46), basic(0xd7e2f0));
+      // 석궁 볼트: 짧고 두껍고 빠르게 보이는 탄환 + 꼬리
+      const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.56), basic(0xd7e2f0));
       shaft.position.z = 0.0; g.add(shaft);
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.18, 4), basic(0xffffff));
-      tip.rotation.x = Math.PI / 2; tip.position.z = 0.3; g.add(tip);
-      const fletch = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.07), basic(0x8fb8e0));
-      fletch.position.z = -0.25; g.add(fletch);
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.22, 4), basic(0xffffff));
+      tip.rotation.x = Math.PI / 2; tip.position.z = 0.36; g.add(tip);
+      const fletch = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.17, 0.09), basic(0x8fb8e0));
+      fletch.position.z = -0.3; g.add(fletch);
+      const trail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 1.1), add(0xcfe4ff, 0.5));
+      trail.position.z = -0.5; g.add(trail);
     } else if (style === 'fireball') {
       const core = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 8), add(0xff8a3c, 0.95));
       g.add(core);
@@ -1709,10 +1777,22 @@ export function createGame(THREE) {
       const halo = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.02, 4, 10), add(0xdff6ff, 0.8));
       g.add(halo);
     } else {
-      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.18, 9, 7), add(color || 0x9fd8ff, 0.95));
+      // 마법 오브 (지팡이/책): 크고 밝은 구체 + 후광 + 빛나는 꼬리
+      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.3, 9, 7), add(color || 0x9fd8ff, 0.95));
       g.add(orb);
-      const halo = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.025, 4, 12), add(color || 0x9fd8ff, 0.7));
+      const core = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), add(0xffffff, 0.9));
+      g.add(core);
+      const halo = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.035, 4, 12), add(color || 0x9fd8ff, 0.8));
       g.add(halo);
+      const glowM = new THREE.Mesh(new THREE.SphereGeometry(0.48, 8, 6), add(color || 0x9fd8ff, 0.28));
+      g.add(glowM);
+      for (let i = 0; i < 3; i++) {
+        const sp = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 5), add(color || 0x9fd8ff, 0.55));
+        sp.position.z = -0.35 - i * 0.22;
+        sp.position.x = (Math.random() - 0.5) * 0.16;
+        sp.position.y = (Math.random() - 0.5) * 0.16;
+        g.add(sp);
+      }
     }
     return g;
   }
@@ -2481,7 +2561,7 @@ export function createGame(THREE) {
     const p = game.player;
     if (!p || !p.alive) return;
     p.stunT = Math.max(p.stunT || 0, sec);
-    stunStars(p.x, groundY(p.x, p.z) + 1.6, p.z);
+    stunStars(p.x, groundY(p.x, p.z) + 1.6, p.z, sec);
     if (game.ui) game.ui.floatText(p.x, groundY(p.x, p.z) + 1.9, p.z, '기절!', 'hurt');
   };
 
@@ -2528,7 +2608,7 @@ export function createGame(THREE) {
   function makeCompanionObj(c, cls, mesh, x, z) {
     const maxHp = Math.round(cls.hp * (1 + (c.grade || 0) * 0.15) * (1 + ((c.lv || 1) - 1) * 0.08));
     return {
-      data: c, cls, mesh, x, z, atkCd: Math.random(), healCd: 2, skillCd: 4,
+      data: c, cls, mesh, x, z, atkCd: Math.random(), healCd: 2, skillCd: 4, skillCheckT: 0,
       maxHp, hp: maxHp, tauntCd: 0.2, downT: 0, hitT: 0,
     };
   }
@@ -2591,11 +2671,12 @@ export function createGame(THREE) {
     const dmgOf = (mult) => atk * mult;
     if (c.cls.id === 'tank') {
       // 방패 강타: 주변 적에게 피해 + 맞은 적을 3초간 탱커에게 붙잡아 둔다 (보스급 제외)
-      if (!nearestEnemyFrom(c.x, c.z, def.radius + 1.4)) return false;
+      // 주인공이 인식한 몹이 근처에 있을 때만 발동한다
+      if (!nearestEnemyFrom(c.x, c.z, def.radius + 1.4, false, true)) return false;
       const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
       let hit = 0;
       for (const e of [...game.enemies]) {
-        if (!e.alive || Math.hypot(e.x - c.x, e.z - c.z) > def.radius + e.radius) continue;
+        if (!e.alive || !isHeroRecognized(e) || Math.hypot(e.x - c.x, e.z - c.z) > def.radius + e.radius) continue;
         game.dealDamage(e, dmg, { heavy: true, elem: def.elem, canCrit: false, attacker: c });
         if (!e.def.boss) { e.targetType = 'tank'; e.state = 'chase'; e.tauntT = def.tauntT; }
         hit++;
@@ -2607,12 +2688,12 @@ export function createGame(THREE) {
       return true;
     }
     if (c.cls.id === 'melee') {
-      // 회전 베기: 주변 모든 적에게 피해
-      if (!nearestEnemyFrom(c.x, c.z, def.radius + 1.4)) return false;
+      // 회전 베기: 주변 모든 적에게 피해 (주인공이 인식한 몹만)
+      if (!nearestEnemyFrom(c.x, c.z, def.radius + 1.4, false, true)) return false;
       const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
       let hit = 0;
       for (const e of [...game.enemies]) {
-        if (!e.alive || Math.hypot(e.x - c.x, e.z - c.z) > def.radius + e.radius) continue;
+        if (!e.alive || !isHeroRecognized(e) || Math.hypot(e.x - c.x, e.z - c.z) > def.radius + e.radius) continue;
         game.dealDamage(e, dmg, { heavy: true, elem: def.elem, canCrit: false, attacker: c });
         hit++;
       }
@@ -2630,8 +2711,8 @@ export function createGame(THREE) {
       return true;
     }
     if (c.cls.id === 'mage') {
-      // 파이어볼: 가장 가까운 적에게 불덩이 발사 (맞으면 폭발)
-      const t = nearestEnemyFrom(c.x, c.z, def.range);
+      // 파이어볼: 가장 가까운 적에게 불덩이 발사 (맞으면 폭발) — 주인공이 인식한 몹만 노린다
+      const t = nearestEnemyFrom(c.x, c.z, def.range, false, true);
       if (!t) return false;
       const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
       spawnProjectile({
@@ -2641,8 +2722,8 @@ export function createGame(THREE) {
       return true;
     }
     if (c.cls.id === 'healer') {
-      // 치유의 빛: 전투 중에만 쓴다 (12m 안에 적이 있을 때). 아군이 다쳤을 때만 발동.
-      if (!nearestEnemyFrom(c.x, c.z, 12)) return false;
+      // 치유의 빛: 전투 중에만 쓴다 (12m 안에 주인공이 인식한 적이 있을 때). 아군이 다쳤을 때만 발동.
+      if (!nearestEnemyFrom(c.x, c.z, 12, false, true)) return false;
       const d = game.derived();
       const allies = [{ obj: 'player', hp: p.hp, max: d.maxHp, x: p.x, z: p.z },
         ...game.companions.filter((x) => x.hp > 0).map((x) => ({ obj: x, hp: x.hp, max: x.maxHp, x: x.x, z: x.z }))];
@@ -2695,10 +2776,12 @@ export function createGame(THREE) {
       let tx = p.x + off[0], tz = p.z + off[1];
       let stopDist = 1.2;
       if (c.cls.id === 'tank' || c.cls.id === 'melee') {
-        // 이미 쫓던 적은 14m 리시까지 유지, 없으면 주인공 12m 안에서 새로 찾는다 (석상은 제외)
+        // 이미 쫓던 적은 14m 리시까지 유지 (단, 주인공이 인식한 몹일 때만),
+        // 없으면 주인공 12m 안에서 주인공이 인식한 몹만 새로 찾는다 (석상은 제외)
         let t = (c.engageT && c.engageT.alive) ? c.engageT : null;
+        if (t && !isHeroRecognized(t)) t = null;
         if (t && Math.hypot(t.x - p.x, t.z - p.z) > COMPANION_LEASH) t = null;
-        if (!t) t = nearestEnemyFrom(p.x, p.z, COMPANION_AGGRO, true);
+        if (!t) t = nearestEnemyFrom(p.x, p.z, COMPANION_AGGRO, true, true);
         c.engageT = t || null;
         if (t) {
           tx = t.x; tz = t.z;
@@ -2743,14 +2826,17 @@ export function createGame(THREE) {
       c.atkCd -= dt;
       c.skillCd -= dt;
       c.healCd -= dt;
+      c.skillCheckT = (c.skillCheckT || 0) - dt;
       const scale = 1 + ((c.data.lv || 1) - 1) * 0.22;
       const atk = c.cls.atk * scale * (1 + (c.data.grade || 0) * 0.20);
       // 동료 대표 스킬 (자동 사용, 전투 중에만 — castCompanionSkill이 조건을 본다)
-      if (c.skillCd <= 0) {
+      // skillCd는 진짜 쿨다운만 담는다. 조건이 안 맞아 못 쓰면 재확인 타이머만 따로 돈다
+      // (예전엔 재확인 0.5초를 skillCd에 넣어 하단 바에 "1"이 영원히 떴다).
+      if (c.skillCd <= 0 && c.skillCheckT <= 0) {
         const lv = game.companionSkillLevel(c.data);
         const def = COMPANION_SKILLS[c.cls.id];
         if (def && castCompanionSkill(c, lv)) c.skillCd = compSkillCd(def, lv);
-        else c.skillCd = 0.5; // 조건이 안 맞으면 쿨다운을 태우지 않고 0.5초 뒤 다시 확인
+        else c.skillCheckT = 0.5; // 조건이 안 맞으면 쿨다운을 태우지 않고 0.5초 뒤 다시 확인
       }
       if (c.cls.id === 'healer') {
         // 기본 치유 (작은 지속 회복 — 대표 스킬 '치유의 빛'과 별개로 항상 돌아간다)
@@ -2765,12 +2851,12 @@ export function createGame(THREE) {
           }
         }
         if (c.atkCd <= 0) {
-          const t = nearestEnemyFrom(c.x, c.z, 6.5);
+          const t = nearestEnemyFrom(c.x, c.z, 6.5, false, true);
           if (t) { c.atkCd = c.cls.cd; game.dealDamage(t, atk, { attacker: c }); } }
         return;
       }
       if (c.atkCd <= 0) {
-        const t = nearestEnemyFrom(c.x, c.z, c.cls.range + 1.4);
+        const t = nearestEnemyFrom(c.x, c.z, c.cls.range + 1.4, false, true);
         if (t) {
           c.atkCd = c.cls.cd;
           c.mesh.rotation.y = Math.atan2(t.x - c.x, t.z - c.z);
@@ -2784,10 +2870,24 @@ export function createGame(THREE) {
     });
   }
 
-  function nearestEnemyFrom(x, z, range, skipStatue) {
+  // 주인공이 "인식한" 몹 — 동료는 이 몹만 공격한다.
+  // (a) 파티원을 쫓고 있는 몹 (어그로·도발로 달려드는 중)
+  // (b) 주인공이 직접 때린 몹 (heroHit)
+  // (c) 보스급 (미드/에픽/필드 — 보스전은 주인공이 직접 들어가는 싸움)
+  // 셋 다 아니면 동료는 대열을 지키고 손대지 않는다.
+  function isHeroRecognized(e) {
+    if (!e || !e.alive) return false;
+    if (e.def.boss) return true;
+    if (e.state === 'chase') return true;
+    if (e.heroHit) return true;
+    return false;
+  }
+
+  function nearestEnemyFrom(x, z, range, skipStatue, onlyRecognized) {
     let best = null, bd = 69420;
     for (const e of game.enemies) {
       if (!e.alive || (skipStatue && e.statue)) continue;
+      if (onlyRecognized && !isHeroRecognized(e)) continue;
       const dd = Math.hypot(e.x - x, e.z - z);
       if (dd < range && dd < bd) { bd = dd; best = e; }
     }
@@ -3239,8 +3339,22 @@ export function createGame(THREE) {
       const here = districtAt(p.x, p.z);
       if (here.id !== game.zone.id) game.setDistrict(here.id);
       if (p.atkAnim > 0) p.atkAnim -= dt;
+      if (p.switchT > 0) p.switchT -= dt;
       p.atkCd -= dt;
       if (p.atkCd <= 0) playerAttack();
+      // 검 이중타격: 두 번째 휘두르기가 나올 때 데미지가 들어간다 (즉시 적용 아님)
+      if (p.extraSwing && game.time >= p.extraSwing.at) {
+        const ex = p.extraSwing; p.extraSwing = null;
+        const W2 = game.weapon(ex.fam);
+        if (ex.t.alive && p.alive && Math.hypot(ex.t.x - p.x, ex.t.z - p.z) < W2.range + ex.t.radius + 1) {
+          p.facing = Math.atan2(ex.t.x - p.x, ex.t.z - p.z);
+          const F2 = ATTACK_FX[ex.fam] || ATTACK_FX.sword;
+          p.atkAnimMax = F2.anim; p.atkAnim = F2.anim; p.atkKind = F2.kind; p.atkFam = ex.fam;
+          weaponSwingFx(ex.fam, p, p.facing, W2, [ex.t]);
+          specialHit(ex.t, 'double');
+          game.dealDamage(ex.t, ex.dmg, { canCrit: false });
+        }
+      }
       // 마나 재생
       const dd0 = game.derived();
       p.mp = Math.min(dd0.maxMp, (p.mp === undefined ? dd0.maxMp : p.mp) + 1.8 * dt);
@@ -3347,6 +3461,7 @@ export function createGame(THREE) {
     game.state.equip[slot] = { kind, fam, grade };
     // 장착한 무기·방어구가 탑뷰 캐릭터 외형에 바로 반영된다
     if (kind === 'weapon' || kind === 'armor') rebuildPlayerMesh();
+    if (kind === 'weapon' && game.player) game.player.switchT = 0.45; // 무기 교체 플러리시
     game.save();
     if (game.ui) game.ui.markDirty(true);
     return true;
@@ -3358,6 +3473,7 @@ export function createGame(THREE) {
     game.addItem(it.kind, it.fam, it.grade);
     game.state.equip[kind] = null;
     if (kind === 'weapon' || kind === 'armor') rebuildPlayerMesh();
+    if (kind === 'weapon' && game.player) game.player.switchT = 0.45; // 무기 교체 플러리시
     game.save();
     if (game.ui) game.ui.markDirty(true);
   };
