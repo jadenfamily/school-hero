@@ -516,7 +516,6 @@ export function createGame(THREE) {
 
   game.derived = function () {
     const s = game.state;
-    const has = (id) => s.talents.includes(id);
     const eq = s.equip;
     const w = game.weapon(eq.weapon ? eq.weapon.fam : 'sword');
     const wa = game.itemStats(eq.weapon).atk;
@@ -529,14 +528,23 @@ export function createGame(THREE) {
     else if (cls === 'ranged') baseAtk = 8 + s.stats.dex * 1.7 + s.stats.str * 0.5;
     else if (eq.weapon) baseAtk = 10 + s.stats.str * 1.9 + s.stats.dex * 0.6;
     else baseAtk = 6 + s.stats.str * 0.8;
-    const atkBonus = (has('atk') ? 1.09 : 1) * (1 + (opt.atkPct + cos.atkPct) / 100);
-    const hpMul = (has('maxhp') ? 1.15 : 1) * (1 + (opt.hpPct + cos.hpPct) / 100);
+    // 특성 보너스: 해금한 특성의 effect를 키별로 합산 (10페이지 특성)
+    const tal = { atkPct: 0, maxHpPct: 0, crit: 0, critDmg: 0, atkSpeedPct: 0, moveSpeedPct: 0, magnetPct: 0, regen: 0, lootPct: 0, defPct: 0, evade: 0, mpPct: 0 };
+    let talAutoloot = false;
+    for (const id of s.talents) {
+      const t = TALENTS.find((x) => x.id === id);
+      if (!t || !t.effect) continue;
+      if (t.effect.key === 'autoloot') talAutoloot = true;
+      else if (tal[t.effect.key] !== undefined) tal[t.effect.key] += t.effect.value;
+    }
+    const atkBonus = (1 + tal.atkPct / 100) * (1 + (opt.atkPct + cos.atkPct) / 100);
+    const hpMul = (1 + tal.maxHpPct / 100) * (1 + (opt.hpPct + cos.hpPct) / 100);
     const maxHp = Math.round((100 + s.stats.vit * 9 + s.level * 12) * hpMul);
     const attack = Math.round((baseAtk + wa) * atkBonus);
-    const defense = Math.round((2 + s.stats.vit * 0.55 + ad) * (1 + (opt.defPct + cos.defPct) / 100));
+    const defense = Math.round((2 + s.stats.vit * 0.55 + ad) * (1 + (opt.defPct + cos.defPct + tal.defPct) / 100));
     return {
       maxHp,
-      maxMp: Math.round((40 + s.stats.int * 7) * (1 + cos.mpPct / 100)),
+      maxMp: Math.round((40 + s.stats.int * 7) * (1 + (cos.mpPct + tal.mpPct) / 100)),
       attack,
       baseAtk: Math.round(baseAtk),
       weaponAtk: wa,
@@ -545,15 +553,15 @@ export function createGame(THREE) {
       attackRange: w.range,
       attackCd: w.cd,
       defense,
-      critChance: Math.min(0.85, 0.05 + s.stats.dex * 0.003 + (has('crit') ? 0.06 : 0) + (opt.crit + cos.crit + (w.crit ? w.crit * 100 : 0)) / 100),
-      critDmg: 1.5 + s.stats.dex * 0.004 + (has('critdmg') ? 0.3 : 0) + (opt.critDmg + cos.critDmg) / 100,
-      evade: Math.min(0.45, s.stats.dex * 0.0022 + (opt.evade + cos.evade) / 100),
-      atkSpeed: (1 + s.stats.dex * 0.004) * (has('atkspeed') ? 1.12 : 1),
-      moveSpeed: 4.6 * (has('speed') ? 1.1 : 1) * (1 + (opt.moveSpeed + cos.moveSpeed) / 100) * (s.zone === 4 ? 0.92 : 1),
-      magnet: 3.2 * (has('magnet') ? 1.4 : 1),
-      autoloot: has('autoloot'),
-      regen: has('regen') ? 1.5 : 0,
-      lootBonus: has('loot') ? 1.3 : 1,
+      critChance: Math.min(0.85, 0.05 + s.stats.dex * 0.003 + tal.crit / 100 + (opt.crit + cos.crit + (w.crit ? w.crit * 100 : 0)) / 100),
+      critDmg: 1.5 + s.stats.dex * 0.004 + tal.critDmg / 100 + (opt.critDmg + cos.critDmg) / 100,
+      evade: Math.min(0.45, s.stats.dex * 0.0022 + (opt.evade + cos.evade + tal.evade) / 100),
+      atkSpeed: (1 + s.stats.dex * 0.004) * (1 + tal.atkSpeedPct / 100),
+      moveSpeed: 4.6 * (1 + tal.moveSpeedPct / 100) * (1 + (opt.moveSpeed + cos.moveSpeed) / 100) * (s.zone === 4 ? 0.92 : 1),
+      magnet: 3.2 * (1 + tal.magnetPct / 100),
+      autoloot: talAutoloot,
+      regen: tal.regen,
+      lootBonus: 1 + tal.lootPct / 100,
       armorResist: eq.armor ? eq.armor.fam : null,
       resist: opt.resist,
       opt,
@@ -3983,9 +3991,21 @@ export function createGame(THREE) {
     return { ok: true, reward: a.reward, statPts: 1 };
   };
 
+  // 특성 페이지: N페이지는 N-1페이지의 특성을 모두 해금해야 열린다 (1페이지는 항상 열림)
+  game.talentPageCount = function () { return 10; };
+  game.talentPageTalents = function (page) { return TALENTS.filter((t) => (t.page || 1) === page); };
+  game.isTalentPageComplete = function (page) {
+    return game.talentPageTalents(page).every((t) => game.state.talents.includes(t.id));
+  };
+  game.isTalentPageUnlocked = function (page) {
+    if (page <= 1) return true;
+    return game.isTalentPageComplete(page - 1);
+  };
+
   game.learnTalent = function (id) {
     const node = TALENTS.find((t) => t.id === id);
     if (!node || game.state.talents.includes(id)) return false;
+    if (!game.isTalentPageUnlocked(node.page || 1)) return false;
     if (node.req.some((r) => !game.state.talents.includes(r))) return false;
     const cost = node.cost;
     if ((game.state.souls[cost.kind] || 0) < cost.n) return false;
