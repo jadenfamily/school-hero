@@ -3,7 +3,7 @@ export const GRADES = [
   { i: 0, name: '일반', color: '#b8c2d4', glow: 'rgba(184,194,212,.22)' },
   { i: 1, name: '고급', color: '#43d17a', glow: 'rgba(67,209,122,.4)' },
   { i: 2, name: '희귀', color: '#4aa3ff', glow: 'rgba(74,163,255,.45)' },
-  { i: 3, name: '영웅', color: '#b46cff', glow: 'rgba(180,108,255,.5)' },
+  { i: 3, name: '에픽', color: '#b46cff', glow: 'rgba(180,108,255,.5)' },
   { i: 4, name: '전설', color: '#ffc93c', glow: 'rgba(255,201,60,.55)' },
   { i: 5, name: '신화', color: '#ff5566', glow: 'rgba(255,85,102,.6)' },
 ];
@@ -147,7 +147,7 @@ export const HEAL_SKILL_IDS = ['heal1', 'healAll', 'cleanse'];
 
 // 스킬북이 없는 상태에서 보스가 떨어뜨릴 책을 고를 때 쓰는 순서
 // (모두 배웠으면 골드로 대체)
-export const GRADE_ADJ = ['낡은', '단단한', '빛나는', '영웅의', '전설의', '신화의'];
+export const GRADE_ADJ = ['낡은', '단단한', '빛나는', '에픽의', '전설의', '신화의'];
 export const WEAPON_BASE = {
   sword: '학생회 장검', dagger: '급식 단검', axe: '체육 도끼', mace: '철퇴',
   bow: '사냥 활', crossbow: '석궁', staff: '마법 지팡이', book: '마법책',
@@ -648,20 +648,31 @@ export const COSTUMES = [
   { id: 'mage', name: '마법사 로브', icon: '🔮', fam: 'magic', grade: 4, cape: '#6a4ac0', trim: '#9ff0ff', cls: '마법사', desc: '보랏빛 로브와 빛나는 문양', stats: { atkPct: 6, mpPct: 12, cdr: 4 } },
   { id: 'dark', name: '어둠 망토', icon: '🌑', fam: 'slash', grade: 4, cape: '#2a2438', trim: '#b46cff', cls: '레인저', desc: '검은 망토와 보랏빛 테두리', stats: { crit: 3, critDmg: 8, moveSpeed: 4, evade: 2 } },
   { id: 'royal', name: '황금 예복', icon: '👑', fam: 'blunt', grade: 4, cape: '#d8b34a', trim: '#fff2c0', cls: '수호자', desc: '황금빛 예복과 붉은 장식', stats: { defPct: 8, hpPct: 8, atkPct: 2 } },
+  { id: 'ninja', name: '닌자 복장', icon: '🥷', fam: 'slash', grade: 3, cape: '#1f2a33', trim: '#7dff9e', cls: '닌자', desc: '그림자처럼 빠른 검은 복장', stats: { evade: 3, moveSpeed: 5, crit: 2 } },
+  { id: 'pirate', name: '해적 선장복', icon: '🏴‍☠️', fam: 'ranged', grade: 3, cape: '#7a2e2e', trim: '#ffd257', cls: '선장', desc: '붉은 코트와 황금 단추', stats: { atkPct: 5, critDmg: 6, hpPct: 4 } },
+  { id: 'samurai', name: '사무라이 갑주', icon: '⚔️', fam: 'slash', grade: 4, cape: '#8c1f28', trim: '#e8e8e8', cls: '사무라이', desc: '붉은 갑주와 흰 매듭', stats: { atkPct: 6, defPct: 5, crit: 2 } },
+  { id: 'paladin', name: '성기사 예복', icon: '✨', fam: 'blunt', grade: 4, cape: '#f2e6c8', trim: '#ffd257', cls: '성기사', desc: '빛나는 흰 예복과 황금 문양', stats: { defPct: 7, hpPct: 7, mpPct: 6 } },
+  { id: 'assassin', name: '암살자 후드', icon: '🗡️', fam: 'slash', grade: 3, cape: '#3a2a4a', trim: '#ff5a7a', cls: '암살자', desc: '보라 후드와 붉은 단검', stats: { crit: 4, critDmg: 6, moveSpeed: 3 } },
+  { id: 'druid', name: '드루이드 로브', icon: '🌿', fam: 'magic', grade: 4, cape: '#2e6b34', trim: '#b8ff9e', cls: '드루이드', desc: '숲의 기운이 깃든 초록 로브', stats: { mpPct: 10, hpPct: 6, cdr: 3 } },
 ];
 export const COSTUME_MAP = Object.fromEntries(COSTUMES.map((c) => [c.id, c]));
-export const COSTUME_PULL_COST = 120;
-export const COSTUME_REFUND = 60;
+export const COSTUME_PULL_COST = 500;
+// 코스튬 레벨: 1~5. Lv.1 스탯은 기본 수치의 40%에서 시작해 레벨마다 15%씩 올라 Lv.5에서 100%가 된다.
+// stats에 적힌 값은 Lv.5(최대) 수치다. 최대 레벨 코스튬은 뽑기 풀에서 제외된다 (환급 없음).
+export const COSTUME_MAX_LEVEL = 5;
+export const COSTUME_LEVEL_MULT = [0, 0.40, 0.55, 0.70, 0.85, 1.0];
 export const COSTUME_STAT_LABEL = {
   atkPct: '공격력', defPct: '방어력', hpPct: '최대 체력', crit: '치명타', critDmg: '치명타 피해',
   evade: '회피', moveSpeed: '이동 속도', mpPct: '최대 마나', cdr: '쿨다운 감소',
 };
 
+export const COMPANION_PULL_COST = 1000;
 export const COMPANION_CLASSES = {
-  tank:   { id: 'tank',   name: '수호 기사', icon: '🛡️', role: '탱커', hp: 320, atk: 10, range: 2.2, cd: 1.3, color: 0x5b8fd6 },
-  healer: { id: 'healer', name: '치유 사제', icon: '💗', role: '힐러', hp: 190, atk: 7,  range: 6.5, cd: 1.6, heal: 14, color: 0xffd0e0 },
-  melee:  { id: 'melee',  name: '쌍검 도적', icon: '🗡️', role: '근접 딜러', hp: 230, atk: 16, range: 2.0, cd: 0.85, color: 0x6fcf97 },
-  mage:   { id: 'mage',   name: '비전 마법사', icon: '🔮', role: '마법 딜러', hp: 180, atk: 14, range: 7.0, cd: 1.15, color: 0xb58cff, projectile: true },
+  // 기본 수치는 낮게 시작하고, 등급이 오를수록 크게 강해진다 (등급당 공격 ×0.20 / 체력 ×0.15).
+  tank:   { id: 'tank',   name: '수호 기사', icon: '🛡️', role: '탱커', hp: 272, atk: 9,  range: 2.2, cd: 1.3, color: 0x5b8fd6 },
+  healer: { id: 'healer', name: '치유 사제', icon: '💗', role: '힐러', hp: 162, atk: 6,  range: 6.5, cd: 1.6, heal: 14, color: 0xffd0e0 },
+  melee:  { id: 'melee',  name: '쌍검 도적', icon: '🗡️', role: '근접 딜러', hp: 196, atk: 14, range: 2.0, cd: 0.85, color: 0x6fcf97 },
+  mage:   { id: 'mage',   name: '비전 마법사', icon: '🔮', role: '마법 딜러', hp: 153, atk: 12, range: 7.0, cd: 1.15, color: 0xb58cff, projectile: true },
 };
 
 export const COMPANION_NAMES = ['로안', '세라', '미르', '카이', '하늘', '은솔', '린', '도윤', '가온', '시우', '나래', '유진'];
