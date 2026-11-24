@@ -738,12 +738,28 @@ export function createUI(game, THREE) {
     const st = game.itemStats(it);
     if (it.kind === 'weapon') {
       const w = WEAPONS[it.fam];
+      if (!w) return '알 수 없는 무기 · 스탯을 알 수 없어요';
       return `공격력 +${st.atk} · ${w.name}(${w.cls === 'melee' ? '근접' : w.cls === 'ranged' ? '원거리' : '마법'}) · ${optText(it) || w.style}`;
     }
-    if (it.kind === 'armor') return `방어력 +${st.def} · ${ARMOR_KINDS[it.fam].name}(${ARMOR_KINDS[it.fam].resist} 저항) · ${optText(it)}`;
-    if (it.kind === 'accessory') return `${ACCESSORY_KINDS[it.fam].name} · ${optText(it)}`;
+    if (it.kind === 'armor') {
+      const a = ARMOR_KINDS[it.fam];
+      if (!a) return '알 수 없는 방어구 · 스탯을 알 수 없어요';
+      return `방어력 +${st.def} · ${a.name}(${a.resist} 저항) · ${optText(it)}`;
+    }
+    if (it.kind === 'accessory') {
+      const a = ACCESSORY_KINDS[it.fam];
+      if (!a) return '알 수 없는 장신구 · 스탯을 알 수 없어요';
+      return `${a.name} · ${optText(it)}`;
+    }
     if (it.kind === 'charm') return CHARMS[it.fam] ? CHARMS[it.fam].desc : '';
     return '';
+  }
+  function isValidItem(kind, fam) {
+    if (kind === 'weapon') return !!WEAPONS[fam];
+    if (kind === 'armor') return !!ARMOR_KINDS[fam];
+    if (kind === 'accessory') return !!ACCESSORY_KINDS[fam];
+    if (kind === 'charm') return !!CHARMS[fam];
+    return false;
   }
   function soulChips() {
     const s = game.state;
@@ -762,12 +778,12 @@ export function createUI(game, THREE) {
     const equipRows = ['weapon', 'armor', 'necklace', 'ring', 'earring', 'charm'].map((k) => {
       const it = s.equip[k];
       if (!it) return `<div class="row-line eq-row"><span class="hint">${slotLabels[k]} · 비어 있음</span></div>`;
-      const g = GRADES[it.grade];
+      const g = GRADES[it.grade] || GRADES[0];
       return `<div class="row-line eq-row"><span><b style="color:${g.color}">${it.kind === 'charm' ? CHARMS[it.fam].name : game.itemName(it.kind, it.fam, it.grade)}</b><br><span class="hint">${equipStatText(it)}</span></span><button class="btn ghost" data-unequip="${k}">해제</button></div>`;
     }).join('');
 
     const grid = entries.length ? entries.map((it) => {
-      const g = GRADES[it.grade];
+      const g = GRADES[it.grade] || GRADES[0];
       const evo = it.grade < 5 ? game.evoInfo(it.kind, it.fam, it.grade) : null;
       const ready = evo && evo.can;
       const ratio = evo && evo.need ? Math.min(1, it.n / evo.need) : 0;
@@ -881,7 +897,8 @@ export function createUI(game, THREE) {
     const slot = kind === 'accessory' ? fam : kind;
     const it = { kind, fam, grade };
     const cur = s.equip[slot];
-    const gd = GRADES[grade];
+    const gd = GRADES[grade] || GRADES[0];
+    const valid = isValidItem(kind, fam);
     const st = game.itemStats(it);
     const opts = game.itemOptions(it);
     // 장착했을 때의 능력치 (장착 전/후 비교)
@@ -914,9 +931,14 @@ export function createUI(game, THREE) {
     const optRows = opts.length
       ? opts.map((o) => `<span class="opt-chip">${OPT_LABEL[o.k] || o.k} +${o.v}%</span>`).join('')
       : '<span class="hint">추가 옵션 없음</span>';
-    const desc = kind === 'charm'
-      ? ((CHARMS[fam] || {}).desc || '')
-      : `${equipStatText(it)}`;
+    const desc = valid
+      ? (kind === 'charm'
+        ? ((CHARMS[fam] || {}).desc || '')
+        : `${equipStatText(it)}`)
+      : '이 아이템은 지금 버전에서 찾을 수 없는 종류예요. 장착할 수 없고, 삭제하는 게 좋아요.';
+    const equipBtn = valid
+      ? '<button class="btn gold" data-equip>장착하기</button>'
+      : '<button class="btn gold" data-delete-item>삭제하기</button>';
 
     const el = document.createElement('div');
     el.className = 'item-sheet';
@@ -936,19 +958,28 @@ export function createUI(game, THREE) {
         <div class="cmp-table">${rows.join('') || '<div class="hint">능력치 변화 없음</div>'}</div>
         <div class="islot-actions">
           <button class="btn ghost" data-close>닫기</button>
-          <button class="btn gold" data-equip>장착하기</button>
+          ${equipBtn}
         </div>
       </div>`;
     document.getElementById('modalRoot').appendChild(el);
     el.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => el.remove()));
     el.addEventListener('click', (ev) => { if (ev.target === el) el.remove(); });
-    el.querySelector('[data-equip]').addEventListener('click', () => {
+    const equipBtnEl = el.querySelector('[data-equip]');
+    if (equipBtnEl) equipBtnEl.addEventListener('click', () => {
       const ok = game.equipItem(kind, fam, grade);
       el.remove();
       if (ok) {
         ui.toast(`장착: ${game.itemName(kind, fam, grade)}`, grade >= 3 ? 'gold' : 'good');
         ui.openBag();
       }
+    });
+    const delBtnEl = el.querySelector('[data-delete-item]');
+    if (delBtnEl) delBtnEl.addEventListener('click', () => {
+      delete game.state.bag[`${kind}:${fam}:${grade}`];
+      game.save();
+      el.remove();
+      ui.toast('알 수 없는 아이템을 삭제했어요.', 'good');
+      ui.openBag();
     });
   };
 
