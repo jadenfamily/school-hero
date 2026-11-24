@@ -69,6 +69,8 @@ input,textarea,select{font-family:inherit}
 .quest-track .q-title{display:flex;gap:5px;align-items:center;font-weight:800;font-size:11px;color:#ffe08a}
 .quest-track .q-step{color:var(--txt);font-weight:700;margin-top:2px}
 .quest-track .q-prog{color:var(--txt-dim);font-size:10px;margin-top:1px}
+.quest-track .q-arrow{color:#ffd257;font-weight:800;margin-top:2px}
+.quest-track .q-arrow-glyph{display:inline-block}
 .quest-track .q-done{color:var(--good);font-weight:800}
 
 /* ---------- 미니맵 + 메달 ---------- */
