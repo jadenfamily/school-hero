@@ -82,7 +82,7 @@ export function createUI(game, THREE) {
     if (!x) return;
     const def = COMPANION_SKILLS[x.cls];
     const cd = Math.ceil(x.cd);
-    ui.toast(`${x.skillIcon} ${x.name}의 ${x.skillName} Lv.${x.level}${cd > 0 ? ` · 쿨다운 ${cd}초` : ' · 준비됨'} — ${def ? def.desc : ''}`, 'good');
+    ui.toast(`${x.skillIcon} ${x.name}의 ${x.skillName} Lv.${x.level}${cd > 0 ? ` · 쿨다운 ${cd}초` : ''} — ${def ? def.desc : ''}`, 'good');
   });
 
   // ---------- 좌표 ----------
