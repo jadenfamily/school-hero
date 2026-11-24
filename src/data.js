@@ -145,6 +145,42 @@ export const SKILLS = {
 export const SKILL_IDS = Object.keys(SKILLS);
 export const HEAL_SKILL_IDS = ['heal1', 'healAll', 'cleanse'];
 
+// ---------- 동료 대표 스킬 (스킬 개편) ----------
+// 주인공은 스킬을 쓰지 않는다. 동료만 직업별 대표 스킬 하나를 전투 중에 자동 사용한다.
+// 스킬 레벨 = 등급 + 1 + 스킬북 보너스 (최대 10). 레벨이 오르면 피해·회복이 커지고 쿨다운이 조금씩 짧아진다.
+// cdPerLv: 레벨당 쿨다운 감소량 (최소 cdMin까지). multPerLv: 레벨당 피해 배율 증가량.
+export const COMPANION_SKILL_MAX_LEVEL = 10;
+export const COMPANION_SKILLS = {
+  tank: {
+    cls: 'tank', id: 'shieldSlam', name: '방패 강타', icon: '🛡️',
+    cd: 10, cdMin: 7, cdPerLv: 0.3, radius: 3.2, mult: 1.2, multPerLv: 0.15, tauntT: 3, elem: 'blade',
+    desc: '방패로 주변을 강타해 피해를 주고, 맞은 적을 3초간 자신에게 붙잡아 둡니다 (보스급 제외).',
+  },
+  healer: {
+    cls: 'healer', id: 'compHeal', name: '치유의 빛', icon: '💗',
+    cd: 8, cdMin: 5, cdPerLv: 0.3, healPct: 0.15, healPctPerLv: 0.02, healFlat: 10, healFlatPerLv: 5,
+    desc: '가장 다친 아군을 회복합니다. Lv.4부터 두 명, Lv.7부터 파티 전체를 회복하고, Lv.3부터 대상의 독도 풉니다.',
+  },
+  melee: {
+    cls: 'melee', id: 'compWhirl', name: '회전 베기', icon: '🌀',
+    cd: 9, cdMin: 6, cdPerLv: 0.3, radius: 3.6, mult: 1.3, multPerLv: 0.12, elem: 'blade',
+    desc: '몸을 빙글 돌려 주변 모든 적을 한 번에 벱니다.',
+  },
+  mage: {
+    cls: 'mage', id: 'compFireball', name: '파이어볼', icon: '🔥',
+    cd: 7, cdMin: 4.5, cdPerLv: 0.25, range: 8.5, mult: 1.6, multPerLv: 0.15, elem: 'fire',
+    desc: '불덩이를 날려 맞은 적 주변을 폭발시킵니다.',
+  },
+};
+
+// 스킬북 → 동료 직업 매핑 (스킬북 사용 시 해당 직업 동료의 대표 스킬 보너스 +1).
+// 탱커는 매핑되는 스킬북이 없다 (등급으로만 스킬이 강해진다).
+export const SKILL_BOOK_CLASS = {
+  fireball: 'mage', icebolt: 'mage', firewall: 'mage',
+  swordwave: 'melee', whirlwind: 'melee', multishot: 'melee', pierce: 'melee',
+  heal1: 'healer', healAll: 'healer', cleanse: 'healer',
+};
+
 // 스킬북이 없는 상태에서 보스가 떨어뜨릴 책을 고를 때 쓰는 순서
 // (모두 배웠으면 골드로 대체)
 export const GRADE_ADJ = ['낡은', '단단한', '빛나는', '에픽의', '전설의', '신화의'];
