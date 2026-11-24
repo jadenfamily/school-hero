@@ -686,6 +686,132 @@ const MONSTER_ART = {
     // 빨판
     for (const [x, y] of [[-14, 41], [14, 41], [-6, 44], [6, 44]]) el(g, cx + x, y, 1.4, 1.4, shade(C, 0.4));
   },
+
+  // ---------- 2차 보스 패턴용 신규 도형 ----------
+  dragon(g, C, D, L) {
+    const cx = 24;
+    // 날개 (몸통 뒤쪽)
+    tri(g, cx - 8, 22, cx - 22, 10, cx - 16, 30, D);
+    tri(g, cx + 8, 22, cx + 22, 10, cx + 16, 30, D);
+    tri(g, cx - 10, 24, cx - 19, 16, cx - 15, 27, shade(C, 0.25));
+    tri(g, cx + 10, 24, cx + 19, 16, cx + 15, 27, shade(C, 0.25));
+    // 꼬리
+    tri(g, cx + 10, 38, cx + 21, 44, cx + 8, 42, D);
+    // 몸통
+    blob(g, cx, 31, 12, 11, C, D);
+    el(g, cx, 34, 8, 7, shade(C, 0.3));
+    // 머리
+    blob(g, cx, 14, 8.5, 7.5, C, D);
+    // 뿔
+    tri(g, cx - 6, 9, cx - 10, 2, cx - 3, 7, '#f2e8c8');
+    tri(g, cx + 6, 9, cx + 10, 2, cx + 3, 7, '#f2e8c8');
+    // 코·입 (불꽃)
+    el(g, cx, 19, 3.4, 2, shade(C, -0.2));
+    tri(g, cx - 2, 21, cx + 2, 21, cx, 25, '#ff9a3c');
+    // 눈 (성난 눈)
+    eyes(g, cx, 13, 4.6, 2.6, '#7a1010');
+    angryBrows(g, cx, 12, 4.6, '#1a1520');
+    // 다리
+    rct(g, cx - 9, 40, 3, 5, D);
+    rct(g, cx + 6, 40, 3, 5, D);
+  },
+
+  mushroom(g, C, D, L) {
+    const cx = 24;
+    // 줄기 (얼굴이 있는 부분)
+    blob(g, cx, 34, 8, 11, '#f2e8d0', '#b09a78');
+    // 갓
+    g.fillStyle = D;
+    g.beginPath();
+    g.moveTo(cx - 19, 24);
+    g.quadraticCurveTo(cx - 19, 4, cx, 4);
+    g.quadraticCurveTo(cx + 19, 4, cx + 19, 24);
+    g.quadraticCurveTo(cx, 19, cx - 19, 24);
+    g.fill();
+    g.fillStyle = C;
+    g.beginPath();
+    g.moveTo(cx - 17, 23);
+    g.quadraticCurveTo(cx - 17, 6, cx, 6);
+    g.quadraticCurveTo(cx + 17, 6, cx + 17, 23);
+    g.quadraticCurveTo(cx, 18, cx - 17, 23);
+    g.fill();
+    // 갓의 흰 반점
+    el(g, cx - 9, 12, 3, 2.4, '#ffffff');
+    el(g, cx + 8, 10, 2.4, 2, '#ffffff');
+    el(g, cx + 2, 16, 1.8, 1.5, '#ffffff');
+    el(g, cx - 13, 17, 1.6, 1.3, '#ffffff');
+    // 얼굴 (줄기)
+    eyes(g, cx, 32, 4.2, 2.6, '#2a1030');
+    g.strokeStyle = '#2a1030'; g.lineWidth = 1.6; g.lineCap = 'round';
+    g.beginPath(); g.arc(cx, 37, 2.6, 0.15 * Math.PI, 0.85 * Math.PI); g.stroke();
+    el(g, cx - 6.5, 36, 1.8, 1.2, shade(C, 0.3));
+    el(g, cx + 6.5, 36, 1.8, 1.2, shade(C, 0.3));
+    // 독 기운 반점 (줄기 아래)
+    el(g, cx - 4, 43, 1.6, 1.2, shade(C, 0.2));
+    el(g, cx + 4, 43, 1.6, 1.2, shade(C, 0.2));
+  },
+
+  barbarian(g, C, D, L, def) {
+    const cx = 24;
+    const weapon = (def && def.weapon) || 'axe';
+    // 뿔 달린 투구
+    tri(g, cx - 6, 10, cx - 13, 2, cx - 8, 12, '#f2e8c8');
+    tri(g, cx + 6, 10, cx + 13, 2, cx + 8, 12, '#f2e8c8');
+    blob(g, cx, 11, 7.5, 5, D, D);
+    rct(g, cx - 7, 9, 14, 3, shade(D, 0.2));
+    // 얼굴 (피부)
+    blob(g, cx, 17, 6.5, 6.5, '#e8b88a', '#8a5a30');
+    eyes(g, cx, 16, 3.4, 2.2, '#1a1010');
+    angryBrows(g, cx, 15, 3.4, '#1a1010');
+    // 수염
+    tri(g, cx - 4, 21, cx + 4, 21, cx, 27, '#5a3a1a');
+    // 상체 (맨살 + 어깨 갑주)
+    blob(g, cx, 30, 9.5, 9, '#e8b88a', '#8a5a30');
+    el(g, cx - 8, 24, 4, 3, C);
+    el(g, cx + 8, 24, 4, 3, C);
+    // 허리띠·치마
+    rct(g, cx - 9, 36, 18, 4, D);
+    tri(g, cx - 8, 40, cx + 8, 40, cx, 46, shade(D, -0.15));
+    // 다리
+    rct(g, cx - 7, 42, 4, 4, '#5a3a22');
+    rct(g, cx + 3, 42, 4, 4, '#5a3a22');
+    // 무기 (오른손)
+    if (weapon === 'axe') {
+      ln(g, cx + 11, 20, cx + 16, 38, '#6a4a22', 2.4);
+      tri(g, cx + 14, 16, cx + 22, 20, cx + 15, 25, '#d8d8e0');
+      tri(g, cx + 14, 16, cx + 21, 15, cx + 15, 20, '#f2f2f8');
+    } else if (weapon === 'bow') {
+      g.strokeStyle = '#6a4a22'; g.lineWidth = 2; g.beginPath();
+      g.arc(cx + 15, 28, 9, -1.2, 1.2); g.stroke();
+      ln(g, cx + 15, 19, cx + 15, 37, '#e8e8e8', 1);
+    } else {
+      ln(g, cx + 11, 20, cx + 16, 38, '#6a4a22', 2.4);
+      el(g, cx + 17, 16, 4.4, 4.4, '#8a8a96');
+      el(g, cx + 17, 16, 2.2, 2.2, '#d8d8e0');
+      for (const [sx, sy] of [[-3, -3], [3, -3], [-3, 3], [3, 3]]) el(g, cx + 17 + sx, 16 + sy, 1, 1, '#5a5a66');
+    }
+  },
+
+  skeleton(g, C, D, L) {
+    const cx = 24;
+    // 해골 머리
+    blob(g, cx, 13, 8, 8, '#f2f2e8', '#8a8a7a');
+    el(g, cx - 3.4, 12, 2.4, 2.8, '#14141a');
+    el(g, cx + 3.4, 12, 2.4, 2.8, '#14141a');
+    el(g, cx - 3.4, 12, 1, 1.2, '#ff5a4a');
+    el(g, cx + 3.4, 12, 1, 1.2, '#ff5a4a');
+    tri(g, cx - 1.4, 16, cx + 1.4, 16, cx, 19, '#14141a');
+    for (let i = -2; i <= 2; i++) ln(g, cx + i * 1.8, 20, cx + i * 1.8, 23, '#8a8a7a', 1);
+    // 갈비뼈 몸통
+    rct(g, cx - 5, 23, 10, 14, '#f2f2e8');
+    for (let i = 0; i < 3; i++) ln(g, cx - 5, 26 + i * 4, cx + 5, 26 + i * 4, '#8a8a7a', 1.2);
+    ln(g, cx, 23, cx, 37, '#8a8a7a', 1.2);
+    // 팔·다리 (얇은 뼈)
+    ln(g, cx - 6, 25, cx - 11, 34, '#f2f2e8', 2);
+    ln(g, cx + 6, 25, cx + 11, 34, '#f2f2e8', 2);
+    ln(g, cx - 3, 37, cx - 4, 45, '#f2f2e8', 2);
+    ln(g, cx + 3, 37, cx + 4, 45, '#f2f2e8', 2);
+  },
 };
 
 function monsterTexture(THREE, def) {
@@ -728,6 +854,7 @@ const MONSTER_H = {
   slime: 0.92, goblin: 1.14, orc: 1.4, frog: 1.12, lizard: 1.42, scarab: 1.02, crab: 1.2,
   scorpion: 1.24, mummy: 1.52, merfolk: 1.5, siren: 1.52, naga: 1.86, wraith: 1.62,
   witch: 1.78, golem: 2.2, ent: 2.4, ogre: 2.15, anubis: 2.05, hydra: 2.0, kraken: 2.6,
+  dragon: 2.6, mushroom: 1.9, barbarian: 2.0, skeleton: 1.5,
 };
 function monsterAssetKey(def) {
   const gold = def.boss === 'field' || def.gold;
@@ -736,16 +863,18 @@ function monsterAssetKey(def) {
 }
 export function makeMonsterSprite(THREE, def) {
   const key = monsterAssetKey(def);
-  const url = ASSET_URL.monster(key);
+  // PNG 파일이 없는 신규 도형(드래곤·버섯·바바리안·해골)은 캔버스 픽셀아트 텍스처를 쓴다
+  const hasPng = MONSTER_KEYS.includes(def.shape);
+  const url = hasPng ? ASSET_URL.monster(key) : null;
   const baseH = MONSTER_H[def.shape] || 1.28;
   const bossMul = def.boss === 'field' ? 1.22 : def.boss === 'boss' ? 1.12 : def.boss === 'mid' ? 1.05 : def.elite ? 1.06 : 1;
   const h = baseH * 1.12 * bossMul;
-  const asp = aspectOf(THREE, url) || 0.75;
+  const asp = url ? (aspectOf(THREE, url) || 0.75) : 1;
   const w = h * asp;
   const g = new THREE.Group();
 
   const planeGeo = new THREE.PlaneGeometry(1, 1);
-  const mat = new THREE.MeshBasicMaterial({ map: getTexture(THREE, url), transparent: true, alphaTest: 0.4, depthWrite: true, side: THREE.DoubleSide });
+  const mat = new THREE.MeshBasicMaterial({ map: url ? getTexture(THREE, url) : monsterTexture(THREE, def), transparent: true, alphaTest: 0.4, depthWrite: true, side: THREE.DoubleSide });
   const mesh = new THREE.Mesh(planeGeo, mat);
   mesh.scale.set(w, h, 1);
   mesh.position.y = h / 2;
@@ -754,7 +883,7 @@ export function makeMonsterSprite(THREE, def) {
   g.add(art);
 
   // 피격 흰색 실루엣
-  const sil = getSilhouette(THREE, url);
+  const sil = url ? getSilhouette(THREE, url) : monsterSilhouette(THREE, def);
   let flash = null;
   if (sil) {
     flash = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: sil, transparent: true, alphaTest: 0.4, depthWrite: false, opacity: 0.55 }));
@@ -773,8 +902,8 @@ export function makeMonsterSprite(THREE, def) {
   shadow.position.y = 0.03;
   g.add(shadow);
 
-  const float = def.shape === 'wraith' || def.shape === 'witch' || def.shape === 'siren' || def.shape === 'kraken';
-  const bounce = def.shape === 'slime' || def.shape === 'frog' || def.shape === 'scarab' || def.shape === 'goblin';
+  const float = def.shape === 'wraith' || def.shape === 'witch' || def.shape === 'siren' || def.shape === 'kraken' || def.shape === 'dragon';
+  const bounce = def.shape === 'slime' || def.shape === 'frog' || def.shape === 'scarab' || def.shape === 'goblin' || def.shape === 'mushroom';
   const baseY = float ? 0.2 : 0;
   let flashT = 0;
   let hitK = 0;
