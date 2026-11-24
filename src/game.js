@@ -1,13 +1,13 @@
 // 스쿨히어로 — 게임 엔진
 import {
-  PLAYABLE, GRADES, WEAPONS, ARMOR_KINDS, ACCESSORY_KINDS, GRADE_ADJ, WEAPON_BASE, ITEM_STATS,
+  PLAYABLE, ZONES, GRADES, WEAPONS, ARMOR_KINDS, ACCESSORY_KINDS, GRADE_ADJ, WEAPON_BASE, ITEM_STATS,
   MEDAL_TIERS, MEDAL_STEP, TALENTS, COMPANION_CLASSES, COMPANION_NAMES, CHARMS, SECRET_TOTAL,
   itemOptions, defaultBalance, MOB_REWARD, OPT_LABEL,
   AVATARS, AVATAR_MAP, avatarOf, SKILLS, SKILL_IDS, HEAL_SKILL_IDS,
   BOSS_TIMER, BOSS_LABEL, EVOLVE_NEED, SOUL_KINDS, COSTUMES, COSTUME_MAP, COSTUME_PULL_COST, COSTUME_REFUND,
-  ELEMENTS, ELEM_BEATS,
+  ELEMENTS, ELEM_BEATS, EARTH_GATE,
 } from './data.js';
-import { buildZone, makePlayer, makeMonster, makeCompanion, groundHeight } from './world.js';
+import { buildWorld, makePlayer, makeMonster, makeCompanion, groundHeight, districtAt, worldPos, WORLD_HALF } from './world.js';
 import { ASSET_URL, getTexture, aspectOf } from './assets.js';
 
 const SAVE_KEY = 'school-hero.save.v1';
@@ -83,14 +83,13 @@ export function createGame(THREE) {
   // ---------- 지형 높이 ----------
   // 3D 지형 높이. 월드가 아직 없으면 평지(0)로 취급한다.
   function groundY(x, z) {
-    if (!game.zone) return 0;
-    try { return groundHeight(game.zone.id, x, z); } catch (e) { return 0; }
+    try { return groundHeight(x, z); } catch (e) { return 0; }
   }
   game.groundY = groundY;
 
   // ---------- 저장 데이터 ----------
   const defaultState = () => ({
-    v: 1,
+    v: 2,
     level: 1, xp: 0, statPts: 0, gold: 60,
     stats: { str: 5, dex: 5, vit: 5, int: 5 },
     hp: 0,
@@ -122,6 +121,7 @@ export function createGame(THREE) {
     evolutions: 0,
     achClaimed: [],
     achBonusGranted: 0, // 이미 스탯 보너스를 지급한 업적 수 (중복 지급 방지)
+    earthGateOpen: false, // 지구 귀환 게이트 열림 여부 (9구역 보스 처치 시)
   });
 
   function loadState() {
@@ -155,6 +155,14 @@ export function createGame(THREE) {
     s.companions = saved.companions || [];
     s.party = saved.party || [];
     s.unlocked = saved.unlocked && saved.unlocked.length ? saved.unlocked : [1];
+    // 3차 개편 마이그레이션 (v1 → v2, 분리 맵 → 하나의 서울 지도):
+    // 구역 id 1~4는 그대로 유지되므로 해금·보스 타이머·상자·퀘스트 키가 그대로 이어진다.
+    // 위치는 저장하지 않으므로(항상 구역 스폰에서 시작) 현재 구역만 유효성 검사한다.
+    s.unlocked = s.unlocked.filter((id) => Number.isInteger(id) && id >= 1 && id <= 9);
+    if (!s.unlocked.includes(1)) s.unlocked.unshift(1);
+    s.unlocked.sort((a, b) => a - b);
+    if (!Number.isInteger(s.zone) || s.zone < 1 || s.zone > 9 || !s.unlocked.includes(s.zone)) s.zone = 1;
+    s.earthGateOpen = !!saved.earthGateOpen;
     s.zoneKills = saved.zoneKills || {};
     s.chestOpened = saved.chestOpened || [];
     s.achClaimed = Array.isArray(saved.achClaimed) ? saved.achClaimed.filter((id) => typeof id === 'string') : [];
@@ -254,7 +262,7 @@ export function createGame(THREE) {
   game.serialize = function () {
     const s = game.state;
     return {
-      v: 1, level: s.level, xp: s.xp, statPts: s.statPts, gold: s.gold, stats: s.stats,
+      v: 2, level: s.level, xp: s.xp, statPts: s.statPts, gold: s.gold, stats: s.stats,
       hp: Math.round(game.player ? game.player.hp : 0),
       avatar: s.avatar, avatarPicked: s.avatarPicked, heroName: s.heroName,
       bag: s.bag, equip: s.equip, souls: s.souls, talents: s.talents,
@@ -264,6 +272,7 @@ export function createGame(THREE) {
       skillbooks: s.skillbooks, skills: s.skills, tutorial: s.tutorial, introSeen: s.introSeen,
       bossTimers: s.bossTimers, bossKills: s.bossKills, evolutions: s.evolutions, appearance: s.appearance,
       achClaimed: s.achClaimed, achBonusGranted: s.achBonusGranted || 0,
+      earthGateOpen: !!s.earthGateOpen,
     };
   };
 
@@ -440,14 +449,10 @@ export function createGame(THREE) {
     });
   }
 
-  game.enterZone = function (zoneId, opts = {}) {
-    const zone = PLAYABLE.find((z) => z.id === zoneId);
-    if (!zone) return false;
-    if (zoneId === 4 && !game.state.equip.charm) {
-      if (game.ui) game.ui.toast('한강 심해 유적에 들어가려면 수중호흡 아티팩트가 필요해요.', 'bad');
-      return false;
-    }
-    // 이전 구역 몬스터 메시·이름표 정리 (남아 있으면 새 구역에 유령처럼 보인다)
+  // ---------- 하나의 서울 지도 ----------
+  // 월드는 한 번만 짓는다. 구역 이동은 setDistrict로 — 월드·플레이어·동료를 유지한 채
+  // 현재 구역(안개/배경/몬스터/NPC 기준)만 바꾼다. 포탈 이동은 없다.
+  function clearFieldEntities() {
     for (const e of game.enemies) {
       if (e.tag && e.tag.parentNode) e.tag.parentNode.removeChild(e.tag);
       if (e.mesh) { scene.remove(e.mesh); disposeGroup(e.mesh); }
@@ -457,24 +462,37 @@ export function createGame(THREE) {
     for (const it of game.pickups) if (it.mesh) scene.remove(it.mesh);
     for (const fx of game.effects) if (fx.mesh) disposeObj(fx.mesh);
     for (const t of game.telegraphs) { scene.remove(t.mesh); scene.remove(t.ring); if (t.mark) scene.remove(t.mark); }
-    if (game.world) { scene.remove(game.world.group); disposeGroup(game.world.group); }
-    game.compObjects && game.compObjects.forEach((c) => scene.remove(c.mesh));
-    game.enemies = []; game.companions = []; game.projectiles = []; game.pickups = []; game.effects = []; game.telegraphs = []; game.bossGroups = {};
-    game.state.zone = zoneId;
-    game.zone = zone;
-    game.world = buildZone(THREE, zone, game.state.chestOpened);
+    game.enemies = []; game.projectiles = []; game.pickups = []; game.effects = []; game.telegraphs = []; game.bossGroups = {};
+  }
 
+  function spawnDistrictMobs(zone) {
+    game.clearGraves();
+    spawnZoneMobs(zone);
+    for (const t of [...new Set(allBossDefs(zone).map((b) => b.type))]) if (game.bossRemain(zone.id, t) > 0) game.addGrave(t);
+  }
+
+  function applyDistrictAtmosphere(zone) {
     scene.fog = new THREE.FogExp2(zone.theme.fog, zone.theme.fogDensity);
     scene.background = new THREE.Color(zone.theme.sky);
+    if (game.world && game.world.particles) game.world.particles.material.color.setHex(zone.theme.ambientColor);
+  }
 
+  game.buildWorld = function (opts = {}) {
+    const zone = PLAYABLE.find((z) => z.id === game.state.zone) || PLAYABLE[0];
+    game.state.zone = zone.id;
+    game.zone = zone;
+    game.enemies = []; game.companions = []; game.projectiles = []; game.pickups = []; game.effects = []; game.telegraphs = []; game.bossGroups = {};
+    if (game.world) { scene.remove(game.world.group); disposeGroup(game.world.group); }
+    game.world = buildWorld(THREE, PLAYABLE, game.state.chestOpened, !!game.state.earthGateOpen);
     scene.add(game.world.group);
+    applyDistrictAtmosphere(zone);
 
     // 플레이어
     if (game.playerMesh) { scene.remove(game.playerMesh); disposeGroup(game.playerMesh); }
     game.playerMesh = makePlayer(THREE, 'sword', avatarOf(game.state.avatar), game.state.equip, game.state.appearance);
     scene.add(game.playerMesh);
     const d = game.derived();
-    const sp = zone.spawn;
+    const sp = worldPos(zone, zone.spawn.x, zone.spawn.z);
     game.player = {
       x: sp.x, z: sp.z, facing: Math.PI, vy: 0,
       hp: clamp(game.state.hp || d.maxHp, 1, d.maxHp),
@@ -493,17 +511,14 @@ export function createGame(THREE) {
       if (!c) return;
       const cls = COMPANION_CLASSES[c.cls];
       const mesh = makeCompanion(THREE, cls, GRADES[c.grade].color);
-    scene.add(mesh);
+      scene.add(mesh);
       const o = makeCompanionObj(c, cls, mesh, game.player.x - 1.6 + i * 1.6, game.player.z + 1.8);
       game.compObjects.push(o);
       game.companions.push(o);
       if (cls.id === 'tank' && !game.tank) game.tank = o;
     });
 
-    // 몬스터 배치
-    game.clearGraves();
-    spawnZoneMobs(zone);
-    for (const t of [...new Set(allBossDefs(zone).map((b) => b.type))]) if (game.bossRemain(zone.id, t) > 0) game.addGrave(t);
+    spawnDistrictMobs(zone);
 
     // 카메라 즉시 이동 (플레이어 지형 높이 기준)
     const aspect0 = window.innerWidth / Math.max(1, window.innerHeight);
@@ -520,15 +535,66 @@ export function createGame(THREE) {
     return true;
   };
 
+  // 구역 이동 (걸어서 경계를 넘을 때 호출) — 월드는 유지, 몬스터만 교체
+  game.setDistrict = function (zoneId, opts = {}) {
+    const zone = PLAYABLE.find((z) => z.id === zoneId);
+    if (!zone || !game.world) return false;
+    clearFieldEntities();
+    game.state.zone = zoneId;
+    game.zone = zone;
+    if (opts.spawn) {
+      const sp = worldPos(zone, zone.spawn.x, zone.spawn.z);
+      game.player.x = sp.x; game.player.z = sp.z; game.player.facing = Math.PI;
+      game.playerMesh.position.set(sp.x, groundY(sp.x, sp.z), sp.z);
+    }
+    applyDistrictAtmosphere(zone);
+    spawnDistrictMobs(zone);
+    if (game.ui) game.ui.onZoneEnter(zone);
+    if (!opts.silent) { game.save(); game.flushSave(); }
+    return true;
+  };
+
+  // 구역 해금 (보스 처치·퀘스트 보상 공용) — 방벽 게이트도 함께 연다
+  game.unlockDistrict = function (zoneId, silent) {
+    const s = game.state;
+    if (zoneId < 1 || zoneId > 9 || s.unlocked.includes(zoneId)) return false;
+    s.unlocked.push(zoneId);
+    s.unlocked.sort((a, b) => a - b);
+    if (game.world) game.world.openGate(zoneId);
+    if (!silent && game.ui) {
+      const z = PLAYABLE.find((x) => x.id === zoneId);
+      game.ui.toast(`새 구역 해금: ${z ? z.name : zoneId} · 방벽이 열렸어요!`, 'good');
+    }
+    game.save();
+    return true;
+  };
+
+  // 처음 소환 지점(1구역 스폰)으로 귀환
+  game.returnToStart = function () {
+    const z1 = PLAYABLE[0];
+    const sp = worldPos(z1, z1.spawn.x, z1.spawn.z);
+    game.player.x = sp.x; game.player.z = sp.z; game.player.facing = Math.PI;
+    game.setDistrict(1, { spawn: true });
+    if (game.ui) game.ui.toast('처음 소환 지점으로 돌아왔어요. 체력이 모두 회복되었습니다.', 'good');
+    return true;
+  };
+
+  // 예전 enterZone 호출 자리 (디버그·호환용) — 이제는 구역만 바꾼다
+  game.enterZone = function (zoneId, opts = {}) {
+    if (!game.world) return game.buildWorld(opts);
+    return game.setDistrict(zoneId, opts);
+  };
+
   function spawnZoneMobs(zone) {
-    const pts = game.world.spawnPoints;
+    const pts = (game.world.spawnPointsByDistrict && game.world.spawnPointsByDistrict[zone.id]) || game.world.spawnPoints;
     let pi = 0;
     const pick = () => pts[(pi++) % pts.length];
+    const sp = worldPos(zone, zone.spawn.x, zone.spawn.z);
     for (let i = 0; i < 6; i++) {
       const def = zone.mobs.normal[i % zone.mobs.normal.length];
       const ang = (i / 6) * Math.PI * 2 + 0.4;
       const rad = 11 + (i % 2) * 4;
-      spawnEnemy(def, zone.spawn.x + Math.cos(ang) * rad, zone.spawn.z + Math.sin(ang) * rad * 0.9);
+      spawnEnemy(def, sp.x + Math.cos(ang) * rad, sp.z + Math.sin(ang) * rad * 0.9);
     }
     for (let i = 0; i < 9; i++) {
       const def = zone.mobs.normal[i % zone.mobs.normal.length];
@@ -541,14 +607,20 @@ export function createGame(THREE) {
       spawnEnemy(def, p.x, p.z);
     }
     // 보스는 리스폰 타이머가 지난 경우에만 등장 (중간보스 4시간 · 에픽보스 6시간 · 필드보스 24시간)
-    if (bossReady(zone.id, 'mid')) spawnEnemy(zone.mobs.mid, zone.mid.x, zone.mid.z, true);
-    if (bossReady(zone.id, 'boss')) spawnEnemy(zone.mobs.boss, zone.boss.x, zone.boss.z, true);
-    if (zone.field && bossReady(zone.id, 'field')) spawnEnemy(zone.mobs.field, zone.field.x, zone.field.z, true);
+    const midP = worldPos(zone, zone.mid.x, zone.mid.z);
+    const bossP = worldPos(zone, zone.boss.x, zone.boss.z);
+    if (bossReady(zone.id, 'mid')) spawnEnemy(zone.mobs.mid, midP.x, midP.z, true);
+    if (bossReady(zone.id, 'boss')) spawnEnemy(zone.mobs.boss, bossP.x, bossP.z, true);
+    if (zone.field && bossReady(zone.id, 'field')) {
+      const fP = worldPos(zone, zone.field.x, zone.field.z);
+      spawnEnemy(zone.mobs.field, fP.x, fP.z, true);
+    }
     // 추가 보스 (드래곤·쌍둥이·3형제·독버섯) — 각자 타이머가 지난 경우에만 등장
     for (const ex of (zone.extraBosses || [])) {
       if (!bossReady(zone.id, ex.type)) continue;
       const defs = ex.defs || [ex.def];
-      const spawned = defs.map((d, i) => spawnEnemy(d, ex.x + (i - (defs.length - 1) / 2) * 3.2, ex.z + (i % 2) * 2, true));
+      const exP = worldPos(zone, ex.x, ex.z);
+      const spawned = defs.map((d, i) => spawnEnemy(d, exP.x + (i - (defs.length - 1) / 2) * 3.2, exP.z + (i % 2) * 2, true));
       if (defs[0].group) linkBossGroup(defs[0].group, spawned);
     }
   }
@@ -998,9 +1070,12 @@ export function createGame(THREE) {
     const s = game.state;
     const zone = game.zone;
     const next = zone.id + 1;
-    if (next <= 4 && !s.unlocked.includes(next)) {
-      s.unlocked.push(next);
-      if (game.ui) game.ui.toast(`새 구역 해금: ${PLAYABLE.find((z) => z.id === next).name}`, 'good');
+    if (next <= 9) game.unlockDistrict(next);
+    else if (zone.id === 9 && !s.earthGateOpen) {
+      // 마지막 구역 보스 처치 — 지구 귀환 게이트가 열린다
+      s.earthGateOpen = true;
+      if (game.world) game.world.setEarthGate(true);
+      if (game.ui) game.ui.toast('지구 귀환 게이트가 열렸어요! 북한산 정상으로 가 보세요.', 'gold');
     }
     game.save();
   }
@@ -1074,8 +1149,8 @@ export function createGame(THREE) {
       const sp = d.moveSpeed * Math.min(1, Math.hypot(mx, mz));
       let nx = p.x + mx * sp * dt;
       let nz = p.z + mz * sp * dt;
-      // 소품 충돌
-      for (const pr of game.world.props) {
+      // 소품 충돌 (근처 셀만 본다)
+      for (const pr of game.world.propsNear(nx, nz, 5)) {
         const dd = Math.hypot(nx - pr.x, nz - pr.z);
         const min = pr.r + 0.35;
         if (dd < min && dd > 0.0001) {
@@ -1083,8 +1158,32 @@ export function createGame(THREE) {
           nz = pr.z + ((nz - pr.z) / dd) * min;
         }
       }
-      nx = clamp(nx, -42, 42); nz = clamp(nz, -42, 42);
-      p.x = nx; p.z = nz;
+      nx = clamp(nx, -WORLD_HALF + 2, WORLD_HALF - 2); nz = clamp(nz, -WORLD_HALF + 2, WORLD_HALF - 2);
+      // 잠긴 구역으로는 들어갈 수 없다 (방벽) — 경계에서 막고, 갈 수 있는 방향으로는 미끄러지듯 이동
+      const target = districtAt(nx, nz);
+      const blockedMsg = (msg) => {
+        const now = game.time;
+        if (!game._gateToastT || now - game._gateToastT > 3) {
+          game._gateToastT = now;
+          if (game.ui) game.ui.toast(msg, 'bad');
+        }
+      };
+      const canEnter = (dx, dz) => {
+        const d = districtAt(dx, dz);
+        if (!game.state.unlocked.includes(d.id)) return false;
+        if (d.id === 4 && !game.state.equip.charm) return false;
+        return true;
+      };
+      if (!canEnter(nx, nz)) {
+        const prev = PLAYABLE.find((z) => z.id === target.id - 1);
+        blockedMsg(!game.state.unlocked.includes(target.id)
+          ? (prev ? `${prev.name} 보스를 처치해야 방벽이 열려요.` : '아직 갈 수 없는 구역이에요.')
+          : '한강 심해 유적에 들어가려면 수중호흡 아티팩트가 필요해요.');
+        if (canEnter(nx, p.z)) p.x = nx;
+        if (canEnter(p.x, nz)) p.z = nz;
+      } else {
+        p.x = nx; p.z = nz;
+      }
       p.facing = Math.atan2(mx, mz);
       p.walkT += dt * 9;
     } else {
@@ -1678,9 +1777,9 @@ export function createGame(THREE) {
 
   function moveEnemy(e, dx, dz) {
     if (dx || dz) e.moving = true;
-    e.x = clamp(e.x + dx, -43, 43);
-    e.z = clamp(e.z + dz, -43, 43);
-    for (const pr of game.world.props) {
+    e.x = clamp(e.x + dx, -WORLD_HALF + 2, WORLD_HALF - 2);
+    e.z = clamp(e.z + dz, -WORLD_HALF + 2, WORLD_HALF - 2);
+    for (const pr of game.world.propsNear(e.x, e.z, 5)) {
       const dd = Math.hypot(e.x - pr.x, e.z - pr.z);
       const min = pr.r + e.radius * 0.7;
       if (dd < min && dd > 0.001) {
@@ -2947,8 +3046,9 @@ export function createGame(THREE) {
     const zone = game.zone;
     const pool = [...zone.mobs.normal, ...zone.mobs.normal, zone.mobs.elite[0]];
     const def = pool[Math.floor(Math.random() * pool.length)];
+    const pts = (game.world.spawnPointsByDistrict && game.world.spawnPointsByDistrict[zone.id]) || game.world.spawnPoints;
     for (let tries = 0; tries < 12; tries++) {
-      const p = game.world.spawnPoints[Math.floor(Math.random() * game.world.spawnPoints.length)];
+      const p = pts[Math.floor(Math.random() * pts.length)];
       if (Math.hypot(p.x - game.player.x, p.z - game.player.z) > 15) { spawnEnemy(def, p.x, p.z); break; }
     }
   }
@@ -2997,6 +3097,9 @@ export function createGame(THREE) {
     if (!p) return;
     if (p.alive) {
       movePlayer(dt);
+      // 구역 경계를 걸어서 넘으면 현재 구역이 바뀐다
+      const here = districtAt(p.x, p.z);
+      if (here.id !== game.zone.id) game.setDistrict(here.id);
       if (p.atkAnim > 0) p.atkAnim -= dt;
       p.atkCd -= dt;
       if (p.atkCd <= 0) playerAttack();
@@ -3024,9 +3127,9 @@ export function createGame(THREE) {
         p.alive = true;
         p.hp = d.maxHp;
         p.mp = d.maxMp;
-        p.x = game.zone.spawn.x; p.z = game.zone.spawn.z;
-        p.facing = Math.PI;
-        if (game.ui) { game.ui.showDeath(false); game.ui.toast('입구에서 다시 일어났어요. 체력이 모두 회복되었습니다.', 'good'); }
+        // 죽으면 첫 소환 지점(1구역 스폰)으로 복귀
+        game.returnToStart();
+        if (game.ui) game.ui.showDeath(false);
         game.save();
       }
     }
@@ -3053,11 +3156,11 @@ export function createGame(THREE) {
       }
       if (game.ui) game.ui.updateBossBar(near);
     }
-    // NPC / 포탈 근접
-    const nnp = Math.hypot(p.x - game.world.npc.position.x, p.z - game.world.npc.position.z) < 3.2;
-    const npo = Math.hypot(p.x - game.world.portal.position.x, p.z - game.world.portal.position.z) < 3.2;
-    if (nnp !== game.nearNpc || npo !== game.nearPortal) {
-      game.nearNpc = nnp; game.nearPortal = npo;
+    // NPC 근접 (현재 구역 NPC)
+    const npcMesh = game.world.npcs[game.zone.id];
+    const nnp = !!npcMesh && Math.hypot(p.x - npcMesh.position.x, p.z - npcMesh.position.z) < 3.2;
+    if (nnp !== game.nearNpc) {
+      game.nearNpc = nnp;
       if (game.ui) game.ui.updateTalkButtons();
     }
     // 자동 저장 (변경이 있을 때만)
@@ -3069,7 +3172,7 @@ export function createGame(THREE) {
     if (game.running) return;
     const zid = PLAYABLE.some((z) => z.id === game.state.zone) ? game.state.zone : 1;
     if (!game.state.unlocked.includes(zid)) game.state.zone = 1;
-    game.enterZone(game.state.zone, { silent: true, fullHp: game.state.hp || 0 });
+    game.buildWorld({ silent: true });
     game.running = true;
     requestAnimationFrame((t) => { last = t / 1000; frame(t); });
   };
@@ -3379,11 +3482,11 @@ export function createGame(THREE) {
       got.push(CHARMS[r.charm].name);
     }
     if (r.xp) { game.gainXp(r.xp); got.push(`경험치 +${r.xp}${game.state.level > beforeLv ? ` (Lv.${game.state.level} 달성!)` : ''}`); }
-    if (r.unlock && !game.state.unlocked.includes(r.unlock)) {
-      game.state.unlocked.push(r.unlock);
+    if (r.unlock) {
       const nz = PLAYABLE.find((z) => z.id === r.unlock);
+      const opened = game.unlockDistrict(r.unlock, true);
       got.push(`새 구역 해금 · ${nz ? nz.name : r.unlock}`);
-      if (game.ui) game.ui.toast(`새 구역 해금 · ${nz ? nz.name : r.unlock}`, 'good');
+      if (opened && game.ui) game.ui.toast(`새 구역 해금 · ${nz ? nz.name : r.unlock} · 방벽이 열렸어요!`, 'good');
     }
     q.step++;
     q.progress = 0;
@@ -3463,10 +3566,10 @@ export function createGame(THREE) {
       giveMp(n = 999) { game.player.mp = Math.min(game.derived().maxMp, n); return game.player.mp; },
       chest(i = 0) { const c = game.world.chests[i]; if (c) { game.player.x = c.x; game.player.z = c.z + 0.6; } },
       advance(sec, dt = 1 / 60) { const n = Math.min(3600, Math.round(sec / dt)); for (let i = 0; i < n; i++) step(dt); return game.time; },
-      unlockAll() { game.state.unlocked = [1, 2, 3, 4]; game.state.equip.charm = { kind: 'charm', fam: 'aqua', grade: 0 }; game.ui.markDirty(true); },
+      unlockAll() { game.state.unlocked = [1, 2, 3, 4, 5, 6, 7, 8, 9]; game.state.equip.charm = { kind: 'charm', fam: 'aqua', grade: 0 }; if (game.world) for (let i = 2; i <= 9; i++) game.world.openGate(i); game.ui.markDirty(true); },
       enter(id) { return game.enterZone(id); },
       killZone(n = 1) { const list = game.enemies.filter((e) => e.alive && !e.isBoss && !e.isMid); for (let i = 0; i < Math.min(n, list.length); i++) game.dealDamage(list[i], 999999, { canCrit: false }); },
-      nearNpc() { const n = game.world.npc.position; game.player.x = n.x + 1.5; game.player.z = n.z + 0.5; },
+      nearNpc() { const n = game.world.npcs[game.zone.id].position; game.player.x = n.x + 1.5; game.player.z = n.z + 0.5; },
       hitOnce() { return playerAttack(); },
       options(kind, fam, grade) { return itemOptions(kind, fam, grade); },
       bossReset(zoneId = game.zone.id, type) {
