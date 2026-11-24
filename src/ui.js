@@ -1440,7 +1440,7 @@ export function createUI(game, THREE) {
     const s = game.state;
     const zone = game.zone;
     buildMapBase(zone);
-    const M = 760;
+    const M = 920;
     const cv = document.createElement('canvas');
     cv.width = M; cv.height = M;
     const g = cv.getContext('2d');
