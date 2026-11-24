@@ -2,9 +2,18 @@
 const loading = document.getElementById('loading');
 const loadingText = document.getElementById('loadingText');
 
+// 아이폰 확대 고정 방지: 핀치·더블탭 줌 차단 (입력칸 확대는 CSS 16px로 처리)
+document.addEventListener('gesturestart', (e) => e.preventDefault(), { passive: false });
+document.addEventListener('gesturechange', (e) => e.preventDefault(), { passive: false });
+document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
+document.addEventListener('touchmove', (e) => { if (e.touches && e.touches.length > 1) e.preventDefault(); }, { passive: false });
+document.addEventListener('visibilitychange', () => { document.documentElement.style.height = window.innerHeight + 'px'; });
+window.addEventListener('resize', () => { document.documentElement.style.height = window.innerHeight + 'px'; });
+
 async function loadThree() {
   const sources = [
     '../vendor/three.module.min.js',
+    './vendor/three.module.min.js',
     'https://unpkg.com/three@0.160.0/build/three.module.js',
     'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js',
   ];
@@ -48,27 +57,33 @@ async function boot() {
     const token = readToken();
     const store = createSaveManager({ cloud: token ? new CloudAdapter(token) : null });
     const start = createStartScreen(store);
-    loading.classList.add('gone');
-    setTimeout(() => loading.remove(), 500);
-
     const session = await start.ask();
+    start.hide();
+    loading.classList.add('gone');
+    setTimeout(() => { if (loading.parentNode) loading.remove(); }, 500);
 
     const game = createGame(THREE);
     game.store = store;
     if (session.state) game.applyState(session.state);
     const ui = createUI(game, THREE);
     game.ui = ui;
-    // 새 모험이면 시작 화면에서 고른 아바타를, 이어하기면 저장된 아바타를 쓴다.
-    if (!session.state || !session.state.avatar) game.setAvatar(session.avatar || 'boyA');
     game.start();
     window.__GAME__ = game;
 
     if (session.repaired) ui.toast('저장 데이터가 손상되어 마지막 정상 기록으로 복구했어요.', 'good');
     if (session.mode === 'guest') ui.toast('게스트 모드 · 이 기기에만 저장됩니다.', '');
     else if (session.where === 'cloud') ui.toast(`${store.userId} 계정으로 불러왔어요.`, 'good');
-    // 졸업식 차원이동 인트로 → 3단계 시작 튜토리얼
-    if (!session.state || !game.state.introSeen) ui.showIntro();
-    else ui.startTutorial();
+    else if (session.restored) ui.toast('이어서 접속했어요.', 'good');
+
+    // 순서: 로그인 → (아바타 미선택이면) 캐릭터 선택 → 졸업식 인트로 → 시작 가이드
+    const needsPick = !game.state.avatarPicked;
+    const afterIntro = () => ui.startTutorial();
+    const goIntro = () => {
+      if (needsPick || !game.state.introSeen) ui.showIntro(afterIntro);
+      else afterIntro();
+    };
+    if (needsPick) ui.openAvatarSelect(goIntro);
+    else goIntro();
   } catch (e) {
     console.warn('시작하지 못했습니다:', e && e.message);
     loadingText.innerHTML = '게임을 시작하지 못했어요.<br>인터넷 연결을 확인한 뒤 새로고침해 주세요.';

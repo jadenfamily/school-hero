@@ -38,10 +38,10 @@ export function validateState(s) {
     if (parts.length !== 3) return 'bagKey';
     const g = Number(parts[2]);
     if (!Number.isFinite(g) || g < 0 || g > 5) return 'grade';
-    if (!Number.isFinite(n) || n < 0 || n > 999) return 'bagCount';
+    if (!Number.isFinite(n) || n < 0 || n > 2000) return 'bagCount';
     total += n;
   }
-  if (total > 4000) return 'bagTotal';
+  if (total > 12000) return 'bagTotal';
   if (s.companions && (!Array.isArray(s.companions) || s.companions.length > 200)) return 'companions';
   if (s.unlocked && (!Array.isArray(s.unlocked) || s.unlocked.some((z) => z < 1 || z > 9))) return 'unlocked';
   return null;

@@ -4,6 +4,7 @@ import {
   MEDAL_TIERS, MEDAL_STEP, TALENTS, COMPANION_CLASSES, COMPANION_NAMES, CHARMS, SECRET_TOTAL,
   itemOptions, defaultBalance, MOB_REWARD, OPT_LABEL,
   AVATARS, AVATAR_MAP, avatarOf, SKILLS, SKILL_IDS, HEAL_SKILL_IDS,
+  BOSS_TIMER, BOSS_LABEL, EVOLVE_NEED, SOUL_KINDS, COSTUMES, COSTUME_MAP, COSTUME_PULL_COST, COSTUME_REFUND,
 } from './data.js';
 import { buildZone, makePlayer, makeMonster, makeCompanion } from './world.js';
 
@@ -73,10 +74,12 @@ export function createGame(THREE) {
     stats: { str: 5, dex: 5, vit: 5, int: 5 },
     hp: 0,
     avatar: 'boyA',
+    avatarPicked: false,
+    heroName: '',
     bag: {},      // "kind:fam:grade": count
     equip: { weapon: null, armor: null, necklace: null, ring: null, earring: null, charm: null },
     balance: defaultBalance(),
-    souls: { gray: 0, green: 0, blue: 0, purple: 0 },
+    souls: { gray: 0, green: 0, blue: 0, purple: 0, gold: 0 },
     talents: [],
     companions: [],
     party: [],
@@ -92,6 +95,10 @@ export function createGame(THREE) {
     skills: { learned: [], slots: [null, null, null, null], auto: true, cds: {} },
     tutorial: { step: 1, done: false },
     introSeen: false,
+    bossTimers: {},   // "1:boss": Date.now() + 간격(남은 시간 계산용)
+    appearance: { mode: 'armor', costumeId: null, unlocked: [] },
+    bossKills: { mid: 0, boss: 0, field: 0 },
+    evolutions: 0,
   });
 
   function loadState() {
@@ -103,7 +110,7 @@ export function createGame(THREE) {
     if (!saved || typeof saved !== 'object') return s;
     Object.assign(s, saved);
     s.stats = Object.assign({ str: 5, dex: 5, vit: 5, int: 5 }, saved.stats || {});
-    s.souls = Object.assign({ gray: 0, green: 0, blue: 0, purple: 0 }, saved.souls || {});
+    s.souls = Object.assign({ gray: 0, green: 0, blue: 0, purple: 0, gold: 0 }, saved.souls || {});
     s.equip = Object.assign({ weapon: null, armor: null, necklace: null, ring: null, earring: null, charm: null }, saved.equip || {});
     s.bag = saved.bag || {};
     s.talents = saved.talents || [];
@@ -115,6 +122,18 @@ export function createGame(THREE) {
     s.quests = saved.quests || {};
     s.balance = mergeBalance(defaultBalance(), saved.balance || {});
     s.avatar = AVATAR_MAP[saved.avatar] ? saved.avatar : 'boyA';
+    s.avatarPicked = !!saved.avatarPicked;
+    s.heroName = typeof saved.heroName === 'string' ? saved.heroName.slice(0, 12) : '';
+    s.bossTimers = saved.bossTimers && typeof saved.bossTimers === 'object' ? saved.bossTimers : {};
+    s.bossKills = Object.assign({ mid: 0, boss: 0, field: 0 }, saved.bossKills || {});
+    s.evolutions = Number(saved.evolutions) || 0;
+    const ap = saved.appearance || {};
+    s.appearance = {
+      mode: ap.mode === 'uniform' || ap.mode === 'costume' ? ap.mode : 'armor',
+      costumeId: COSTUME_MAP[ap.costumeId] ? ap.costumeId : null,
+      unlocked: Array.isArray(ap.unlocked) ? ap.unlocked.filter((id) => COSTUME_MAP[id]) : [],
+    };
+    if (s.appearance.mode === 'costume' && !s.appearance.costumeId) s.appearance.mode = 'armor';
     s.skillbooks = saved.skillbooks && typeof saved.skillbooks === 'object' ? saved.skillbooks : {};
     const sk = saved.skills || {};
     s.skills = {
@@ -151,8 +170,7 @@ export function createGame(THREE) {
     const p = game.player;
     if (!p) return;
     if (game.playerMesh) { scene.remove(game.playerMesh); disposeGroup(game.playerMesh); }
-    const fam = game.state.equip.weapon ? game.state.equip.weapon.fam : 'slash';
-    game.playerMesh = makePlayer(THREE, fam, avatarOf(game.state.avatar));
+    game.playerMesh = makePlayer(THREE, 'sword', avatarOf(game.state.avatar), game.state.equip, game.state.appearance);
     game.playerMesh.position.set(p.x, 0, p.z);
     game.playerMesh.rotation.y = p.facing;
     scene.add(game.playerMesh);
@@ -192,13 +210,29 @@ export function createGame(THREE) {
     return {
       v: 1, level: s.level, xp: s.xp, statPts: s.statPts, gold: s.gold, stats: s.stats,
       hp: Math.round(game.player ? game.player.hp : 0),
-      avatar: s.avatar,
+      avatar: s.avatar, avatarPicked: s.avatarPicked, heroName: s.heroName,
       bag: s.bag, equip: s.equip, souls: s.souls, talents: s.talents,
       companions: s.companions, party: s.party, unlocked: s.unlocked,
       zoneKills: s.zoneKills, chestOpened: s.chestOpened, chestsFound: s.chestsFound,
       quests: s.quests, zone: s.zone, kills: s.kills, pulls: s.pulls, balance: s.balance,
       skillbooks: s.skillbooks, skills: s.skills, tutorial: s.tutorial, introSeen: s.introSeen,
+      bossTimers: s.bossTimers, bossKills: s.bossKills, evolutions: s.evolutions, appearance: s.appearance,
     };
+  };
+
+  // ---------- 캐릭터 이름 ----------
+  game.heroName = function () {
+    const s = game.state;
+    if (s && s.heroName) return s.heroName;
+    const av = avatarOf(s ? s.avatar : 'boyA');
+    return (av && av.defaultName) || '스쿨히어로';
+  };
+  game.setHeroName = function (name) {
+    const clean = String(name || '').trim().replace(/[<>]/g, '').slice(0, 12);
+    game.state.heroName = clean;
+    game.save();
+    if (game.ui) game.ui.markDirty(true);
+    return clean;
   };
 
   // 저장은 SaveAdapter를 통해서만 (게임 본체는 저장소를 모른다)
@@ -259,6 +293,18 @@ export function createGame(THREE) {
     return t;
   };
 
+  // 보유한 코스튬의 수집 보너스 (착용 여부와 무관하게 영구 합산)
+  game.costumeBonus = function () {
+    const t = { atkPct: 0, defPct: 0, hpPct: 0, crit: 0, critDmg: 0, evade: 0, moveSpeed: 0, mpPct: 0, cdr: 0 };
+    const ap = game.state.appearance || { unlocked: [] };
+    for (const id of ap.unlocked || []) {
+      const c = COSTUME_MAP[id];
+      if (!c || !c.stats) continue;
+      for (const [k, v] of Object.entries(c.stats)) if (t[k] !== undefined) t[k] += v;
+    }
+    return t;
+  };
+
   game.derived = function () {
     const s = game.state;
     const has = (id) => s.talents.includes(id);
@@ -267,20 +313,21 @@ export function createGame(THREE) {
     const wa = game.itemStats(eq.weapon).atk;
     const ad = game.itemStats(eq.armor).def;
     const opt = game.optionTotals();
+    const cos = game.costumeBonus();
     const cls = eq.weapon ? WEAPONS[eq.weapon.fam].cls : 'melee';
     let baseAtk;
     if (cls === 'magic') baseAtk = 9 + s.stats.int * 2.0;
     else if (cls === 'ranged') baseAtk = 8 + s.stats.dex * 1.7 + s.stats.str * 0.5;
     else if (eq.weapon) baseAtk = 10 + s.stats.str * 1.9 + s.stats.dex * 0.6;
     else baseAtk = 6 + s.stats.str * 0.8;
-    const atkBonus = (has('atk') ? 1.09 : 1) * (1 + opt.atkPct / 100);
-    const hpMul = (has('maxhp') ? 1.15 : 1) * (1 + opt.hpPct / 100);
+    const atkBonus = (has('atk') ? 1.09 : 1) * (1 + (opt.atkPct + cos.atkPct) / 100);
+    const hpMul = (has('maxhp') ? 1.15 : 1) * (1 + (opt.hpPct + cos.hpPct) / 100);
     const maxHp = Math.round((100 + s.stats.vit * 9 + s.level * 12) * hpMul);
     const attack = Math.round((baseAtk + wa) * atkBonus);
-    const defense = Math.round((2 + s.stats.vit * 0.55 + ad) * (1 + opt.defPct / 100));
+    const defense = Math.round((2 + s.stats.vit * 0.55 + ad) * (1 + (opt.defPct + cos.defPct) / 100));
     return {
       maxHp,
-      maxMp: 40 + s.stats.int * 7,
+      maxMp: Math.round((40 + s.stats.int * 7) * (1 + cos.mpPct / 100)),
       attack,
       baseAtk: Math.round(baseAtk),
       weaponAtk: wa,
@@ -289,11 +336,11 @@ export function createGame(THREE) {
       attackRange: w.range,
       attackCd: w.cd,
       defense,
-      critChance: Math.min(0.85, 0.05 + s.stats.dex * 0.003 + (has('crit') ? 0.06 : 0) + (opt.crit + (w.crit ? w.crit * 100 : 0)) / 100),
-      critDmg: 1.5 + s.stats.dex * 0.004 + (has('critdmg') ? 0.3 : 0) + opt.critDmg / 100,
-      evade: Math.min(0.45, s.stats.dex * 0.0022 + opt.evade / 100),
+      critChance: Math.min(0.85, 0.05 + s.stats.dex * 0.003 + (has('crit') ? 0.06 : 0) + (opt.crit + cos.crit + (w.crit ? w.crit * 100 : 0)) / 100),
+      critDmg: 1.5 + s.stats.dex * 0.004 + (has('critdmg') ? 0.3 : 0) + (opt.critDmg + cos.critDmg) / 100,
+      evade: Math.min(0.45, s.stats.dex * 0.0022 + (opt.evade + cos.evade) / 100),
       atkSpeed: (1 + s.stats.dex * 0.004) * (has('atkspeed') ? 1.12 : 1),
-      moveSpeed: 4.6 * (has('speed') ? 1.1 : 1) * (1 + opt.moveSpeed / 100) * (s.zone === 4 ? 0.92 : 1),
+      moveSpeed: 4.6 * (has('speed') ? 1.1 : 1) * (1 + (opt.moveSpeed + cos.moveSpeed) / 100) * (s.zone === 4 ? 0.92 : 1),
       magnet: 3.2 * (has('magnet') ? 1.4 : 1),
       autoloot: has('autoloot'),
       regen: has('regen') ? 1.5 : 0,
@@ -301,6 +348,8 @@ export function createGame(THREE) {
       armorResist: eq.armor ? eq.armor.fam : null,
       resist: opt.resist,
       opt,
+      costume: cos,
+      cdr: cos.cdr || 0,
     };
   };
 
@@ -351,12 +400,16 @@ export function createGame(THREE) {
       if (game.ui) game.ui.toast('한강 심해 유적에 들어가려면 수중호흡 아티팩트가 필요해요.', 'bad');
       return false;
     }
-    for (const e of game.enemies) if (e.tag && e.tag.parentNode) e.tag.parentNode.removeChild(e.tag);
+    // 이전 구역 몬스터 메시·이름표 정리 (남아 있으면 새 구역에 유령처럼 보인다)
+    for (const e of game.enemies) {
+      if (e.tag && e.tag.parentNode) e.tag.parentNode.removeChild(e.tag);
+      if (e.mesh) { scene.remove(e.mesh); disposeGroup(e.mesh); }
+    }
     if (game.ui) game.ui.clearTags();
     for (const pr of game.projectiles) scene.remove(pr.mesh);
     for (const it of game.pickups) if (it.mesh) scene.remove(it.mesh);
     for (const fx of game.effects) if (fx.mesh) disposeObj(fx.mesh);
-    for (const t of game.telegraphs) { scene.remove(t.mesh); scene.remove(t.ring); }
+    for (const t of game.telegraphs) { scene.remove(t.mesh); scene.remove(t.ring); if (t.mark) scene.remove(t.mark); }
     if (game.world) { scene.remove(game.world.group); disposeGroup(game.world.group); }
     game.compObjects && game.compObjects.forEach((c) => scene.remove(c.mesh));
     game.enemies = []; game.companions = []; game.projectiles = []; game.pickups = []; game.effects = []; game.telegraphs = [];
@@ -371,8 +424,7 @@ export function createGame(THREE) {
 
     // 플레이어
     if (game.playerMesh) { scene.remove(game.playerMesh); disposeGroup(game.playerMesh); }
-    const fam = game.state.equip.weapon ? game.state.equip.weapon.fam : 'slash';
-    game.playerMesh = makePlayer(THREE, fam, avatarOf(game.state.avatar));
+    game.playerMesh = makePlayer(THREE, 'sword', avatarOf(game.state.avatar), game.state.equip, game.state.appearance);
     scene.add(game.playerMesh);
     const d = game.derived();
     const sp = zone.spawn;
@@ -438,12 +490,35 @@ export function createGame(THREE) {
       const p = pick();
       spawnEnemy(def, p.x, p.z);
     }
-    spawnEnemy(zone.mobs.mid, zone.mid.x, zone.mid.z, true);
-    spawnEnemy(zone.mobs.boss, zone.boss.x, zone.boss.z, true);
+    // 보스는 리스폰 타이머가 지난 경우에만 등장 (중간보스 4시간 · 에픽보스 6시간 · 필드보스 24시간)
+    if (bossReady(zone.id, 'mid')) spawnEnemy(zone.mobs.mid, zone.mid.x, zone.mid.z, true);
+    if (bossReady(zone.id, 'boss')) spawnEnemy(zone.mobs.boss, zone.boss.x, zone.boss.z, true);
+    if (zone.field && bossReady(zone.id, 'field')) spawnEnemy(zone.mobs.field, zone.field.x, zone.field.z, true);
   }
 
+  // ---------- 보스 리스폰 ----------
+  game.bossRemain = function (zoneId, type) {
+    const at = (game.state.bossTimers || {})[`${zoneId}:${type}`];
+    if (!at) return 0;
+    return Math.max(0, at - Date.now());
+  };
+  game.bossReady = bossReady;
+  function bossReady(zoneId, type) {
+    return game.bossRemain(zoneId, type) <= 0;
+  }
+  game.bossStatus = function (zoneId) {
+    const zone = PLAYABLE.find((z) => z.id === zoneId);
+    if (!zone) return [];
+    const list = [
+      { type: 'mid', name: zone.mobs.mid.name, lv: zone.scale.lvl + 1 },
+      { type: 'boss', name: zone.mobs.boss.name, lv: zone.scale.lvl + 3 },
+    ];
+    if (zone.field) list.push({ type: 'field', name: zone.mobs.field.name, lv: zone.scale.lvl + 5 });
+    return list.map((b) => ({ ...b, remain: game.bossRemain(zoneId, b.type), total: BOSS_TIMER[b.type] || 0, label: BOSS_LABEL[b.type] }));
+  };
+
   function enemyLevel(def, zone) {
-    return Math.max(1, zone.scale.lvl + (def.boss === 'boss' ? 3 : def.boss === 'mid' ? 1 : def.elite ? 1 : 0));
+    return Math.max(1, zone.scale.lvl + (def.boss === 'field' ? 5 : def.boss === 'boss' ? 3 : def.boss === 'mid' ? 1 : def.elite ? 1 : 0));
   }
 
   function spawnEnemy(def, x, z, fixed = false) {
@@ -460,9 +535,11 @@ export function createGame(THREE) {
       stunT: 0, slowT: 0, reward: { xp: ov.xp, gold: ov.gold },
       headY: mesh.userData.headY || 1, state: 'idle', wanderT: Math.random() * 2,
       wander: { x, z }, atkCd: 1 + Math.random(), hitFlash: 0, alive: true,
-      isBoss: def.boss === 'boss', isMid: def.boss === 'mid', elite: !!def.elite,
-      level: lvl, tag: null, floatT: Math.random() * 6, telegraphT: 3 + Math.random() * 2,
-      summonDone: false, deadT: 0, facing: 0, fixed,
+      isBoss: def.boss === 'boss', isMid: def.boss === 'mid', isField: def.boss === 'field',
+      elite: !!def.elite,
+      level: lvl, tag: null, floatT: Math.random() * 6, telegraphT: 9 + Math.random() * 4,
+      skillCd: 2.5 + Math.random() * 2.5,
+      summonDone: false, deadT: 0, facing: Math.PI, fixed,
       targetType: 'player', leashing: false, knockT: 0,
     };
     mesh.userData.ref = e;
@@ -561,36 +638,42 @@ export function createGame(THREE) {
 
   function dropLoot(e) {
     const zone = game.zone;
-    const luck = game.derived().lootBonus;
-    const ov = game.mobStats(zone.id, e.def);
-    addPickup('gold', e.x, e.z, Math.max(1, Math.round(ov.gold * (0.85 + Math.random() * 0.3))));
-    // 영혼
-    const sr = Math.random();
-    if (e.isBoss) addPickup('soul', e.x, e.z, 'purple');
-    else if (e.isMid) addPickup('soul', e.x, e.z, sr < 0.35 ? 'purple' : 'blue');
-    else if (e.elite) { if (sr < 0.85) addPickup('soul', e.x, e.z, 'green'); else if (sr < 0.93) addPickup('soul', e.x, e.z, 'blue'); }
-    else if (sr < 0.38) addPickup('soul', e.x, e.z, 'gray');
-    const wfams = Object.keys(WEAPONS);
-    // 중간보스: 방어구 확정 드롭
-    if (e.isMid) {
-      const fam = Object.keys(ARMOR_KINDS)[Math.floor(Math.random() * 4)];
-      addPickup('item', e.x, e.z, { kind: 'armor', fam, grade: rollGrade(zone, 2) });
+    // 등급별 보상 개편
+    // 일반: 경험치 + 일반 영혼 / 정예(녹색): 녹색 등급 장비 1개 + 정예 영혼
+    // 중간보스(파랑): 파란 영혼 + 파란 등급 장비 1개 / 에픽보스(보라): 보라 영혼 + 보라 등급 장비 1개
+    // 지역 필드보스(노랑): 특수(지역 보스) 영혼 + 노란 등급 장비 1개
+    if (!e.elite && !e.isMid && !e.isBoss && !e.isField) {
+      addPickup('soul', e.x, e.z, 'gray');
+      return;
     }
-    // 보스: 악세서리 확정 드롭
-    if (e.isBoss) {
-      const fam = Object.keys(ACCESSORY_KINDS)[Math.floor(Math.random() * 3)];
-      addPickup('item', e.x, e.z, { kind: 'accessory', fam, grade: rollGrade(zone, 3) });
+    addPickup('gold', e.x, e.z, Math.max(1, Math.round(game.mobStats(zone.id, e.def).gold * (0.85 + Math.random() * 0.3))));
+    if (e.isField) {
+      addPickup('soul', e.x, e.z, 'gold');
+      addPickup('item', e.x, e.z, { kind: pickKind(), fam: pickFam(pickKind()), grade: 4 });
+    } else if (e.isBoss) {
+      addPickup('soul', e.x, e.z, 'purple');
+      addPickup('item', e.x, e.z, { kind: pickKind(), fam: pickFam(pickKind()), grade: 3 });
+    } else if (e.isMid) {
+      addPickup('soul', e.x, e.z, 'blue');
+      addPickup('item', e.x, e.z, { kind: pickKind(), fam: pickFam(pickKind()), grade: 2 });
+    } else if (e.elite) {
+      addPickup('soul', e.x, e.z, 'green');
+      // 반복 처치해도 항상 녹색(고급) 등급 장비 1개
+      addPickup('item', e.x, e.z, { kind: pickKind(), fam: pickFam(pickKind()), grade: 1 });
     }
-    // 무기 드롭
-    const chance = (e.isBoss ? 0.9 : e.isMid ? 0.6 : e.elite ? 0.3 : 0.08) * luck;
-    if (Math.random() < chance) {
-      const fam = wfams[Math.floor(Math.random() * wfams.length)];
-      const g = rollGrade(zone, e.isBoss ? 3 : e.isMid ? 2 : 0);
-      addPickup('item', e.x, e.z, { kind: 'weapon', fam, grade: g });
-    }
-    // 스킬북 드롭: 구역 보스는 확정, 중간보스는 확률
+    // 스킬북: 구역 보스는 확정, 중간보스는 확률
     const bookChance = e.isBoss ? 1 : e.isMid ? 0.45 : 0;
     if (bookChance && Math.random() < bookChance) dropSkillBook(e.x, e.z);
+  }
+
+  function pickKind() {
+    const r = Math.random();
+    return r < 0.45 ? 'weapon' : r < 0.8 ? 'armor' : 'accessory';
+  }
+  function pickFam(kind) {
+    if (kind === 'weapon') { const k = Object.keys(WEAPONS); return k[Math.floor(Math.random() * k.length)]; }
+    if (kind === 'armor') { const k = Object.keys(ARMOR_KINDS); return k[Math.floor(Math.random() * k.length)]; }
+    const k = Object.keys(ACCESSORY_KINDS); return k[Math.floor(Math.random() * k.length)];
   }
 
   function unlearnedSkills() {
@@ -624,6 +707,7 @@ export function createGame(THREE) {
     dmg = Math.max(1, Math.round(dmg * (0.9 + Math.random() * 0.2)));
     e.hp -= dmg;
     e.hitFlash = 0.14;
+    if (e.mesh && e.mesh.userData.isSprite && e.mesh.userData.hit) e.mesh.userData.hit();
     e.state = 'chase';
     e.leashing = false;
     // 타격감: 짧은 넉백 + 흔들림 + 카메라 진동
@@ -641,7 +725,7 @@ export function createGame(THREE) {
     game.lastHit = { dmg, crit, at: game.time, heavy: !!opts.heavy, enemy: e.def.key };
     if (game.ui) {
       game.ui.damageNumber(e.x, e.headY, e.z, crit ? `${dmg}!` : dmg, crit ? 'crit' : '');
-      if (e.isBoss || e.isMid) game.ui.updateBossBar(e);
+      if (e.isBoss || e.isMid || e.isField) game.ui.updateBossBar(e);
     }
     if (e.hp <= 0) killEnemy(e);
     return dmg;
@@ -677,20 +761,39 @@ export function createGame(THREE) {
     }
     // 퀘스트 진행
     questKill(e);
-    // 경험치 · 골드 보상 표기
+    // 보상 표기
     const ov = game.mobStats(zone.id, e.def);
     const xp = Math.round(ov.xp);
     game.gainXp(xp);
     game.gainCompanionXp(Math.round(xp * 0.6));
     game.save();
-    if (game.ui) game.ui.rewardText(e.x, e.headY + 0.3, e.z, `+${fmtNum(xp)} XP  +${fmtNum(ov.gold)} G`);
+    const normal = !e.elite && !e.isMid && !e.isBoss && !e.isField;
+    if (game.ui) game.ui.rewardText(e.x, e.headY + 0.3, e.z, normal ? `+${fmtNum(xp)} XP` : `+${fmtNum(xp)} XP  +${fmtNum(ov.gold)} G`);
     dropLoot(e);
+    // 보스 리스폰 타이머 기록
+    const btype = e.isField ? 'field' : e.isBoss ? 'boss' : e.isMid ? 'mid' : null;
+    if (btype) {
+      game.state.bossTimers = game.state.bossTimers || {};
+      game.state.bossTimers[`${zone.id}:${btype}`] = Date.now() + (BOSS_TIMER[btype] || 0);
+      game.state.bossKills[btype] = (game.state.bossKills[btype] || 0) + 1;
+      game.save(); game.flushSave();
+      if (game.ui) game.ui.toast(`${e.def.name} 처치! 다음 등장까지 ${fmtRemain(BOSS_TIMER[btype])}`, 'gold');
+    }
     // 사망 연출
+    if (e.isField) { game.camShake = 0.9; if (game.ui) game.ui.toast(`${zone.name} 지역 필드보스 처치!`, 'gold'); }
     if (e.isBoss) { game.camShake = 0.7; if (game.ui) game.ui.toast(`${zone.mobs.boss.name} 처치!`, 'gold'); }
     if (e.isMid && game.ui) game.ui.toast(`${zone.mobs.mid.name} 처치!`, 'gold');
-    if (e.isBoss) bossDefeated();
+    if (e.isBoss || e.isField) bossDefeated();
     if (game.ui) game.ui.updateBossBar(null);
   }
+
+  function fmtRemain(ms) {
+    const s = Math.max(0, Math.round(ms / 1000));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+    if (h >= 24) return `${Math.floor(h / 24)}일 ${h % 24}시간`;
+    return `${h}시간 ${String(m).padStart(2, '0')}분`;
+  }
+  game.fmtRemain = fmtRemain;
 
   function fmtNum(n) { return Math.round(n).toLocaleString('ko-KR'); }
 
@@ -712,10 +815,16 @@ export function createGame(THREE) {
     if (!q || !q.accepted || q.done) return;
     const step = zone.quests.steps[q.step];
     if (!step) return;
-    if (step.type === 'kill') q.progress = Math.min(step.n, q.progress + 1);
-    else if (step.type === 'mid' && e.isMid) q.progress = 1;
-    else if (step.type === 'boss' && e.isBoss) q.progress = 1;
-    if (q.progress >= step.n && game.ui) game.ui.toast('퀘스트 목표 달성! NPC에게 돌아가세요.', 'good');
+    let advanced = false;
+    if (step.type === 'kill') { q.progress = Math.min(step.n, q.progress + 1); advanced = true; }
+    else if (step.type === 'mid' && e.isMid) { q.progress = step.n; advanced = true; }
+    else if (step.type === 'boss' && e.isBoss) { q.progress = step.n; advanced = true; }
+    if (advanced) game.save();
+    if (q.progress >= step.n && !q._notified) {
+      q._notified = true;
+      if (game.ui) game.ui.toast('퀘스트 목표 달성! NPC에게 돌아가 보상을 받으세요.', 'good');
+      if (game.ui) game.ui.markDirty(true);
+    }
   }
 
   game.gainXp = function (n) {
@@ -791,11 +900,12 @@ export function createGame(THREE) {
     }
     if (p.combatT > 0) p.combatT -= dt;
     if (game.tutorialHook && Math.hypot(p.x - beforeX, p.z - beforeZ) > 0.02) game.tutorialHook('move');
-    // 캐릭터 애니메이션 (무기 계열별 모션)
+    // 캐릭터 애니메이션 (탑뷰 도트 프레임 · 무기 계열별 모션)
     const m = game.playerMesh;
-    m.position.set(p.x, Math.abs(Math.sin(p.walkT)) * (p.moving ? 0.06 : 0.01), p.z);
+    m.position.set(p.x, 0, p.z);
     m.rotation.y = p.facing;
-    animateArm(p, m, dt);
+    if (m.userData.animate) m.userData.animate(p, dt);
+    else animateArm(p, m, dt);
   }
 
   // 무기별 공격 모션: 검 가로 베기 · 단검 찌르기 · 도끼/둔기 내려찍기 · 활/석궁 조준 · 지팡이/책 시전
@@ -956,7 +1066,7 @@ export function createGame(THREE) {
   function weaponSwingFx(fam, p, a, W, hits) {
     if (fam === 'sword') {
       const arc = 2.2;
-      const g = arcMesh(W.range, arc, 0xeaf6ff, 0.9, 0.5);
+      const g = arcMesh(W.range, arc, 0xbfe8ff, 0.9, 0.5);
       g.position.set(p.x, 0.18, p.z);
       g.rotation.y = a - 0.35;
       addFx(g, 0.24, (fx, k) => {
@@ -1028,10 +1138,75 @@ export function createGame(THREE) {
       g.position.set(p.x + Math.sin(a) * 0.45, 1.1, p.z + Math.cos(a) * 0.45);
       addFx(g, 0.16, (fx, k) => { g.scale.setScalar(1 + (1 - k) * 1.6); g.material.opacity = k * 0.85; }, fam + ':' + (fam === 'staff' || fam === 'book' ? 'cast' : 'shot'));
     }
+    // 무기별 개성 추가 연출
+    if (fam === 'sword') {
+      for (let i = 0; i < 6; i++) {
+        const sp = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.02, 0.3), fxMat(0xbfe6ff, 0.9));
+        const ang = a - 0.5 + i * 0.18;
+        sp.position.set(p.x + Math.sin(ang) * W.range * 0.9, 0.5 + Math.random() * 0.6, p.z + Math.cos(ang) * W.range * 0.9);
+        sp.rotation.y = ang;
+        addFx(sp, 0.3, (fx, k) => { sp.position.y = 0.5 + (1 - k) * 0.7; sp.material.opacity = k; }, 'sword:spark');
+      }
+    } else if (fam === 'dagger') {
+      for (let i = 0; i < 3; i++) {
+        const streak = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, W.range * 0.7), fxMat(0xfff0b0, 0.8));
+        const off = (i - 1) * 0.22;
+        streak.position.set(p.x + Math.sin(a + off) * W.range * 0.5, 0.9 + i * 0.12, p.z + Math.cos(a + off) * W.range * 0.5);
+        streak.rotation.y = a + off;
+        addFx(streak, 0.16, (fx, k) => { streak.material.opacity = k * 0.8; streak.scale.z = 0.6 + (1 - k) * 0.7; }, 'dagger:streak');
+      }
+    } else if (fam === 'axe') {
+      for (let i = 0; i < 6; i++) {
+        const rock = new THREE.Mesh(new THREE.TetrahedronGeometry(0.1), fxMat(0xb08a5a, 0.9));
+        const ang = a + (Math.random() - 0.5) * 1.2;
+        rock.position.set(p.x + Math.sin(ang) * 1.2, 0.4, p.z + Math.cos(ang) * 1.2);
+        const sp2 = 1 + Math.random();
+        addFx(rock, 0.45, (fx, k) => {
+          const t = 1 - k;
+          rock.position.y = 0.4 + t * 1.1 - t * t * 2.2;
+          rock.position.x = p.x + Math.sin(ang) * (1.2 + t * sp2);
+          rock.position.z = p.z + Math.cos(ang) * (1.2 + t * sp2);
+          rock.rotation.x += 0.3;
+          rock.material.opacity = k;
+        }, 'axe:debris');
+      }
+    } else if (fam === 'bow' || fam === 'crossbow') {
+      const flash = flatRing(p.x + Math.sin(a) * 0.6, p.z + Math.cos(a) * 0.6, 0.1, 0.35, fam === 'bow' ? 0xffe0a0 : 0x9fe8ff, 0.9, 0.9);
+      addFx(flash, 0.2, (fx, k) => { flash.scale.setScalar(1 + (1 - k) * 1.4); flash.material.opacity = k; }, fam + ':muzzle');
+      if (fam === 'crossbow') {
+        for (const off of [-0.12, 0.12]) {
+          const tr = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 1.2), fxMat(0xbfe6ff, 0.55));
+          tr.position.set(p.x + Math.sin(a + off) * 1.4, 1.0, p.z + Math.cos(a + off) * 1.4);
+          tr.rotation.y = a + off;
+          addFx(tr, 0.18, (fx, k) => { tr.material.opacity = k * 0.6; }, 'crossbow:tracer');
+        }
+      }
+    } else if (fam === 'staff') {
+      const circle = flatRing(p.x, p.z, 0.7, 1.15, 0xb58cff, 0.85, 0.12);
+      addFx(circle, 0.5, (fx, k) => { circle.rotation.z += 0.3; circle.scale.setScalar(1 + (1 - k) * 0.5); circle.material.opacity = k * 0.85; }, 'staff:circle');
+      for (let i = 0; i < 4; i++) {
+        const rune = new THREE.Mesh(new THREE.OctahedronGeometry(0.09), fxMat(0xe0c8ff, 0.95));
+        const ang = (i / 4) * TAU + game.time;
+        rune.position.set(p.x + Math.cos(ang) * 1.0, 0.3 + (i % 2) * 0.4, p.z + Math.sin(ang) * 1.0);
+        addFx(rune, 0.4, (fx, k) => { rune.position.y = 0.3 + (1 - k) * 0.9; rune.material.opacity = k; }, 'staff:rune');
+      }
+    } else if (fam === 'book') {
+      for (let i = 0; i < 3; i++) {
+        const page = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.02, 0.26), fxMat(0x9ff0ff, 0.9));
+        const ang = a + (i - 1) * 0.5;
+        page.position.set(p.x + Math.sin(ang) * 0.7, 1.0 + i * 0.2, p.z + Math.cos(ang) * 0.7);
+        page.rotation.set(Math.random(), ang, Math.random());
+        addFx(page, 0.5, (fx, k) => {
+          page.position.y = 1.0 + (1 - k) * 1.2 + i * 0.15;
+          page.rotation.y += 0.12;
+          page.material.opacity = Math.min(1, k * 1.5);
+        }, 'book:page');
+      }
+    }
     if (hits && hits.length) {
       for (const e of hits.slice(0, 2)) {
-        const ring = flatRing(e.x, e.z, e.radius * 0.8, e.radius * 1.2, 0xffffff, 0.7, 0.1);
-        addFx(ring, 0.22, (fx, k) => { ring.scale.setScalar(1 + (1 - k) * 1.6); ring.material.opacity = k * 0.7; }, 'hit:ring');
+        const ring = flatRing(e.x, e.z, e.radius * 0.8, e.radius * 1.2, 0xfff6d0, 0.75, 0.1);
+        addFx(ring, 0.22, (fx, k) => { ring.scale.setScalar(1 + (1 - k) * 1.6); ring.material.opacity = k * 0.75; }, 'hit:ring');
       }
     }
   }
@@ -1194,6 +1369,19 @@ export function createGame(THREE) {
   }
 
   // ---------- 몬스터 AI ----------
+  // 스프라이트/모델 모두 같은 자리에 그린다 (보스 몸체·이름표 동기화)
+  function placeEnemy(e) {
+    if (!e.mesh) return;
+    const jitter = e.knockT > 0 || e.hitFlash > 0 ? (Math.random() - 0.5) * 0.07 : 0;
+    e.mesh.position.set(e.x + jitter, 0, e.z + jitter);
+    if (e.mesh.userData.isSprite) {
+      if (e.mesh.userData.update) e.mesh.userData.update(game.time, e, camera);
+      if (e.tag) e.tag.style.opacity = '1';
+    } else {
+      e.mesh.rotation.y = e.facing;
+    }
+  }
+
   function updateEnemies(dt) {
     const p = game.player;
     if (!p || !p.alive) return;
@@ -1201,8 +1389,12 @@ export function createGame(THREE) {
       if (!e.alive) {
         e.deadT += dt;
         if (e.deadT < 0.45) {
-          e.mesh.rotation.z = Math.min(1.4, e.deadT * 5);
-          e.mesh.position.y = -Math.min(0.6, e.deadT * 1.2);
+          if (e.mesh.userData.isSprite) {
+            if (e.mesh.userData.update) e.mesh.userData.update(game.time, e, camera);
+          } else {
+            e.mesh.rotation.z = Math.min(1.4, e.deadT * 5);
+            e.mesh.position.y = -Math.min(0.6, e.deadT * 1.2);
+          }
           if (e.tag) e.tag.style.opacity = String(Math.max(0, 1 - e.deadT * 3));
         } else if (e.mesh.parent) {
           scene.remove(e.mesh);
@@ -1213,17 +1405,17 @@ export function createGame(THREE) {
       }
       e.floatT += dt;
       if (e.slowT > 0) e.slowT -= dt;
+      if (e.skillCd > 0) e.skillCd -= dt;
       if (e.stunT > 0) {
         e.stunT -= dt;
-        e.mesh.rotation.y += dt * 6;
-        const bobS = e.mesh.userData.float ? 0.25 + Math.sin(e.floatT * 2) * 0.1 : 0;
-        e.mesh.position.set(e.x, bobS + Math.abs(Math.sin(e.floatT * 8)) * 0.03, e.z);
+        e.facing += dt * 6;
+        placeEnemy(e);
         continue;
       }
       // 흰색 히트 플래시
       if (e.hitFlash > 0) {
         e.hitFlash -= dt;
-        e.mesh.traverse((o) => { if (o.isMesh && o.material && o.material.emissive) o.material.emissive.setHex(e.hitFlash > 0 ? 0xffffff : 0x000000); });
+        if (!e.mesh.userData.isSprite) e.mesh.traverse((o) => { if (o.isMesh && o.material && o.material.emissive) o.material.emissive.setHex(e.hitFlash > 0 ? 0xffffff : 0x000000); });
       }
       // 탱커 어그로가 끊기면 플레이어로
       const tank = game.tank;
@@ -1248,19 +1440,18 @@ export function createGame(THREE) {
         if (hd > 0.6) {
           const spd = e.speed * (e.slowT > 0 ? 0.5 : 1) * 1.1;
           moveEnemy(e, (hx / hd) * spd * dt, (hz / hd) * spd * dt);
-          e.mesh.rotation.y = Math.atan2(hx, hz);
+          e.facing = Math.atan2(hx, hz);
           if (e.hp < e.maxHp) e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.16 * dt);
         } else {
           e.state = 'idle';
           e.hp = e.maxHp;
           e.leashing = false;
         }
-        const bobR = e.mesh.userData.float ? 0.25 + Math.sin(e.floatT * 2) * 0.1 : 0;
-        e.mesh.position.set(e.x, bobR + Math.abs(Math.sin(e.floatT * 6)) * 0.04, e.z);
+        placeEnemy(e);
         continue;
       }
       e.leashing = false;
-      if (e.def.boss) { updateBossAI(e, dt, dd, dx, dz); continue; }
+      if (e.def.boss) { updateBossAI(e, dt, dd, dx, dz); placeEnemy(e); continue; }
 
       const spd = e.speed * (e.slowT > 0 ? 0.5 : 1);
       if (e.state === 'idle') {
@@ -1274,7 +1465,7 @@ export function createGame(THREE) {
         const wd = Math.hypot(wdx, wdz);
         if (wd > 0.4) {
           moveEnemy(e, (wdx / wd) * spd * 0.42 * dt, (wdz / wd) * spd * 0.42 * dt);
-          e.mesh.rotation.y = Math.atan2(wdx, wdz);
+          e.facing = Math.atan2(wdx, wdz);
         }
         if (dd < e.def.aggro && dd > 0.1) e.state = 'chase';
       } else if (e.state === 'chase') {
@@ -1282,7 +1473,7 @@ export function createGame(THREE) {
         const stop = e.def.atkRange * 0.85 + e.radius * 0.4;
         if (dd > stop) {
           moveEnemy(e, (dx / dd) * spd * dt, (dz / dd) * spd * dt);
-          e.mesh.rotation.y = Math.atan2(dx, dz);
+          e.facing = Math.atan2(dx, dz);
         }
         e.atkCd -= dt;
         if (dd <= e.def.atkRange + e.radius && e.atkCd <= 0) {
@@ -1291,10 +1482,8 @@ export function createGame(THREE) {
         }
       }
       // 이동 애니메이션 (+ 피격 흔들림)
-      const jitter = e.knockT > 0 || e.hitFlash > 0 ? (Math.random() - 0.5) * 0.08 : 0;
       if (e.knockT > 0) e.knockT -= dt;
-      const bob = e.mesh.userData.float ? 0.25 + Math.sin(e.floatT * 2) * 0.12 : 0;
-      e.mesh.position.set(e.x + jitter, bob + Math.abs(Math.sin(e.floatT * 6)) * 0.04, e.z + jitter);
+      placeEnemy(e);
     }
     if (game.enemies.some((e) => e.gone)) game.enemies = game.enemies.filter((e) => !e.gone);
     // 서로 밀어내기
@@ -1346,7 +1535,17 @@ export function createGame(THREE) {
       return;
     }
     if (style === 'aoe') {
-      addTelegraph(tx, tz, e.def.boss === 'boss' ? 4.2 : 3.2, 1.25, e.atk * 1.5, e);
+      // 스킬 쿨다운을 두어 광역기를 너무 자주 쓰지 않게 한다
+      if ((e.skillCd || 0) > 0) {
+        const ddm = Math.hypot(tx - e.x, tz - e.z);
+        if (ddm < e.def.atkRange + e.radius + 0.6) {
+          if (useTank) damageCompanion(tank, e.atk * 0.7);
+          else game.damagePlayer(e.atk * 0.7, e);
+        }
+        return;
+      }
+      e.skillCd = e.isField ? 13 : e.isBoss ? 11 : e.isMid ? 9 : 8 + Math.random() * 3;
+      addTelegraph(tx, tz, e.def.boss === 'field' ? 5.4 : e.def.boss === 'boss' ? 4.2 : 3.2, 1.35, e.atk * 1.5, e);
       return;
     }
     // 근접
@@ -1384,7 +1583,7 @@ export function createGame(THREE) {
       const hd = Math.hypot(hx, hz) || 1;
       if (hd > 1) {
         moveEnemy(e, (hx / hd) * e.speed * dt, (hz / hd) * e.speed * dt);
-        e.mesh.rotation.y = Math.atan2(hx, hz);
+        e.facing = Math.atan2(hx, hz);
       }
       if (e.hp < e.maxHp) e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.06 * dt);
       e.state = 'idle';
@@ -1394,16 +1593,16 @@ export function createGame(THREE) {
     e.telegraphT -= dt;
     if (dd > e.def.atkRange * 0.9 + e.radius) {
       moveEnemy(e, (dx / dd) * e.speed * dt, (dz / dd) * e.speed * dt);
-      e.mesh.rotation.y = Math.atan2(dx, dz);
+      e.facing = Math.atan2(dx, dz);
     } else {
-      e.mesh.rotation.y = Math.atan2(dx, dz);
+      e.facing = Math.atan2(dx, dz);
       e.atkCd -= dt;
       if (e.atkCd <= 0) { enemyAttack(e); e.atkCd = e.def.atkCd; }
     }
-    // 강공격 텔레그래프
-    if (e.telegraphT <= 0 && dd < 16) {
-      e.telegraphT = e.isBoss ? 6.5 : 5.0;
-      addTelegraph(p.x, p.z, e.isBoss ? 4.6 : 3.6, 1.35, e.atk * 1.9, e);
+    // 강공격 텔레그래프 (빈도 완화)
+    if (e.telegraphT <= 0 && dd < 15) {
+      e.telegraphT = e.isField ? 16 : e.isBoss ? 13 : 10;
+      addTelegraph(p.x, p.z, e.isField ? 5.6 : e.isBoss ? 4.6 : 3.6, 1.5, e.atk * 1.9, e);
     }
     // 50% 이하 소환
     if (e.isBoss && !e.summonDone && e.hp < e.maxHp * 0.5) {
@@ -1418,16 +1617,20 @@ export function createGame(THREE) {
   }
 
   function addTelegraph(x, z, r, time, dmg, source) {
+    // 지형·풀에 가려지지 않도록 바닥 위로 띄우고 깊이검사를 끈다
     const mesh = new THREE.Mesh(
       new THREE.CircleGeometry(r, 30),
-      new THREE.MeshBasicMaterial({ color: 0xff2f45, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false })
+      new THREE.MeshBasicMaterial({ color: 0xff2f45, transparent: true, opacity: 0.34, side: THREE.DoubleSide, depthWrite: false, depthTest: false })
     );
     mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(x, 0.06, z);
+    mesh.position.set(x, 0.3, z);
+    mesh.renderOrder = 12;
     scene.add(mesh);
-    const ring = new THREE.Mesh(new THREE.RingGeometry(r * 0.92, r, 34), new THREE.MeshBasicMaterial({ color: 0xff6b6b, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
-    ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.09, z); scene.add(ring);
-    game.telegraphs.push({ mesh, ring, x, z, r, t: 0, max: time, dmg, source, done: false });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(r * 0.92, r, 34), new THREE.MeshBasicMaterial({ color: 0xff8a8a, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
+    ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.31, z); ring.renderOrder = 13; scene.add(ring);
+    const mark = new THREE.Mesh(new THREE.RingGeometry(r * 0.12, r * 0.2, 20), new THREE.MeshBasicMaterial({ color: 0xffd0d0, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
+    mark.rotation.x = -Math.PI / 2; mark.position.set(x, 0.31, z); mark.renderOrder = 13; scene.add(mark);
+    game.telegraphs.push({ mesh, ring, mark, x, z, r, t: 0, max: time, dmg, source, done: false });
   }
 
   function updateTelegraphs(dt) {
@@ -1446,9 +1649,10 @@ export function createGame(THREE) {
         game.camShake = 0.32;
       }
       if (t.t >= t.max + 0.18) {
-        scene.remove(t.mesh); scene.remove(t.ring);
+        scene.remove(t.mesh); scene.remove(t.ring); scene.remove(t.mark);
         t.mesh.geometry.dispose(); t.mesh.material.dispose();
         t.ring.geometry.dispose(); t.ring.material.dispose();
+        if (t.mark) { t.mark.geometry.dispose(); t.mark.material.dispose(); }
         t.remove = true;
       }
     }
@@ -1492,7 +1696,7 @@ export function createGame(THREE) {
         e.mesh.position.set(e.x, 0, e.z);
       }
     }
-    for (const t of game.telegraphs) { scene.remove(t.mesh); scene.remove(t.ring); }
+    for (const t of game.telegraphs) { scene.remove(t.mesh); scene.remove(t.ring); if (t.mark) scene.remove(t.mark); }
     game.telegraphs = [];
     for (const pr of game.projectiles) if (pr.from === 'enemy') scene.remove(pr.mesh);
     game.projectiles = game.projectiles.filter((pr) => pr.from !== 'enemy');
@@ -1747,7 +1951,7 @@ export function createGame(THREE) {
     const target = nearestEnemyFrom(p.x, p.z, def.radius ? def.radius + 1.5 : (def.range || 8));
     if (!isHeal && !target) return { ok: false, reason: 'target' };
     p.mp = Math.max(0, mp - def.mp);
-    s.cds[id] = def.cd;
+    s.cds[id] = def.cd * (1 - Math.min(40, d.cdr || 0) / 100);
     p.atkAnimMax = isHeal ? 0.34 : 0.3;
     p.atkAnim = p.atkAnimMax;
     p.atkKind = isHeal ? 'cast' : 'skill';
@@ -1933,8 +2137,8 @@ export function createGame(THREE) {
   }
 
   function addPoisonPool(x, z, dmg) {
-    const pool = new THREE.Mesh(new THREE.CircleGeometry(2.2, 20), new THREE.MeshBasicMaterial({ color: 0x7ad64a, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }));
-    pool.rotation.x = -Math.PI / 2; pool.position.set(x, 0.05, z); scene.add(pool);
+    const pool = new THREE.Mesh(new THREE.CircleGeometry(2.2, 20), new THREE.MeshBasicMaterial({ color: 0x7ad64a, transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
+    pool.rotation.x = -Math.PI / 2; pool.position.set(x, 0.26, z); pool.renderOrder = 10; scene.add(pool);
     game.effects.push({ mesh: pool, kind: 'pool', x, z, r: 2.2, life: 4.5, max: 4.5, tick: 0, dmg: dmg * 0.6 });
   }
 
@@ -2006,48 +2210,98 @@ export function createGame(THREE) {
   function gradeCss(g) { return g >= 4 ? 'gold' : g >= 2 ? 'good' : ''; }
 
   // ---------- 보관함 ----------
+  // 가까이 가면 [열기] 버튼이 뜨고, 눌러야 열린다.
   function updateChests(dt) {
     const p = game.player;
     if (!p) return;
+    let near = null, best = 3.0;
     for (const c of game.world.chests) {
       if (c.opened) continue;
       const dd = Math.hypot(p.x - c.x, p.z - c.z);
-      if (dd < 2.1) {
-        c.opened = true;
-        c.mesh.userData.lid.rotation.x = -1.9;
-        if (!game.state.chestOpened.includes(c.id)) {
-          game.state.chestOpened.push(c.id);
-          game.state.chestsFound = Math.min(SECRET_TOTAL, (game.state.chestsFound || 0) + 1);
-          giveChestReward();
-          if (game.ui) game.ui.showChestBubble(game.state.chestsFound, SECRET_TOTAL);
-        }
-        game.save();
-      }
+      if (dd < 2.6 && dd < best) { best = dd; near = c; }
+    }
+    if (near !== game.nearChest) {
+      game.nearChest = near;
+      if (game.ui) game.ui.updateChestPrompt(near);
+    }
+    // 여는 연출
+    for (const c of game.world.chests) {
+      if (c.opening == null || c.opening >= 1) continue;
+      c.opening = Math.min(1, c.opening + dt * 3.4);
+      const k = c.opening;
+      const lid = c.mesh.userData.lid;
+      lid.rotation.x = -1.9 * k;
+      lid.position.z = -0.3 - 0.05 * k;
+      c.mesh.position.y = Math.sin(k * Math.PI) * 0.08;
     }
   }
+
+  game.openChest = function (c) {
+    if (!c || c.opened) return false;
+    c.opened = true;
+    c.opening = 0;
+    if (!game.state.chestOpened.includes(c.id)) {
+      game.state.chestOpened.push(c.id);
+      game.state.chestsFound = Math.min(SECRET_TOTAL, (game.state.chestsFound || 0) + 1);
+      const reward = giveChestReward();
+      // 보상 연출
+      const gold = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), fxMat(0xffd257, 0.95));
+      gold.position.set(c.x, 0.7, c.z);
+      addFx(gold, 0.75, (fx, k) => {
+        gold.position.y = 0.7 + (1 - k) * 1.5;
+        gold.position.x = c.x + Math.sin((1 - k) * 6) * 0.4;
+        gold.material.opacity = k;
+      }, 'chest:gold');
+      const ring = flatRing(c.x, c.z, 0.4, 1.0, 0xffe08a, 0.95, 0.12);
+      addFx(ring, 0.6, (fx, k) => { ring.scale.setScalar(1 + (1 - k) * 2.6); ring.material.opacity = k * 0.9; }, 'chest:ring');
+      dustBurst(c.x, c.z, 0xffd257, 10);
+      for (let i = 0; i < 8; i++) {
+        const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.03, 8), fxMat(0xffcf4d, 0.95));
+        const a = (i / 8) * TAU;
+        coin.position.set(c.x, 0.7, c.z);
+        addFx(coin, 0.9, (fx, k) => {
+          const t = 1 - k;
+          coin.position.set(c.x + Math.cos(a) * t * 1.6, 0.7 + t * 1.4 - t * t * 2.2, c.z + Math.sin(a) * t * 1.6);
+          coin.rotation.x += 0.2;
+          coin.material.opacity = Math.min(1, k * 1.4);
+        }, 'chest:coin');
+      }
+      if (game.ui) {
+        game.ui.updateChestPrompt(null);
+        game.ui.showChestBubble(game.state.chestsFound, SECRET_TOTAL);
+        game.ui.toast(reward.msg, reward.grade >= 3 ? 'gold' : 'good');
+        game.ui.markDirty(true);
+      }
+    }
+    game.save();
+    game.flushSave();
+    return true;
+  };
 
   function giveChestReward() {
     const s = game.state;
     const r = Math.random();
     if (r < 0.4) {
-      s.gold += 80 + Math.round(Math.random() * 120) * game.zone.id;
-      if (game.ui) game.ui.toast('보관함: 골드를 획득했어요.', 'gold');
-    } else if (r < 0.7) {
-      const kind = Math.random() < 0.6 ? 'weapon' : 'armor';
-      const fam = kind === 'weapon' ? Object.keys(WEAPONS)[Math.floor(Math.random() * 4)] : Object.keys(ARMOR_KINDS)[Math.floor(Math.random() * 4)];
-      const g = Math.min(5, 1 + Math.floor(Math.random() * 3) + (game.zone.id > 2 ? 1 : 0));
+      const g = 80 + Math.round(Math.random() * 120) * game.zone.id;
+      s.gold += g;
+      return { msg: `보관함: 골드 +${g}`, grade: 1 };
+    }
+    if (r < 0.72) {
+      const kind = pickKind();
+      const fam = pickFam(kind);
+      const g = Math.min(4, 1 + Math.floor(Math.random() * 3) + (game.zone.id > 2 ? 1 : 0));
       game.addItem(kind, fam, g);
-      if (game.ui) game.ui.toast(`보관함: ${itemName(kind, fam, g)} 획득!`, g >= 3 ? 'gold' : 'good');
-    } else if (r < 0.9) {
+      return { msg: `보관함: ${itemName(kind, fam, g)} 획득!`, grade: g };
+    }
+    if (r < 0.9) {
       const kinds = ['gray', 'green', 'blue', 'purple'];
       const k = kinds[Math.min(3, Math.floor(Math.random() * (2 + game.zone.id)))];
-      s.souls[k] = (s.souls[k] || 0) + 1 + Math.floor(Math.random() * 2);
-      if (game.ui) game.ui.toast(`보관함: ${k === 'purple' ? '보스' : k === 'blue' ? '중간보스' : k === 'green' ? '정예' : '일반'} 영혼 획득!`, 'gold');
-    } else {
-      s.statPts += 1;
-      if (game.ui) game.ui.toast('보관함: 영구 스탯 포인트 +1!', 'good');
+      const n = 1 + Math.floor(Math.random() * 2);
+      s.souls[k] = (s.souls[k] || 0) + n;
+      return { msg: `보관함: ${SOUL_KINDS[k].name} +${n}`, grade: 2 };
     }
-    if (game.ui) game.ui.markDirty();
+    s.statPts += 1;
+    return { msg: '보관함: 영구 스탯 포인트 +1!', grade: 2 };
   }
 
   // ---------- 이펙트 ----------
@@ -2189,6 +2443,18 @@ export function createGame(THREE) {
     updateRespawn(dt);
     updateCamera(dt);
     game.world.update(dt, game.time);
+    // 보스 바: 가까운 보스가 없으면 숨긴다
+    game._bossBarT = (game._bossBarT || 0) + dt;
+    if (game._bossBarT > 0.4) {
+      game._bossBarT = 0;
+      let near = null, nd = 22;
+      for (const e of game.enemies) {
+        if (!e.alive || !(e.isBoss || e.isMid || e.isField)) continue;
+        const dd = Math.hypot(e.x - p.x, e.z - p.z);
+        if (dd < nd) { nd = dd; near = e; }
+      }
+      if (game.ui) game.ui.updateBossBar(near);
+    }
     // NPC / 포탈 근접
     const nnp = Math.hypot(p.x - game.world.npc.position.x, p.z - game.world.npc.position.z) < 3.2;
     const npo = Math.hypot(p.x - game.world.portal.position.x, p.z - game.world.portal.position.z) < 3.2;
@@ -2229,15 +2495,8 @@ export function createGame(THREE) {
     const prev = game.state.equip[slot];
     if (prev) game.addItem(prev.kind, prev.fam, prev.grade);
     game.state.equip[slot] = { kind, fam, grade };
-    if (kind === 'weapon') {
-      // 무기 외형 교체
-      const p = game.player;
-      if (game.playerMesh) scene.remove(game.playerMesh);
-      game.playerMesh = makePlayer(THREE, fam);
-      game.playerMesh.position.set(p.x, 0, p.z);
-      game.playerMesh.rotation.y = p.facing;
-      scene.add(game.playerMesh);
-    }
+    // 장착한 무기·방어구가 탑뷰 캐릭터 외형에 바로 반영된다
+    if (kind === 'weapon' || kind === 'armor') rebuildPlayerMesh();
     game.save();
     if (game.ui) game.ui.markDirty(true);
     return true;
@@ -2248,6 +2507,7 @@ export function createGame(THREE) {
     if (!it) return;
     game.addItem(it.kind, it.fam, it.grade);
     game.state.equip[kind] = null;
+    if (kind === 'weapon' || kind === 'armor') rebuildPlayerMesh();
     game.save();
     if (game.ui) game.ui.markDirty(true);
   };
@@ -2281,6 +2541,85 @@ export function createGame(THREE) {
       if (game.ui) { game.ui.markDirty(true); game.ui.toast(`합성 성공! ${GRADES[Math.min(5, grade + 1)].name} 등급 ${merged}개 획득`, 'gold'); }
     }
     return merged;
+  };
+
+  // ---------- 빨강(신화) 진화 ----------
+  // 같은 등급·같은 아이템을 일정 개수 모으면 빨강 등급으로 진화한다.
+  game.evolveNeed = EVOLVE_NEED;
+  game.evoInfo = function (kind, fam, grade) {
+    const key = `${kind}:${fam}:${grade}`;
+    const count = game.state.bag[key] || 0;
+    const need = grade >= 5 ? 0 : (EVOLVE_NEED[grade] || 0);
+    return { key, count, need, can: need > 0 && count >= need, max: grade >= 5 };
+  };
+  game.evolve = function (kind, fam, grade) {
+    if (grade >= 5) return 0;
+    const info = game.evoInfo(kind, fam, grade);
+    if (!info.can) return 0;
+    const key = `${kind}:${fam}:${grade}`;
+    const times = Math.floor((game.state.bag[key] || 0) / info.need);
+    if (times <= 0) return 0;
+    game.state.bag[key] -= info.need * times;
+    if (game.state.bag[key] <= 0) delete game.state.bag[key];
+    game.addItem(kind, fam, 5, times);
+    game.state.evolutions = (game.state.evolutions || 0) + times;
+    game.save();
+    game.flushSave();
+    if (game.ui) { game.ui.markDirty(true); game.ui.toast(`빨강 진화! ${itemName(kind, fam, 5)} ×${times} 획득`, 'gold'); }
+    return times;
+  };
+  game.evolveReady = function () {
+    const out = [];
+    for (const [key, n] of Object.entries(game.state.bag)) {
+      const [kind, fam, g] = key.split(':');
+      const grade = parseInt(g, 10);
+      if (grade >= 5) continue;
+      const need = EVOLVE_NEED[grade];
+      if (need && n >= need) out.push({ kind, fam, grade, count: n, need, times: Math.floor(n / need) });
+    }
+    return out.sort((a, b) => a.grade - b.grade);
+  };
+
+  // ---------- 외형(코스튬) ----------
+  game.setAppearance = function (mode, costumeId) {
+    const ap = game.state.appearance || (game.state.appearance = { mode: 'armor', costumeId: null, unlocked: [] });
+    if (mode === 'costume') {
+      if (!COSTUME_MAP[costumeId]) return { ok: false, msg: '없는 외형이에요.' };
+      if (!ap.unlocked.includes(costumeId)) return { ok: false, msg: '아직 해금하지 않은 외형이에요. 외형 뽑기로 얻어 보세요.' };
+      ap.mode = 'costume';
+      ap.costumeId = costumeId;
+    } else if (mode === 'uniform') {
+      ap.mode = 'uniform';
+    } else {
+      ap.mode = 'armor';
+    }
+    game.save();
+    rebuildPlayerMesh();
+    if (game.ui) game.ui.markDirty(true);
+    return { ok: true, mode: ap.mode, costumeId: ap.costumeId };
+  };
+  game.appearanceInfo = function () {
+    const ap = game.state.appearance || { mode: 'armor', unlocked: [] };
+    return { ...ap, costumes: COSTUMES.map((c) => ({ ...c, owned: ap.unlocked.includes(c.id) })) };
+  };
+  // 외형 뽑기 (골드 소모 · 중복은 일부 환급)
+  game.pullCostume = function () {
+    const s = game.state;
+    const ap = s.appearance || (s.appearance = { mode: 'armor', owned: [], unlocked: [] });
+    if (s.gold < COSTUME_PULL_COST) return { ok: false, msg: `골드가 부족해요 (${COSTUME_PULL_COST} 필요)` };
+    s.gold -= COSTUME_PULL_COST;
+    const roll = COSTUMES[Math.floor(Math.random() * COSTUMES.length)];
+    let refund = 0;
+    if (ap.unlocked.includes(roll.id)) {
+      refund = COSTUME_REFUND;
+      s.gold += refund;
+    } else {
+      ap.unlocked.push(roll.id);
+    }
+    game.save();
+    game.flushSave();
+    if (game.ui) game.ui.markDirty(true);
+    return { ok: true, costume: roll, refund, owned: !refund };
   };
 
   game.learnTalent = function (id) {
@@ -2348,37 +2687,91 @@ export function createGame(THREE) {
     const q = game.questInfo(game.zone.id);
     if (game.ui) game.ui.openQuestDialog(q);
   };
+  // 퀘스트가 보스 처치를 요구할 때, 이미 잡아 둔 보스 때문에 몇 시간씩 막히지 않도록
+  // 해당 보스의 리스폰을 90초 뒤로 앞당긴다.
+  function readyQuestBoss(zone, step) {
+    if (!step) return null;
+    const type = step.type === 'mid' ? 'mid' : step.type === 'boss' ? 'boss' : null;
+    if (!type) return null;
+    const key = `${zone.id}:${type}`;
+    const at = (game.state.bossTimers || {})[key];
+    if (!at) return null;
+    const soon = Date.now() + 90 * 1000;
+    if (at > soon) {
+      game.state.bossTimers[key] = soon;
+      game.save();
+      const nm = type === 'mid' ? zone.mobs.mid.name : zone.mobs.boss.name;
+      return nm;
+    }
+    return null;
+  }
+
   game.claimQuest = function () {
     const zone = game.zone;
+    if (!zone || !zone.quests) return { ok: false, msg: '지금은 퀘스트를 받을 수 없어요.' };
     const q = game.state.quests[zone.id] || { step: 0, progress: 0, accepted: false, done: false };
+    game.state.quests[zone.id] = q;
+    if (q.done) return { ok: false, msg: '이 구역의 퀘스트는 모두 마쳤어요.' };
     const step = zone.quests.steps[q.step];
-    if (!q.accepted) { q.accepted = true; q.progress = 0; game.state.quests[zone.id] = q; game.save(); return { ok: true, msg: '퀘스트를 수락했어요!' }; }
-    if (!step) return { ok: false, msg: '모든 퀘스트를 마쳤어요.' };
-    if (q.progress < step.n) return { ok: false, msg: '아직 목표를 달성하지 못했어요.' };
+    if (!step) return { ok: false, msg: '이 구역의 퀘스트는 모두 마쳤어요.' };
+    if (!q.accepted) {
+      q.accepted = true;
+      q.progress = 0;
+      q._notified = false;
+      const soon = readyQuestBoss(zone, step);
+      game.save();
+      if (game.ui) game.ui.markDirty(true);
+      if (soon && game.ui) game.ui.toast(`퀘스트를 위해 ${soon}이(가) 90초 뒤 다시 나타납니다.`, 'good');
+      return { ok: true, msg: `퀘스트 수락! ${step.text}`, accept: true };
+    }
+    if (q.progress < step.n) return { ok: false, msg: `아직 목표를 달성하지 못했어요. (${Math.min(q.progress, step.n)} / ${step.n})` };
     const r = step.reward || {};
-    if (r.gold) game.state.gold += r.gold;
-    if (r.xp) game.gainXp(r.xp);
-    if (r.pt) game.state.statPts += r.pt;
-    if (r.soul) game.state.souls[r.soul] = (game.state.souls[r.soul] || 0) + (r.soulN || 1);
+    const got = [];
+    const d = game.derived();
+    const beforeLv = game.state.level;
+    if (r.gold) { game.state.gold += r.gold; got.push(`골드 +${r.gold}`); }
+    if (r.pt) { game.state.statPts += r.pt; got.push(`스탯 포인트 +${r.pt}`); }
+    if (r.soul) {
+      const n = r.soulN || 1;
+      game.state.souls[r.soul] = (game.state.souls[r.soul] || 0) + n;
+      got.push(`${(SOUL_KINDS[r.soul] || { name: '영혼' }).name} +${n}`);
+    }
     if (r.item !== undefined) {
-      const kind = Math.random() < 0.6 ? 'weapon' : 'armor';
-      const fam = kind === 'weapon' ? Object.keys(WEAPONS)[Math.floor(Math.random() * 4)] : Object.keys(ARMOR_KINDS)[Math.floor(Math.random() * 4)];
+      const kind = pickKind();
+      const fam = pickFam(kind);
       game.addItem(kind, fam, r.item);
+      got.push(itemName(kind, fam, r.item));
     }
     if (r.charm) {
       game.state.equip.charm = { kind: 'charm', fam: r.charm, grade: 0 };
-      if (game.ui) game.ui.toast(`${CHARMS[r.charm].name}을(를) 얻었어요!`, 'gold');
+      got.push(CHARMS[r.charm].name);
     }
+    if (r.xp) { game.gainXp(r.xp); got.push(`경험치 +${r.xp}${game.state.level > beforeLv ? ` (Lv.${game.state.level} 달성!)` : ''}`); }
     if (r.unlock && !game.state.unlocked.includes(r.unlock)) {
       game.state.unlocked.push(r.unlock);
-      if (game.ui) game.ui.toast(`새 구역 해금 · ${PLAYABLE.find((z) => z.id === r.unlock).name}`, 'good');
+      const nz = PLAYABLE.find((z) => z.id === r.unlock);
+      got.push(`새 구역 해금 · ${nz ? nz.name : r.unlock}`);
+      if (game.ui) game.ui.toast(`새 구역 해금 · ${nz ? nz.name : r.unlock}`, 'good');
     }
     q.step++;
     q.progress = 0;
+    q._notified = false;
     if (q.step >= zone.quests.steps.length) q.done = true;
     game.save();
+    game.flushSave();
     if (game.ui) game.ui.markDirty(true);
-    return { ok: true, msg: '보상을 받았어요!' };
+    const nextStep = zone.quests.steps[q.step];
+    if (nextStep) {
+      const soon = readyQuestBoss(zone, nextStep);
+      if (soon && game.ui) game.ui.toast(`다음 목표를 위해 ${soon}이(가) 90초 뒤 다시 나타납니다.`, 'good');
+    }
+    return {
+      ok: true,
+      msg: got.length ? `보상 획득: ${got.join(' · ')}` : '보상을 받았어요!',
+      got,
+      done: !!q.done,
+      next: nextStep ? nextStep.text : null,
+    };
   };
 
   game.spendPoint = function (key) {
@@ -2443,6 +2836,30 @@ export function createGame(THREE) {
       nearNpc() { const n = game.world.npc.position; game.player.x = n.x + 1.5; game.player.z = n.z + 0.5; },
       hitOnce() { return playerAttack(); },
       options(kind, fam, grade) { return itemOptions(kind, fam, grade); },
+      bossReset(zoneId = game.zone.id, type) {
+        const t = game.state.bossTimers || {};
+        for (const k of Object.keys(t)) {
+          const [z, ty] = k.split(':');
+          if (Number(z) === zoneId && (!type || ty === type)) delete t[k];
+        }
+        game.save();
+        return game.bossStatus(zoneId);
+      },
+      bossStatus(zoneId = game.zone.id) { return game.bossStatus(zoneId); },
+      chestNear() { return game.nearChest ? { id: game.nearChest.id, x: game.nearChest.x, z: game.nearChest.z } : null; },
+      chestGoto(i = 0) { const c = game.world.chests[i]; if (c) { game.player.x = c.x; game.player.z = c.z + 1.2; return c.id; } return null; },
+      openChest() { return game.openChest(game.nearChest); },
+      evolve(kind, fam, grade) { return game.evolve(kind, fam, grade); },
+      evolveReady() { return game.evolveReady(); },
+      questAccept() { return game.claimQuest(); },
+      questClaim() { return game.claimQuest(); },
+      questInfo() { return game.questInfo(game.zone.id); },
+      setName(n) { return game.setHeroName(n); },
+      appearance(mode, id) { return game.setAppearance(mode, id); },
+      pullCostume() { return game.pullCostume(); },
+      unlockCostume(id) { game.state.appearance.unlocked.push(id); game.save(); return game.state.appearance; },
+      heroInfo() { return { name: game.heroName(), avatar: game.state.avatar, weapon: game.state.equip.weapon, armor: game.state.equip.armor }; },
+      timer(type, sec) { game.state.bossTimers[`${game.zone.id}:${type}`] = Date.now() + sec * 1000; game.save(); return game.bossRemain(game.zone.id, type); },
     };
   }
 

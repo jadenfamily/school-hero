@@ -60,27 +60,27 @@ export const ACCESSORY_KINDS = {
 };
 
 // ---------- 아바타(학생 4종) ----------
-// 색·머리 모양·리본이 3D 필드 캐릭터와 HUD 프로필에 그대로 반영된다.
+// 색·머리 모양·리본이 탑뷰 도트 캐릭터와 HUD 초상화에 그대로 반영된다.
 export const AVATARS = [
   {
-    id: 'boyA', name: '남학생 A', short: '네이비 교복', icon: '👦',
-    skin: 0xf2c9a0, uniform: 0x3a5288, accent: 0x4864a8, pants: 0x3f4859,
-    hair: 0x1b1b22, hairStyle: 'short', ribbon: 0, skirt: false,
+    id: 'boyA', name: '남학생 A', short: '네이비 교복 · 장검', defaultName: '시우', icon: '👦',
+    skin: 0xf2c9a0, uniform: 0x2b3a66, accent: 0x4a6bd6, pants: 0x2c3242,
+    hair: 0x1e2130, hairStyle: 'short', ribbon: 0, skirt: false, iris: 0x3d6fd6,
   },
   {
-    id: 'girlA', name: '여학생 A', short: '네이비 교복 · 긴 머리', icon: '👧',
-    skin: 0xf6d3b3, uniform: 0x323c68, accent: 0x4a5a9c, pants: 0x2c3350,
-    hair: 0x2a1a14, hairStyle: 'long', ribbon: 0x8fd0ff, skirt: true,
+    id: 'girlA', name: '여학생 A', short: '금발 · 마법 지팡이', defaultName: '하늘', icon: '👧',
+    skin: 0xf7d8bd, uniform: 0x3a3350, accent: 0xb03a5a, pants: 0x3b3652,
+    hair: 0xf0d089, hairStyle: 'long', ribbon: 0xc03050, skirt: true, iris: 0x8a5ad0,
   },
   {
-    id: 'boyB', name: '남학생 B', short: '베이지 후드 교복', icon: '🧑',
-    skin: 0xefc49b, uniform: 0xc7b083, accent: 0x8f7a52, pants: 0x5a5344,
-    hair: 0x4a3324, hairStyle: 'messy', ribbon: 0, skirt: false, hood: true,
+    id: 'boyB', name: '남학생 B', short: '갈색 머리 · 수호 방패', defaultName: '도윤', icon: '🧑',
+    skin: 0xefc49b, uniform: 0x2f4a34, accent: 0x6f9a4a, pants: 0x39422f,
+    hair: 0x8a4a24, hairStyle: 'messy', ribbon: 0, skirt: false, iris: 0x4a8a3a, hood: false,
   },
   {
-    id: 'girlB', name: '여학생 B', short: '단발 · 리본', icon: '👩',
-    skin: 0xf7d8bd, uniform: 0x5b5478, accent: 0x8e86b8, pants: 0x3b3652,
-    hair: 0x3b2a24, hairStyle: 'bob', ribbon: 0xff9ec4, skirt: true,
+    id: 'girlB', name: '여학생 B', short: '은발 · 마법책', defaultName: '서연', icon: '👩',
+    skin: 0xf6ddc8, uniform: 0x3a2f56, accent: 0x7a5ac0, pants: 0x352c4a,
+    hair: 0xe6e2f4, hairStyle: 'long', ribbon: 0x8a6ad0, skirt: true, iris: 0x5a8ad0,
   },
 ];
 export const AVATAR_MAP = Object.fromEntries(AVATARS.map((a) => [a.id, a]));
@@ -235,7 +235,7 @@ export const ZONES = [
     },
     threat: 'slash',
     npc: { name: '숲지기 노인', x: 4, z: 22, icon: '🧙‍♂️' },
-    spawn: { x: 0, z: 23 }, boss: { x: 0, z: -32 }, mid: { x: -19, z: -6 },
+    spawn: { x: 0, z: 23 }, boss: { x: 0, z: -32 }, mid: { x: -19, z: -6 }, field: { x: 30, z: -24 },
     scale: SCALE[1], dropW: DROP_W[1],
     mobs: {
       normal: [
@@ -247,6 +247,7 @@ export const ZONES = [
       ],
       mid: E({ key: 'ogre', name: '거대 오우거', shape: 'ogre', color: 0xb08a5a, dark: 0x6b4a25, hp: 380, atk: 26, speed: 1.7, atkRange: 2.6, atkCd: 1.7, aggro: 9, style: 'aoe', elite: true, boss: 'mid', soul: 'blue' }),
       boss: E({ key: 'ent', name: '숲의 거대 엔트', shape: 'ent', color: 0x7c5b34, dark: 0x3e6b32, hp: 760, atk: 34, speed: 1.35, atkRange: 3.2, atkCd: 1.9, aggro: 12, style: 'aoe', boss: 'boss', soul: 'purple' }),
+      field: E({ key: 'goldOgre', name: '황금 오우거', shape: 'ogre', color: 0xc9a13a, dark: 0x7a5a1e, hp: 1900, atk: 44, speed: 1.5, atkRange: 3.0, atkCd: 2.0, aggro: 12, style: 'aoe', boss: 'field', soul: 'gold' }),
     },
     chests: [{ x: -13, z: 12, hide: 'rock' }, { x: 15, z: 4, hide: 'tree' }, { x: 20, z: -18, hide: 'rock' }, { x: -6, z: -22, hide: 'tree' }],
     quests: {
@@ -268,7 +269,7 @@ export const ZONES = [
     },
     threat: 'magic',
     npc: { name: '늪지 약초꾼', x: -5, z: 22, icon: '🧝‍♀️' },
-    spawn: { x: 0, z: 23 }, boss: { x: 2, z: -32 }, mid: { x: 20, z: -8 },
+    spawn: { x: 0, z: 23 }, boss: { x: 2, z: -32 }, mid: { x: 20, z: -8 }, field: { x: -30, z: -26 },
     scale: SCALE[2], dropW: DROP_W[2],
     mobs: {
       normal: [
@@ -280,6 +281,7 @@ export const ZONES = [
       ],
       mid: E({ key: 'hydra', name: '늪지 히드라', shape: 'hydra', color: 0x6fae68, dark: 0x2f6136, hp: 1200, atk: 36, speed: 1.5, atkRange: 3.4, atkCd: 1.8, aggro: 10, style: 'poison', elite: true, boss: 'mid', soul: 'blue' }),
       boss: E({ key: 'witch', name: '부패한 늪지 마녀', shape: 'witch', color: 0x9b6fbf, dark: 0x3d2450, hp: 2400, atk: 46, speed: 1.45, atkRange: 7.5, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
+      field: E({ key: 'goldHydra', name: '황금 히드라', shape: 'hydra', color: 0xb99a3a, dark: 0x5b6b22, hp: 5200, atk: 62, speed: 1.45, atkRange: 3.6, atkCd: 2.1, aggro: 12, style: 'aoe', boss: 'field', soul: 'gold' }),
     },
     chests: [{ x: 14, z: 14, hide: 'deadTree' }, { x: -20, z: -2, hide: 'rock' }, { x: 8, z: -24, hide: 'wall' }],
     quests: {
@@ -301,7 +303,7 @@ export const ZONES = [
     },
     threat: 'ranged',
     npc: { name: '사막 대상인', x: 5, z: 22, icon: '🧕' },
-    spawn: { x: 0, z: 23 }, boss: { x: -2, z: -32 }, mid: { x: 18, z: -4 },
+    spawn: { x: 0, z: 23 }, boss: { x: -2, z: -32 }, mid: { x: 18, z: -4 }, field: { x: 30, z: 24 },
     scale: SCALE[3], dropW: DROP_W[3],
     mobs: {
       normal: [
@@ -313,6 +315,7 @@ export const ZONES = [
       ],
       mid: E({ key: 'anubis', name: '아누비스 전사', shape: 'anubis', color: 0x2f3247, dark: 0xc9a13a, hp: 2200, atk: 52, speed: 2.0, atkRange: 2.6, atkCd: 1.4, aggro: 11, style: 'melee', elite: true, boss: 'mid', soul: 'blue' }),
       boss: E({ key: 'golem', name: '고대 모래 골렘', shape: 'golem', color: 0xc9a468, dark: 0x7a5a2c, hp: 4200, atk: 62, speed: 1.3, atkRange: 3.8, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
+      field: E({ key: 'goldAnubis', name: '황금 아누비스', shape: 'anubis', color: 0xcaa03a, dark: 0x3a3020, hp: 8800, atk: 78, speed: 2.0, atkRange: 2.8, atkCd: 1.6, aggro: 12, style: 'melee', boss: 'field', soul: 'gold' }),
     },
     chests: [{ x: -16, z: 8, hide: 'sandRock' }, { x: 18, z: 12, hide: 'pillar' }, { x: -9, z: -20, hide: 'sandRock' }],
     quests: {
@@ -334,7 +337,7 @@ export const ZONES = [
     },
     threat: 'blunt',
     npc: { name: '심해의 기록관', x: 6, z: 22, icon: '🧜' },
-    spawn: { x: 0, z: 23 }, boss: { x: 0, z: -33 }, mid: { x: -20, z: -5 },
+    spawn: { x: 0, z: 23 }, boss: { x: 0, z: -33 }, mid: { x: -20, z: -5 }, field: { x: 30, z: 22 },
     scale: SCALE[4], dropW: DROP_W[4],
     mobs: {
       normal: [
@@ -346,6 +349,7 @@ export const ZONES = [
       ],
       mid: E({ key: 'siren', name: '세이렌', shape: 'siren', color: 0x7fe0d0, dark: 0x2a6a7a, hp: 3800, atk: 78, speed: 1.8, atkRange: 7.8, atkCd: 1.9, aggro: 12, style: 'aoe', elite: true, boss: 'mid', soul: 'blue' }),
       boss: E({ key: 'kraken', name: '심해 크라켄', shape: 'kraken', color: 0x7a4fa8, dark: 0x3a1c5a, hp: 7000, atk: 96, speed: 1.4, atkRange: 4.2, atkCd: 1.9, aggro: 14, style: 'aoe', boss: 'boss', soul: 'purple' }),
+      field: E({ key: 'goldKraken', name: '황금 크라켄', shape: 'kraken', color: 0xc9a13a, dark: 0x5a3a1a, hp: 15000, atk: 118, speed: 1.35, atkRange: 4.4, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold' }),
     },
     chests: [{ x: 16, z: 10, hide: 'coral' }, { x: -14, z: -14, hide: 'ruinPillar' }, { x: 12, z: -26, hide: 'bubbleRock' }],
     quests: {
@@ -386,7 +390,36 @@ export const SOUL_KINDS = {
   gray:   { name: '일반 영혼', color: '#c9d2e0' },
   green:  { name: '정예 영혼', color: '#5fe08d' },
   blue:   { name: '중간보스 영혼', color: '#5aa9ff' },
-  purple: { name: '보스 영혼', color: '#b46cff' },
+  purple: { name: '에픽보스 영혼', color: '#b46cff' },
+  gold:   { name: '지역 보스 영혼', color: '#ffc93c' },
+};
+
+// 보스 리스폰 간격 (중간보스 4시간 · 에픽보스 6시간 · 지역 필드보스 24시간)
+export const BOSS_TIMER = {
+  mid: 4 * 60 * 60 * 1000,
+  boss: 6 * 60 * 60 * 1000,
+  field: 24 * 60 * 60 * 1000,
+};
+export const BOSS_LABEL = { mid: '중간보스', boss: '에픽보스', field: '지역 필드보스' };
+
+// 같은 등급·같은 아이템을 모으면 빨강(신화) 등급으로 진화한다
+export const EVOLVE_NEED = [300, 200, 100, 70, 30];
+
+// ---------- 캐릭터 외형(코스튬) ----------
+// mode: 'armor'(장착 방어구) | 'uniform'(기본 교복) | 'costume'(코스튬)
+// 기본 교복·장착 방어구는 무료, 코스튬은 외형 뽑기로 해금한다.
+export const COSTUMES = [
+  { id: 'knight', name: '기사 갑옷', icon: '🛡️', fam: 'ranged', grade: 3, cape: '#b9c8dc', trim: '#ffd257', cls: '기사', desc: '은빛 판금과 황금 장식', stats: { atkPct: 4, defPct: 6, hpPct: 5 } },
+  { id: 'mage', name: '마법사 로브', icon: '🔮', fam: 'magic', grade: 4, cape: '#6a4ac0', trim: '#9ff0ff', cls: '마법사', desc: '보랏빛 로브와 빛나는 문양', stats: { atkPct: 6, mpPct: 12, cdr: 4 } },
+  { id: 'dark', name: '어둠 망토', icon: '🌑', fam: 'slash', grade: 4, cape: '#2a2438', trim: '#b46cff', cls: '레인저', desc: '검은 망토와 보랏빛 테두리', stats: { crit: 3, critDmg: 8, moveSpeed: 4, evade: 2 } },
+  { id: 'royal', name: '황금 예복', icon: '👑', fam: 'blunt', grade: 4, cape: '#d8b34a', trim: '#fff2c0', cls: '수호자', desc: '황금빛 예복과 붉은 장식', stats: { defPct: 8, hpPct: 8, atkPct: 2 } },
+];
+export const COSTUME_MAP = Object.fromEntries(COSTUMES.map((c) => [c.id, c]));
+export const COSTUME_PULL_COST = 120;
+export const COSTUME_REFUND = 60;
+export const COSTUME_STAT_LABEL = {
+  atkPct: '공격력', defPct: '방어력', hpPct: '최대 체력', crit: '치명타', critDmg: '치명타 피해',
+  evade: '회피', moveSpeed: '이동 속도', mpPct: '최대 마나', cdr: '쿨다운 감소',
 };
 
 export const COMPANION_CLASSES = {
@@ -411,6 +444,7 @@ export const MOB_REWARD = {
   elite: { xp: 34, gold: 14 },
   mid: { xp: 140, gold: 70 },
   boss: { xp: 380, gold: 180 },
+  field: { xp: 900, gold: 420 },
 };
 
 // 밸런스 기본값 (설정 화면에서 수정 가능)
@@ -421,8 +455,9 @@ export function defaultBalance() {
   }
   const mobs = {};
   for (const z of PLAYABLE) {
-    for (const role of ['normal', 'elite', 'mid', 'boss']) {
+    for (const role of ['normal', 'elite', 'mid', 'boss', 'field']) {
       const list = role === 'normal' || role === 'elite' ? z.mobs[role] : [z.mobs[role]];
+      if (!list[0]) continue;
       for (const m of list) {
         const r = MOB_REWARD[role];
         mobs[`${z.id}:${m.key}`] = {
