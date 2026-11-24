@@ -591,6 +591,28 @@ export function createGame(THREE) {
     return { def: zone.quests, ...q, zone };
   };
 
+  // 현재 구역의 활성 보스 처치 퀘스트가 가리키는 보스 (월드 좌표)
+  // 'boss'/'mid' 단계만 해당. 단계 텍스트가 보스 이름을 포함하면 그 보스,
+  // 없으면 단계 타입과 같은 보스, 그래도 없으면 구역 에픽 보스.
+  // 보스가 죽어 리스폰 대기 중이어도 스폰 위치를 가리킨다 (거기서 다시 나타난다).
+  game.questBossTarget = function () {
+    const zone = game.zone;
+    if (!zone) return null;
+    const q = game.questInfo(zone.id);
+    if (!q || !q.accepted || q.done) return null;
+    const step = q.def.steps[q.step];
+    if (!step || (step.type !== 'boss' && step.type !== 'mid')) return null;
+    if (q.progress >= step.n) return null; // 단계 완료 — 보상 받으러 NPC에게
+    const defs = allBossDefs(zone);
+    const name = step.text.replace(/\s*처치\s*$/, '');
+    const hit = defs.find((b) => b.name === name)
+      || defs.find((b) => b.type === step.type)
+      || defs.find((b) => b.type === 'boss')
+      || defs[0];
+    if (!hit) return null;
+    return { name: hit.name, x: hit.x, z: hit.z, type: hit.type };
+  };
+
   // ---------- 3D 준비 ----------
   function disposeGroup(g) {
     g.traverse((o) => {
