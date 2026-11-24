@@ -1268,13 +1268,16 @@ export function createUI(game, THREE) {
       const cls = COMPANION_CLASSES[c.cls];
       const g = GRADES[c.grade] || GRADES[0];
       const inParty = s.party.includes(c.id);
+      // 레벨은 파티 슬롯에 매겨진다. 동행 중이면 자기 슬롯 레벨, 대기 중이면 배치될 슬롯 레벨을 미리 보여준다.
+      const effLv = game.effectiveCompanionLv(c);
+      const slotIdx = game.previewSlotIndex(c);
       return `<div class="comp-card ${inParty ? 'in-party' : ''}" style="--g:${g.color};--gs:${g.glow}">
         <div class="av" style="border-color:${g.color}">${cls.icon}</div>
         <div class="info">
           <div class="nm">${c.name} <span style="font-size:9px;color:${g.color}">${g.name}</span></div>
           <div class="cls">${cls.role} · ${cls.name}</div>
-          <div class="lv">Lv.${c.lv || 1} · 공격 ${Math.round(cls.atk * (1 + ((c.lv || 1) - 1) * 0.22) * (1 + (c.grade || 0) * 0.20))}</div>
-          <div class="lv">체력 ${(() => { const live = (game.companions || []).find((x) => x.data && x.data.id === c.id); return live ? `${Math.round(live.hp)} / ${live.maxHp}` : `${Math.round(cls.hp * (1 + (c.grade || 0) * 0.15))}`; })()}</div>
+          <div class="lv">Lv.${effLv}${inParty ? ` · 슬롯 ${slotIdx + 1}` : ' · 배치 시'} · 공격 ${Math.round(game.companionAtk(cls, c.grade, effLv))}</div>
+          <div class="lv">체력 ${(() => { const live = (game.companions || []).find((x) => x.data && x.data.id === c.id); return live ? `${Math.round(live.hp)} / ${live.maxHp}` : `${Math.round(game.companionMaxHp(cls, c.grade, effLv))}`; })()}</div>
           <div class="lv">${(() => { const sk = COMPANION_SKILLS[c.cls]; return sk ? `${sk.icon} ${sk.name} Lv.${game.companionSkillLevel(c)}` : ''; })()}</div>
         </div>
         <div style="display:flex;flex-direction:column;gap:5px">
@@ -1290,14 +1293,14 @@ export function createUI(game, THREE) {
         <button class="btn gold" data-pull>뽑기 ✨</button>
       </div>
       ${cards}
-      <div class="hint" style="margin-top:10px">탱커·힐러·근접딜러·마법딜러 중 최대 3명까지 함께 싸워요. 같은 동료가 다시 나오면 등급이 올라가요 (최대 신화). 동료는 각자 대표 스킬을 자동으로 써요. 스킬 레벨은 등급 + 1 + 스킬북 보너스 (최대 Lv.10).</div>`;
+      <div class="hint" style="margin-top:10px">탱커·힐러·근접딜러·마법딜러 중 최대 3명까지 함께 싸워요. 같은 동료가 다시 나오면 등급이 올라가요 (최대 신화). 동료는 각자 대표 스킬을 자동으로 써요. 스킬 레벨은 등급 + 1 + 스킬북 보너스 (최대 Lv.10). 동료 레벨은 파티 슬롯에 매겨져요 — 동료를 바꿔도 슬롯 레벨이 이어져요. 대기 중인 동료는 배치될 슬롯의 레벨로 싸워요.</div>`;
     const sheet = openSheet(html, 'hub-sheet');
     sheet.querySelectorAll('[data-comp-tab]').forEach((el) => el.addEventListener('click', () => ui.openCompanions(el.dataset.compTab)));
     sheet.querySelector('[data-pull]').addEventListener('click', () => {
       const r = game.pullCompanion();
       if (!r.ok) { ui.toast(r.msg, 'bad'); return; }
       if (r.upgraded === 'grade') ui.toast(`${r.cls.icon} ${r.companion.name} 등급 상승! ${GRADES[r.grade].name}이 됐어요`, 'good');
-      else if (r.upgraded === 'level') ui.toast(`${r.cls.icon} ${r.companion.name} 이미 신화라 레벨 +5!`, 'good');
+      else if (r.upgraded === 'level') ui.toast(r.slotGained ? `${r.cls.icon} ${r.companion.name} 이미 신화라 슬롯 ${(r.slotIndex || 0) + 1} 레벨 +5!` : `${r.cls.icon} ${r.companion.name} 이미 신화라 더 이상 강해지지 않아요`, 'good');
       else ui.toast(`${r.cls.icon} ${r.companion.name} (${r.cls.role}, ${GRADES[r.grade].name}) 등장!`, 'gold');
       ui.openCompanions();
     });
