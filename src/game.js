@@ -105,6 +105,8 @@ export function createGame(THREE) {
     talents: [],
     companions: [],
     party: [],
+    slotLv: [1, 1, 1], // 파티 슬롯별 동료 레벨 (동료 개개인이 아니라 슬롯에 매겨진다)
+    slotXp: [0, 0, 0], // 파티 슬롯별 동료 경험치
     unlocked: [1],
     zoneKills: {},
     chestOpened: [],
@@ -249,6 +251,8 @@ export function createGame(THREE) {
     // 생존자: 가장 높은 레벨 (동점이면 가장 높은 등급, 그래도 동점이면 목록의 첫 번째).
     // 복사본마다 가챠 중복 규칙을 적용한다: 생존자 등급이 5 미만이면 등급 +1,
     // 이미 신화(5등급)면 레벨 +5. 파티에 있던 복사본 자리는 생존자가 한 번만 이어받는다.
+    // (레벨은 슬롯에 살지만, 여기서 정한 생존자 레벨은 뒤의 슬롯 마이그레이션이
+    // 파티 기준으로 가져가므로, 정리된 레벨이 슬롯에 그대로 이어진다.)
     {
       const groups = new Map();
       for (const c of s.companions) {
@@ -295,7 +299,31 @@ export function createGame(THREE) {
       s.tutorial = { step: 3, done: true };
       s.introSeen = true;
     }
+    // 슬롯 레벨 정리 (동료 개편): 중복 정리보다 나중에 실행하므로 정리된 파티 기준으로 가져온다.
+    migrateSlotLevels(s, saved);
     return s;
+  }
+
+  // 슬롯 레벨 마이그레이션 (동료 개편): 레벨은 파티 슬롯(0~2)에 산다.
+  // 저장본에 유효한 slotLv가 있으면 그대로 쓰고, 없으면 현재 파티 동료의
+  // 레벨/경험치를 슬롯으로 가져온다 (빈 슬롯은 Lv.1). 한 번 저장되면 다시 안 건드린다 (멱등).
+  // 중복 정리가 남긴 생존자 레벨(그룹 최대 + 신화 복사본 +5)도 이 단계에서 슬롯으로 이어진다.
+  function migrateSlotLevels(s, saved) {
+    const had = Array.isArray(saved.slotLv);
+    s.slotLv = [0, 1, 2].map((i) => {
+      const sv = had ? Number(saved.slotLv[i]) : NaN;
+      if (Number.isFinite(sv) && sv >= 1) return Math.min(999, Math.floor(sv));
+      const pid = (s.party || [])[i];
+      const pc = pid ? (s.companions || []).find((c) => c.id === pid) : null;
+      return Math.max(1, Math.floor(Number(pc && pc.lv) || 1));
+    });
+    s.slotXp = [0, 1, 2].map((i) => {
+      const sx = Array.isArray(saved.slotXp) ? Number(saved.slotXp[i]) : NaN;
+      if (Number.isFinite(sx) && sx >= 0) return Math.floor(sx);
+      const pid = (s.party || [])[i];
+      const pc = pid ? (s.companions || []).find((c) => c.id === pid) : null;
+      return Math.max(0, Math.floor(Number(pc && pc.xp) || 0));
+    });
   }
 
   game.setAvatar = function (id) {
@@ -353,7 +381,7 @@ export function createGame(THREE) {
       hp: Math.round(game.player ? game.player.hp : 0),
       avatar: s.avatar, avatarPicked: s.avatarPicked, heroName: s.heroName,
       bag: s.bag, equip: s.equip, charms: s.charms || [], souls: s.souls, talents: s.talents,
-      companions: s.companions, party: s.party, unlocked: s.unlocked,
+      companions: s.companions, party: s.party, slotLv: s.slotLv, slotXp: s.slotXp, unlocked: s.unlocked,
       zoneKills: s.zoneKills, chestOpened: s.chestOpened, chestsFound: s.chestsFound,
       quests: s.quests, zone: s.zone, kills: s.kills, pulls: s.pulls, balance: s.balance,
       skillbooks: s.skillbooks, skills: s.skills, tutorial: s.tutorial, introSeen: s.introSeen,
@@ -619,7 +647,7 @@ export function createGame(THREE) {
       const cls = COMPANION_CLASSES[c.cls];
       const mesh = makeCompanion(THREE, cls, GRADES[c.grade].color);
       scene.add(mesh);
-      const o = makeCompanionObj(c, cls, mesh, game.player.x - 1.6 + i * 1.6, game.player.z + 1.8);
+      const o = makeCompanionObj(c, cls, mesh, game.player.x - 1.6 + i * 1.6, game.player.z + 1.8, game.slotLevel(i));
       game.compObjects.push(o);
       game.companions.push(o);
       if (cls.id === 'tank' && !game.tank) game.tank = o;
@@ -1285,14 +1313,74 @@ export function createGame(THREE) {
     if (game.ui) game.ui.markDirty();
   };
 
+  // ---------- 동료 슬롯 레벨 ----------
+  // 레벨은 동료 개개인이 아니라 파티 슬롯(0~2)에 매겨진다. 동료를 바꾸면
+  // 새로 들어온 동료가 그 슬롯의 레벨로 싸운다. 동료 기록에 남는 lv/xp는
+  // 마이그레이션용으로만 쓰고 전투·표시에는 쓰지 않는다.
+  function companionMaxHp(cls, grade, lv) {
+    return Math.round(cls.hp * (1 + (grade || 0) * 0.15) * (1 + ((lv || 1) - 1) * 0.08));
+  }
+  function companionAtk(cls, grade, lv) {
+    return cls.atk * (1 + ((lv || 1) - 1) * 0.22) * (1 + (grade || 0) * 0.20);
+  }
+  game.companionMaxHp = companionMaxHp;
+  game.companionAtk = companionAtk;
+  game.slotLevel = function (i) {
+    const s = game.state;
+    if (!s || !Array.isArray(s.slotLv)) return 1;
+    return Math.max(1, Math.floor(Number(s.slotLv[i]) || 1));
+  };
+  // 동료 기록이 실제로 싸우는 레벨: 동행 중이면 자기 슬롯, 대기 중이면
+  // 배치될 슬롯(빈 슬롯이 있으면 그 슬롯, 없으면 가장 낮은 슬롯)의 레벨을 미리 보여준다.
+  game.effectiveCompanionLv = function (c) {
+    const s = game.state;
+    if (!s || !c) return 1;
+    const i = (s.party || []).indexOf(c.id);
+    if (i >= 0) return game.slotLevel(i);
+    const free = (s.party || []).length < 3 ? (s.party || []).length : -1;
+    if (free >= 0) return game.slotLevel(free);
+    return Math.min(game.slotLevel(0), game.slotLevel(1), game.slotLevel(2));
+  };
+  // 동료가 배치될 슬롯 번호 (0-based). 동행 중이면 자기 슬롯, 파티가 꽉 찼으면 -1.
+  game.previewSlotIndex = function (c) {
+    const s = game.state;
+    if (!s || !c) return -1;
+    const i = (s.party || []).indexOf(c.id);
+    if (i >= 0) return i;
+    return (s.party || []).length < 3 ? (s.party || []).length : -1;
+  };
+
+  // 슬롯에 경험치를 넣고 레벨업을 처리한다. 올랐으면 true.
+  function addSlotXp(s, i, n) {
+    s.slotXp[i] = (s.slotXp[i] || 0) + n;
+    let need = 60 + (s.slotLv[i] || 1) * 40;
+    let up = false;
+    while (s.slotXp[i] >= need) {
+      s.slotXp[i] -= need;
+      s.slotLv[i] = (s.slotLv[i] || 1) + 1;
+      need = 60 + s.slotLv[i] * 40;
+      up = true;
+    }
+    return up;
+  }
+
   game.gainCompanionXp = function (n) {
-    // 동행 중인 파티원(최대 3명)에게만 경험치를 나눈다 — 파티 밖 동료는 성장하지 않는다
-    const party = new Set(game.state.party || []);
-    for (const c of game.state.companions) {
-      if (!party.has(c.id)) continue;
-      c.xp = (c.xp || 0) + n;
-      let need = 60 + (c.lv || 1) * 40;
-      while (c.xp >= need) { c.xp -= need; c.lv = (c.lv || 1) + 1; need = 60 + c.lv * 40; }
+    // 경험치는 동행 중인 파티 슬롯(최대 3개)에 쌓인다. 빈 슬롯은 성장하지 않는다.
+    const s = game.state;
+    if (!s) return;
+    for (let i = 0; i < 3; i++) {
+      if (i >= (s.party || []).length) continue;
+      if (!addSlotXp(s, i, n)) continue;
+      // 살아 있는 동료의 최대 체력도 새 슬롯 레벨에 맞춘다 (늘어난 만큼 현재 체력도 채운다)
+      const pid = s.party[i];
+      const live = pid ? (game.companions || []).find((x) => x.data && x.data.id === pid) : null;
+      if (live) {
+        const old = live.maxHp;
+        live.maxHp = companionMaxHp(live.cls, live.data.grade, s.slotLv[i]);
+        live.slotLv = s.slotLv[i];
+        live.hp = Math.min(live.maxHp, live.hp + Math.max(0, live.maxHp - old));
+      }
+      if (game.ui) game.ui.toast(`동료 슬롯 ${i + 1} Lv.${s.slotLv[i]} 달성!`, 'good');
     }
   };
 
@@ -1870,6 +1958,25 @@ export function createGame(THREE) {
       const hgy = groundY(x, z);
       m.position.set(x + (Math.random() - 0.5) * 0.5, hgy + 0.4, z + (Math.random() - 0.5) * 0.5);
       addFx(m, 0.8, (fx, k) => { m.position.y = hgy + 0.4 + (1 - k) * 1.4; m.material.opacity = k; }, 'heal:spark');
+    }
+  }
+
+  // 동료 대표 스킬 '치유의 빛' 전용 연출: 대상 위에 빛기둥 + 큰 링 + 솟는 빛방울.
+  // 기본 치유(healFx)보다 훨씬 크게 해서 힐러 스킬이 썼다는 게 한눈에 보이게 한다.
+  function skillHealFx(x, z) {
+    const gy = groundY(x, z);
+    const beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.55, 0.75, 2.4, 10, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0x7dffb0, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
+    );
+    beam.position.set(x, gy + 1.2, z);
+    addFx(beam, 0.7, (fx, k) => { beam.material.opacity = 0.35 * k; beam.scale.x = beam.scale.z = 1 + (1 - k) * 0.5; }, 'compskill:healbeam');
+    const ring = flatRing(x, z, 0.3, 1.4, 0x7dffb0, 0.95, 0.12);
+    addFx(ring, 0.7, (fx, k) => { ring.scale.setScalar(1 + (1 - k) * 1.6); ring.material.opacity = k * 0.9; }, 'compskill:healring');
+    for (let i = 0; i < 8; i++) {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.1, 5, 4), fxMat(0xbfffd9, 0.95));
+      m.position.set(x + (Math.random() - 0.5) * 0.8, gy + 0.3, z + (Math.random() - 0.5) * 0.8);
+      addFx(m, 0.9, (fx, k) => { m.position.y = gy + 0.3 + (1 - k) * 2.2; m.material.opacity = k; }, 'compskill:healspark');
     }
   }
 
@@ -2605,10 +2712,12 @@ export function createGame(THREE) {
   }
 
   // ---------- 동료 ----------
-  function makeCompanionObj(c, cls, mesh, x, z) {
-    const maxHp = Math.round(cls.hp * (1 + (c.grade || 0) * 0.15) * (1 + ((c.lv || 1) - 1) * 0.08));
+  function makeCompanionObj(c, cls, mesh, x, z, slotLv) {
+    const lv = Math.max(1, Math.floor(slotLv || 1));
+    const maxHp = companionMaxHp(cls, c.grade, lv);
     return {
       data: c, cls, mesh, x, z, atkCd: Math.random(), healCd: 2, skillCd: 4, skillCheckT: 0,
+      slotLv: lv,
       maxHp, hp: maxHp, tauntCd: 0.2, downT: 0, hitT: 0,
     };
   }
@@ -2667,7 +2776,7 @@ export function createGame(THREE) {
     const def = COMPANION_SKILLS[c.cls.id];
     if (!def) return false;
     const p = game.player;
-    const atk = c.cls.atk * (1 + ((c.data.lv || 1) - 1) * 0.22) * (1 + (c.data.grade || 0) * 0.20);
+    const atk = companionAtk(c.cls, c.data.grade, c.slotLv);
     const dmgOf = (mult) => atk * mult;
     if (c.cls.id === 'tank') {
       // 방패 강타: 주변 적에게 피해 + 맞은 적을 3초간 탱커에게 붙잡아 둔다 (보스급 제외)
@@ -2684,7 +2793,15 @@ export function createGame(THREE) {
       if (!hit) return false;
       const ring = flatRing(c.x, c.z, 0.4, def.radius, 0x9fc4ff, 0.85, 0.12);
       addFx(ring, 0.4, (fx, k) => { ring.scale.setScalar(0.5 + (1 - k) * 1.1); ring.material.opacity = k * 0.9; }, 'compskill:slam');
-      if (game.ui) game.ui.floatText(c.x, groundY(c.x, c.z) + 2.0, c.z, '방패 강타!', 'heal');
+      // 두 번째 충격파 + 섬광 + 먼지 — 방패 강타가 멀리서도 한눈에 보이게
+      const ring2 = flatRing(c.x, c.z, 0.6, def.radius * 1.5, 0x9fc4ff, 0.7, 0.14);
+      addFx(ring2, 0.55, (fx, k) => { ring2.scale.setScalar(0.6 + (1 - k) * 1.4); ring2.material.opacity = k * 0.75; }, 'compskill:slam2');
+      const flash = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), fxMat(0xbfe0ff, 0.9));
+      flash.position.set(c.x, groundY(c.x, c.z) + 0.9, c.z);
+      addFx(flash, 0.28, (fx, k) => { flash.scale.setScalar(1 + (1 - k) * 2.4); flash.material.opacity = k * 0.85; }, 'compskill:slamflash');
+      dustBurst(c.x, c.z, 0x9fc4ff, 8);
+      game.camShake = Math.max(game.camShake, 0.22);
+      if (game.ui) game.ui.floatText(c.x, groundY(c.x, c.z) + 2.0, c.z, '방패 강타!', 'skill skill-tank');
       return true;
     }
     if (c.cls.id === 'melee') {
@@ -2700,14 +2817,16 @@ export function createGame(THREE) {
       if (!hit) return false;
       const ring = flatRing(c.x, c.z, 0.4, def.radius, 0xbfe6ff, 0.85, 0.12);
       addFx(ring, 0.45, (fx, k) => { ring.scale.setScalar(0.5 + (1 - k) * 1.1); ring.material.opacity = k * 0.9; }, 'compskill:whirl');
-      for (let i = 0; i < 3; i++) {
-        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, def.radius * 0.9), fxMat(0xeaf6ff, 0.8));
-        blade.position.y = 0.7; blade.rotation.y = (i / 3) * TAU;
+      const ring2 = flatRing(c.x, c.z, 0.5, def.radius * 1.4, 0xbfe6ff, 0.7, 0.13);
+      addFx(ring2, 0.5, (fx, k) => { ring2.scale.setScalar(0.6 + (1 - k) * 1.3); ring2.material.opacity = k * 0.8; }, 'compskill:whirl2');
+      for (let i = 0; i < 5; i++) {
+        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.1, def.radius * 1.05), fxMat(0xeaf6ff, 0.8));
+        blade.position.y = 0.7; blade.rotation.y = (i / 5) * TAU;
         const g = new THREE.Group(); g.add(blade); g.position.set(c.x, groundY(c.x, c.z), c.z);
-        const off = (i / 3) * TAU;
-        addFx(g, 0.4, (fx) => { g.rotation.y = off + (fx.max - fx.life) * 14; blade.material.opacity = Math.min(0.85, fx.life * 2.2); }, 'compskill:blade');
+        const off = (i / 5) * TAU;
+        addFx(g, 0.55, (fx) => { g.rotation.y = off + (fx.max - fx.life) * 18; blade.material.opacity = Math.min(0.85, fx.life * 2.2); }, 'compskill:blade');
       }
-      if (game.ui) game.ui.floatText(c.x, groundY(c.x, c.z) + 2.0, c.z, '회전 베기!', 'heal');
+      if (game.ui) game.ui.floatText(c.x, groundY(c.x, c.z) + 2.0, c.z, '회전 베기!', 'skill skill-melee');
       return true;
     }
     if (c.cls.id === 'mage') {
@@ -2715,6 +2834,10 @@ export function createGame(THREE) {
       const t = nearestEnemyFrom(c.x, c.z, def.range, false, true);
       if (!t) return false;
       const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
+      const flash = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 6), fxMat(0xff8a3c, 0.9));
+      flash.position.set(c.x, groundY(c.x, c.z) + 1.1, c.z);
+      addFx(flash, 0.25, (fx, k) => { flash.scale.setScalar(1 + (1 - k) * 2.2); flash.material.opacity = k * 0.85; }, 'compskill:firecast');
+      if (game.ui) game.ui.floatText(c.x, groundY(c.x, c.z) + 2.0, c.z, '파이어볼!', 'skill skill-mage');
       spawnProjectile({
         from: 'ally', x: c.x, y: 1.0, z: c.z, targetX: t.x, targetZ: t.z, speed: 14,
         color: 0xff8a3c, dmg, range: def.range, style: 'fireball', skill: 'fireball', radius: 0.5, source: c,
@@ -2729,7 +2852,9 @@ export function createGame(THREE) {
         ...game.companions.filter((x) => x.hp > 0).map((x) => ({ obj: x, hp: x.hp, max: x.maxHp, x: x.x, z: x.z }))];
       allies.sort((a, b) => a.hp / a.max - b.hp / b.max);
       const low = allies[0];
-      if (!low || low.hp / low.max >= 0.7) return false;
+      // 기본 치유(0.85에서 발동)와 같은 기준이어야 실전에서 스킬이 나간다.
+      // 예전 0.7 기준은 기본 치유·재생이 체력을 그 위로 유지해서 필드전에선 거의 안 터졌다.
+      if (!low || low.hp / low.max >= 0.85) return false;
       // Lv.4부터 두 명, Lv.7부터 파티 전체를 회복한다
       const targets = skillLv >= 7 ? allies.filter((a) => a.hp / a.max < 0.95)
         : skillLv >= 4 ? allies.filter((a) => a.hp / a.max < 0.95).slice(0, 2) : [low];
@@ -2739,6 +2864,7 @@ export function createGame(THREE) {
       for (const a of targets) {
         const h = healTarget(a.obj, pct, flat);
         healed += h;
+        if (h > 0) skillHealFx(a.x, a.z);
         if (h > 0 && game.ui) game.ui.damageNumber(a.x, groundY(a.x, a.z) + 1.8, a.z, `+${h}`, 'heal');
       }
       if (!healed) return false;
@@ -2747,7 +2873,7 @@ export function createGame(THREE) {
         p.poisonT = 0; p.poisonStacks = 0;
         game.state.cleanseT = 4;
       }
-      if (game.ui) game.ui.floatText(c.x, groundY(c.x, c.z) + 2.1, c.z, '치유의 빛!', 'heal');
+      if (game.ui) game.ui.floatText(c.x, groundY(c.x, c.z) + 2.1, c.z, '치유의 빛!', 'skill skill-heal');
       return true;
     }
     return false;
@@ -2827,8 +2953,8 @@ export function createGame(THREE) {
       c.skillCd -= dt;
       c.healCd -= dt;
       c.skillCheckT = (c.skillCheckT || 0) - dt;
-      const scale = 1 + ((c.data.lv || 1) - 1) * 0.22;
-      const atk = c.cls.atk * scale * (1 + (c.data.grade || 0) * 0.20);
+      const scale = 1 + ((c.slotLv || 1) - 1) * 0.22;
+      const atk = companionAtk(c.cls, c.data.grade, c.slotLv);
       // 동료 대표 스킬 (자동 사용, 전투 중에만 — castCompanionSkill이 조건을 본다)
       // skillCd는 진짜 쿨다운만 담는다. 조건이 안 맞아 못 쓰면 재확인 타이머만 따로 돈다
       // (예전엔 재확인 0.5초를 skillCd에 넣어 하단 바에 "1"이 영원히 떴다).
@@ -3653,11 +3779,30 @@ export function createGame(THREE) {
     const dup = s.companions.find((x) => x.name === name && x.cls === cls);
     if (dup) {
       let upgraded;
+      let slotGained = false;
+      let slotIndex = -1;
       if ((dup.grade || 0) < 5) { dup.grade = (dup.grade || 0) + 1; upgraded = 'grade'; }
-      else { dup.lv = (dup.lv || 1) + 5; upgraded = 'level'; }
+      else {
+        // 신화 동료의 중복은 +5 레벨. 레벨은 슬롯에 사므로, 그 동료가 동행 중일 때만
+        // 그 슬롯이 +5 된다. 대기 중인 동료는 받을 슬롯이 없어 레벨이 오르지 않는다.
+        slotIndex = s.party.indexOf(dup.id);
+        if (slotIndex >= 0) {
+          s.slotLv[slotIndex] = (s.slotLv[slotIndex] || 1) + 5;
+          const live = (game.companions || []).find((x) => x.data && x.data.id === dup.id);
+          if (live) {
+            const old = live.maxHp;
+            live.maxHp = companionMaxHp(live.cls, live.data.grade, s.slotLv[slotIndex]);
+            live.slotLv = s.slotLv[slotIndex];
+            live.hp = Math.min(live.maxHp, live.hp + Math.max(0, live.maxHp - old));
+          }
+          slotGained = true;
+        }
+        dup.lv = (dup.lv || 1) + 5; // 기록에만 남는다 (전투·표시에는 슬롯 레벨을 쓴다)
+        upgraded = 'level';
+      }
       game.save();
       if (game.player && s.party.includes(dup.id)) refreshCompanions();
-      return { ok: true, upgraded, companion: dup, cls: COMPANION_CLASSES[cls], grade: dup.grade };
+      return { ok: true, upgraded, companion: dup, cls: COMPANION_CLASSES[cls], grade: dup.grade, slotGained, slotIndex };
     }
     // 새 동료는 항상 일반(0등급)으로 시작한다.
     // 그 직업 스킬북 보너스가 쌓여 있으면(pendingBonus) 시작 보너스로 가져간다.
@@ -3695,7 +3840,7 @@ export function createGame(THREE) {
       const cls = COMPANION_CLASSES[c.cls];
       const mesh = makeCompanion(THREE, cls, GRADES[c.grade].color);
       scene.add(mesh);
-      const o = makeCompanionObj(c, cls, mesh, game.player.x - 1.6 + i * 1.6, game.player.z + 1.8);
+      const o = makeCompanionObj(c, cls, mesh, game.player.x - 1.6 + i * 1.6, game.player.z + 1.8, game.slotLevel(i));
       game.compObjects.push(o); game.companions.push(o);
       if (cls.id === 'tank' && !game.tank) game.tank = o;
     });
