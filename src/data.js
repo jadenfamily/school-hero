@@ -712,17 +712,85 @@ export const PLAYABLE = ZONES.filter((z) => !z.comingSoon);
 export const MEDAL_TIERS = [12, 30, 60, 100, 150];
 export const MEDAL_STEP = 0.14;
 
+// ---------- 영혼 특성 (10페이지) ----------
+// 1페이지 = 기존 10개 특성 그대로. 2~10페이지는 각 6개씩.
+// 페이지는 앞 페이지를 모두 해금해야 열린다 (game.isTalentPageUnlocked).
+// effect: derived()가 키별로 합산하는 보너스. 1페이지 수치는 기존 하드코딩과 동일해야 한다.
 export const TALENTS = [
-  { id: 'magnet', name: '자석 범위', icon: '🧲', desc: '아이템을 끌어당기는 범위 +40%', cost: { kind: 'gray', n: 5 }, x: 14, y: 12, req: [] },
-  { id: 'autoloot', name: '자동 루팅', icon: '🎣', desc: '드롭 아이템이 멀리서도 날아옵니다', cost: { kind: 'gray', n: 12 }, x: 50, y: 12, req: ['magnet'] },
-  { id: 'regen', name: 'HP 재생', icon: '💚', desc: '초당 체력 +1.5 회복', cost: { kind: 'green', n: 8 }, x: 86, y: 26, req: ['autoloot'] },
-  { id: 'atk', name: '공격력', icon: '💪', desc: '공격력 +9%', cost: { kind: 'green', n: 6 }, x: 14, y: 46, req: [] },
-  { id: 'crit', name: '치명타', icon: '🎯', desc: '치명타 확률 +6%', cost: { kind: 'blue', n: 6 }, x: 50, y: 46, req: ['atk'] },
-  { id: 'critdmg', name: '치명타 피해', icon: '💥', desc: '치명타 피해 +30%', cost: { kind: 'blue', n: 10 }, x: 86, y: 46, req: ['crit'] },
-  { id: 'speed', name: '이동 속도', icon: '👟', desc: '이동 속도 +10%', cost: { kind: 'blue', n: 8 }, x: 14, y: 72, req: [] },
-  { id: 'atkspeed', name: '공격 속도', icon: '⚡', desc: '공격 속도 +12%', cost: { kind: 'purple', n: 10 }, x: 50, y: 72, req: ['speed'] },
-  { id: 'maxhp', name: '최대 체력', icon: '❤️', desc: '최대 체력 +15%', cost: { kind: 'purple', n: 12 }, x: 86, y: 72, req: [] },
-  { id: 'loot', name: '드롭률', icon: '🍀', desc: '장비 드롭 확률 +30%', cost: { kind: 'purple', n: 16 }, x: 50, y: 92, req: ['atkspeed'] },
+  // ---- 1페이지 (기존 그대로) ----
+  { id: 'magnet', name: '자석 범위', icon: '🧲', desc: '아이템을 끌어당기는 범위 +40%', cost: { kind: 'gray', n: 5 }, x: 14, y: 12, req: [], page: 1, effect: { key: 'magnetPct', value: 40 } },
+  { id: 'autoloot', name: '자동 루팅', icon: '🎣', desc: '드롭 아이템이 멀리서도 날아옵니다', cost: { kind: 'gray', n: 12 }, x: 50, y: 12, req: ['magnet'], page: 1, effect: { key: 'autoloot', value: true } },
+  { id: 'regen', name: 'HP 재생', icon: '💚', desc: '초당 체력 +1.5 회복', cost: { kind: 'green', n: 8 }, x: 86, y: 26, req: ['autoloot'], page: 1, effect: { key: 'regen', value: 1.5 } },
+  { id: 'atk', name: '공격력', icon: '💪', desc: '공격력 +9%', cost: { kind: 'green', n: 6 }, x: 14, y: 46, req: [], page: 1, effect: { key: 'atkPct', value: 9 } },
+  { id: 'crit', name: '치명타', icon: '🎯', desc: '치명타 확률 +6%', cost: { kind: 'blue', n: 6 }, x: 50, y: 46, req: ['atk'], page: 1, effect: { key: 'crit', value: 6 } },
+  { id: 'critdmg', name: '치명타 피해', icon: '💥', desc: '치명타 피해 +30%', cost: { kind: 'blue', n: 10 }, x: 86, y: 46, req: ['crit'], page: 1, effect: { key: 'critDmg', value: 30 } },
+  { id: 'speed', name: '이동 속도', icon: '👟', desc: '이동 속도 +10%', cost: { kind: 'blue', n: 8 }, x: 14, y: 72, req: [], page: 1, effect: { key: 'moveSpeedPct', value: 10 } },
+  { id: 'atkspeed', name: '공격 속도', icon: '⚡', desc: '공격 속도 +12%', cost: { kind: 'purple', n: 10 }, x: 50, y: 72, req: ['speed'], page: 1, effect: { key: 'atkSpeedPct', value: 12 } },
+  { id: 'maxhp', name: '최대 체력', icon: '❤️', desc: '최대 체력 +15%', cost: { kind: 'purple', n: 12 }, x: 86, y: 72, req: [], page: 1, effect: { key: 'maxHpPct', value: 15 } },
+  { id: 'loot', name: '드롭률', icon: '🍀', desc: '장비 드롭 확률 +30%', cost: { kind: 'purple', n: 16 }, x: 50, y: 92, req: ['atkspeed'], page: 1, effect: { key: 'lootPct', value: 30 } },
+  // ---- 2페이지 (정예·중간보스 영혼) ----
+  { id: 'atk2', name: '공격력 II', icon: '💪', desc: '공격력 +7%', cost: { kind: 'green', n: 10 }, x: 14, y: 22, req: [], page: 2, effect: { key: 'atkPct', value: 7 } },
+  { id: 'crit2', name: '치명타 II', icon: '🎯', desc: '치명타 확률 +5%', cost: { kind: 'green', n: 12 }, x: 50, y: 22, req: ['atk2'], page: 2, effect: { key: 'crit', value: 5 } },
+  { id: 'critdmg2', name: '치명타 피해 II', icon: '💥', desc: '치명타 피해 +25%', cost: { kind: 'blue', n: 8 }, x: 86, y: 22, req: ['crit2'], page: 2, effect: { key: 'critDmg', value: 25 } },
+  { id: 'maxhp2', name: '최대 체력 II', icon: '❤️', desc: '최대 체력 +12%', cost: { kind: 'green', n: 10 }, x: 14, y: 66, req: [], page: 2, effect: { key: 'maxHpPct', value: 12 } },
+  { id: 'def2', name: '방어력 II', icon: '🛡️', desc: '방어력 +8%', cost: { kind: 'blue', n: 8 }, x: 50, y: 66, req: ['maxhp2'], page: 2, effect: { key: 'defPct', value: 8 } },
+  { id: 'regen2', name: 'HP 재생 II', icon: '💚', desc: '초당 체력 +1.5 회복', cost: { kind: 'blue', n: 10 }, x: 86, y: 66, req: ['def2'], page: 2, effect: { key: 'regen', value: 1.5 } },
+  // ---- 3페이지 (중간보스 영혼) ----
+  { id: 'atk3', name: '공격력 III', icon: '💪', desc: '공격력 +8%', cost: { kind: 'blue', n: 10 }, x: 14, y: 22, req: [], page: 3, effect: { key: 'atkPct', value: 8 } },
+  { id: 'crit3', name: '치명타 III', icon: '🎯', desc: '치명타 확률 +5%', cost: { kind: 'blue', n: 12 }, x: 50, y: 22, req: ['atk3'], page: 3, effect: { key: 'crit', value: 5 } },
+  { id: 'critdmg3', name: '치명타 피해 III', icon: '💥', desc: '치명타 피해 +25%', cost: { kind: 'blue', n: 14 }, x: 86, y: 22, req: ['crit3'], page: 3, effect: { key: 'critDmg', value: 25 } },
+  { id: 'speed3', name: '이동 속도 III', icon: '👟', desc: '이동 속도 +8%', cost: { kind: 'blue', n: 10 }, x: 14, y: 66, req: [], page: 3, effect: { key: 'moveSpeedPct', value: 8 } },
+  { id: 'atkspeed3', name: '공격 속도 III', icon: '⚡', desc: '공격 속도 +10%', cost: { kind: 'blue', n: 12 }, x: 50, y: 66, req: ['speed3'], page: 3, effect: { key: 'atkSpeedPct', value: 10 } },
+  { id: 'evade3', name: '회피 III', icon: '🌀', desc: '회피 +3%', cost: { kind: 'blue', n: 12 }, x: 86, y: 66, req: ['atkspeed3'], page: 3, effect: { key: 'evade', value: 3 } },
+  // ---- 4페이지 (중간보스·에픽보스 영혼) ----
+  { id: 'maxhp3', name: '최대 체력 III', icon: '❤️', desc: '최대 체력 +12%', cost: { kind: 'blue', n: 12 }, x: 14, y: 22, req: [], page: 4, effect: { key: 'maxHpPct', value: 12 } },
+  { id: 'def3', name: '방어력 III', icon: '🛡️', desc: '방어력 +9%', cost: { kind: 'blue', n: 12 }, x: 50, y: 22, req: ['maxhp3'], page: 4, effect: { key: 'defPct', value: 9 } },
+  { id: 'magnet2', name: '자석 범위 II', icon: '🧲', desc: '아이템을 끌어당기는 범위 +35%', cost: { kind: 'blue', n: 10 }, x: 86, y: 22, req: ['def3'], page: 4, effect: { key: 'magnetPct', value: 35 } },
+  { id: 'loot2', name: '드롭률 II', icon: '🍀', desc: '장비 드롭 확률 +25%', cost: { kind: 'blue', n: 14 }, x: 14, y: 66, req: [], page: 4, effect: { key: 'lootPct', value: 25 } },
+  { id: 'mp3', name: '최대 마나 III', icon: '🔮', desc: '최대 마나 +15%', cost: { kind: 'purple', n: 8 }, x: 50, y: 66, req: ['loot2'], page: 4, effect: { key: 'mpPct', value: 15 } },
+  { id: 'regen3', name: 'HP 재생 III', icon: '💚', desc: '초당 체력 +1.5 회복', cost: { kind: 'purple', n: 10 }, x: 86, y: 66, req: ['mp3'], page: 4, effect: { key: 'regen', value: 1.5 } },
+  // ---- 5페이지 (에픽보스 영혼) ----
+  { id: 'atk4', name: '공격력 IV', icon: '💪', desc: '공격력 +9%', cost: { kind: 'purple', n: 10 }, x: 14, y: 22, req: [], page: 5, effect: { key: 'atkPct', value: 9 } },
+  { id: 'crit4', name: '치명타 IV', icon: '🎯', desc: '치명타 확률 +5%', cost: { kind: 'purple', n: 12 }, x: 50, y: 22, req: ['atk4'], page: 5, effect: { key: 'crit', value: 5 } },
+  { id: 'critdmg4', name: '치명타 피해 IV', icon: '💥', desc: '치명타 피해 +25%', cost: { kind: 'purple', n: 12 }, x: 86, y: 22, req: ['crit4'], page: 5, effect: { key: 'critDmg', value: 25 } },
+  { id: 'atkspeed4', name: '공격 속도 IV', icon: '⚡', desc: '공격 속도 +10%', cost: { kind: 'purple', n: 12 }, x: 14, y: 66, req: [], page: 5, effect: { key: 'atkSpeedPct', value: 10 } },
+  { id: 'speed4', name: '이동 속도 IV', icon: '👟', desc: '이동 속도 +8%', cost: { kind: 'purple', n: 12 }, x: 50, y: 66, req: ['atkspeed4'], page: 5, effect: { key: 'moveSpeedPct', value: 8 } },
+  { id: 'evade4', name: '회피 IV', icon: '🌀', desc: '회피 +3%', cost: { kind: 'purple', n: 14 }, x: 86, y: 66, req: ['speed4'], page: 5, effect: { key: 'evade', value: 3 } },
+  // ---- 6페이지 (에픽보스 영혼) ----
+  { id: 'maxhp4', name: '최대 체력 IV', icon: '❤️', desc: '최대 체력 +13%', cost: { kind: 'purple', n: 12 }, x: 14, y: 22, req: [], page: 6, effect: { key: 'maxHpPct', value: 13 } },
+  { id: 'def4', name: '방어력 IV', icon: '🛡️', desc: '방어력 +9%', cost: { kind: 'purple', n: 12 }, x: 50, y: 22, req: ['maxhp4'], page: 6, effect: { key: 'defPct', value: 9 } },
+  { id: 'regen4', name: 'HP 재생 IV', icon: '💚', desc: '초당 체력 +2 회복', cost: { kind: 'purple', n: 14 }, x: 86, y: 22, req: ['def4'], page: 6, effect: { key: 'regen', value: 2 } },
+  { id: 'loot3', name: '드롭률 III', icon: '🍀', desc: '장비 드롭 확률 +25%', cost: { kind: 'purple', n: 14 }, x: 14, y: 66, req: [], page: 6, effect: { key: 'lootPct', value: 25 } },
+  { id: 'magnet3', name: '자석 범위 III', icon: '🧲', desc: '아이템을 끌어당기는 범위 +35%', cost: { kind: 'purple', n: 12 }, x: 50, y: 66, req: ['loot3'], page: 6, effect: { key: 'magnetPct', value: 35 } },
+  { id: 'mp4', name: '최대 마나 IV', icon: '🔮', desc: '최대 마나 +15%', cost: { kind: 'purple', n: 12 }, x: 86, y: 66, req: ['magnet3'], page: 6, effect: { key: 'mpPct', value: 15 } },
+  // ---- 7페이지 (에픽보스 영혼) ----
+  { id: 'atk5', name: '공격력 V', icon: '💪', desc: '공격력 +10%', cost: { kind: 'purple', n: 14 }, x: 14, y: 22, req: [], page: 7, effect: { key: 'atkPct', value: 10 } },
+  { id: 'crit5', name: '치명타 V', icon: '🎯', desc: '치명타 확률 +5%', cost: { kind: 'purple', n: 14 }, x: 50, y: 22, req: ['atk5'], page: 7, effect: { key: 'crit', value: 5 } },
+  { id: 'critdmg5', name: '치명타 피해 V', icon: '💥', desc: '치명타 피해 +30%', cost: { kind: 'purple', n: 14 }, x: 86, y: 22, req: ['crit5'], page: 7, effect: { key: 'critDmg', value: 30 } },
+  { id: 'speed5', name: '이동 속도 V', icon: '👟', desc: '이동 속도 +9%', cost: { kind: 'purple', n: 14 }, x: 14, y: 66, req: [], page: 7, effect: { key: 'moveSpeedPct', value: 9 } },
+  { id: 'atkspeed5', name: '공격 속도 V', icon: '⚡', desc: '공격 속도 +11%', cost: { kind: 'purple', n: 14 }, x: 50, y: 66, req: ['speed5'], page: 7, effect: { key: 'atkSpeedPct', value: 11 } },
+  { id: 'evade5', name: '회피 V', icon: '🌀', desc: '회피 +4%', cost: { kind: 'purple', n: 16 }, x: 86, y: 66, req: ['atkspeed5'], page: 7, effect: { key: 'evade', value: 4 } },
+  // ---- 8페이지 (에픽보스 영혼) ----
+  { id: 'maxhp5', name: '최대 체력 V', icon: '❤️', desc: '최대 체력 +14%', cost: { kind: 'purple', n: 14 }, x: 14, y: 22, req: [], page: 8, effect: { key: 'maxHpPct', value: 14 } },
+  { id: 'def5', name: '방어력 V', icon: '🛡️', desc: '방어력 +10%', cost: { kind: 'purple', n: 14 }, x: 50, y: 22, req: ['maxhp5'], page: 8, effect: { key: 'defPct', value: 10 } },
+  { id: 'regen5', name: 'HP 재생 V', icon: '💚', desc: '초당 체력 +2 회복', cost: { kind: 'purple', n: 16 }, x: 86, y: 22, req: ['def5'], page: 8, effect: { key: 'regen', value: 2 } },
+  { id: 'loot4', name: '드롭률 IV', icon: '🍀', desc: '장비 드롭 확률 +30%', cost: { kind: 'purple', n: 16 }, x: 14, y: 66, req: [], page: 8, effect: { key: 'lootPct', value: 30 } },
+  { id: 'mp5', name: '최대 마나 V', icon: '🔮', desc: '최대 마나 +18%', cost: { kind: 'purple', n: 14 }, x: 50, y: 66, req: ['loot4'], page: 8, effect: { key: 'mpPct', value: 18 } },
+  { id: 'magnet4', name: '자석 범위 IV', icon: '🧲', desc: '아이템을 끌어당기는 범위 +40%', cost: { kind: 'purple', n: 14 }, x: 86, y: 66, req: ['mp5'], page: 8, effect: { key: 'magnetPct', value: 40 } },
+  // ---- 9페이지 (지역 보스 영혼) ----
+  { id: 'atk6', name: '공격력 VI', icon: '💪', desc: '공격력 +10%', cost: { kind: 'gold', n: 2 }, x: 14, y: 22, req: [], page: 9, effect: { key: 'atkPct', value: 10 } },
+  { id: 'crit6', name: '치명타 VI', icon: '🎯', desc: '치명타 확률 +6%', cost: { kind: 'gold', n: 2 }, x: 50, y: 22, req: ['atk6'], page: 9, effect: { key: 'crit', value: 6 } },
+  { id: 'critdmg6', name: '치명타 피해 VI', icon: '💥', desc: '치명타 피해 +30%', cost: { kind: 'gold', n: 3 }, x: 86, y: 22, req: ['crit6'], page: 9, effect: { key: 'critDmg', value: 30 } },
+  { id: 'maxhp6', name: '최대 체력 VI', icon: '❤️', desc: '최대 체력 +15%', cost: { kind: 'gold', n: 2 }, x: 14, y: 66, req: [], page: 9, effect: { key: 'maxHpPct', value: 15 } },
+  { id: 'def6', name: '방어력 VI', icon: '🛡️', desc: '방어력 +10%', cost: { kind: 'gold', n: 2 }, x: 50, y: 66, req: ['maxhp6'], page: 9, effect: { key: 'defPct', value: 10 } },
+  { id: 'regen6', name: 'HP 재생 VI', icon: '💚', desc: '초당 체력 +2 회복', cost: { kind: 'gold', n: 3 }, x: 86, y: 66, req: ['def6'], page: 9, effect: { key: 'regen', value: 2 } },
+  // ---- 10페이지 (지역 보스 영혼) ----
+  { id: 'atk7', name: '공격력 VII', icon: '💪', desc: '공격력 +12%', cost: { kind: 'gold', n: 3 }, x: 14, y: 22, req: [], page: 10, effect: { key: 'atkPct', value: 12 } },
+  { id: 'crit7', name: '치명타 VII', icon: '🎯', desc: '치명타 확률 +6%', cost: { kind: 'gold', n: 3 }, x: 50, y: 22, req: ['atk7'], page: 10, effect: { key: 'crit', value: 6 } },
+  { id: 'critdmg7', name: '치명타 피해 VII', icon: '💥', desc: '치명타 피해 +35%', cost: { kind: 'gold', n: 4 }, x: 86, y: 22, req: ['crit7'], page: 10, effect: { key: 'critDmg', value: 35 } },
+  { id: 'speed6', name: '이동 속도 VI', icon: '👟', desc: '이동 속도 +10%', cost: { kind: 'gold', n: 3 }, x: 14, y: 66, req: [], page: 10, effect: { key: 'moveSpeedPct', value: 10 } },
+  { id: 'atkspeed6', name: '공격 속도 VI', icon: '⚡', desc: '공격 속도 +12%', cost: { kind: 'gold', n: 3 }, x: 50, y: 66, req: ['speed6'], page: 10, effect: { key: 'atkSpeedPct', value: 12 } },
+  { id: 'loot5', name: '드롭률 V', icon: '🍀', desc: '장비 드롭 확률 +30%', cost: { kind: 'gold', n: 4 }, x: 86, y: 66, req: ['atkspeed6'], page: 10, effect: { key: 'lootPct', value: 30 } },
 ];
 
 export const SOUL_KINDS = {
