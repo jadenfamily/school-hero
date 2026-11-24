@@ -287,11 +287,11 @@ export const ZONES = [
     scale: SCALE[1], dropW: DROP_W[1],
     mobs: {
       normal: [
-        E({ key: 'slime', name: '풀슬라임', shape: 'slime', color: 0x6cdc8a, dark: 0x3aa85c, hp: 34, atk: 8, speed: 1.55, atkRange: 1.5, atkCd: 1.3, aggro: 6.5, style: 'melee', soul: 'gray' }),
-        E({ key: 'goblin', name: '고블린', shape: 'goblin', color: 0x8fbf5a, dark: 0x4c7a2e, hp: 46, atk: 10, speed: 2.1, atkRange: 1.7, atkCd: 1.25, aggro: 7.5, style: 'melee', soul: 'gray' }),
+        E({ key: 'slime', name: '풀슬라임', shape: 'slime', color: 0x6cdc8a, dark: 0x3aa85c, hp: 34, atk: 8, speed: 1.55, atkRange: 1.5, atkCd: 1.3, aggro: 5, style: 'melee', soul: 'gray' }),
+        E({ key: 'goblin', name: '고블린', shape: 'goblin', color: 0x8fbf5a, dark: 0x4c7a2e, hp: 46, atk: 10, speed: 2.1, atkRange: 1.7, atkCd: 1.25, aggro: 5.5, style: 'melee', soul: 'gray' }),
       ],
       elite: [
-        E({ key: 'orc', name: '오크 정예', shape: 'orc', color: 0x6e9450, dark: 0x3c5a28, hp: 120, atk: 16, speed: 1.9, atkRange: 2.0, atkCd: 1.5, aggro: 8.5, style: 'melee', elite: true, soul: 'green' }),
+        E({ key: 'orc', name: '오크 정예', shape: 'orc', color: 0x6e9450, dark: 0x3c5a28, hp: 120, atk: 16, speed: 1.9, atkRange: 2.0, atkCd: 1.5, aggro: 6.5, style: 'melee', elite: true, soul: 'green' }),
       ],
       mid: E({ key: 'ogre', name: '거대 오우거', shape: 'ogre', color: 0xb08a5a, dark: 0x6b4a25, hp: 380, atk: 26, speed: 1.7, atkRange: 2.6, atkCd: 1.7, aggro: 9, style: 'aoe', elite: true, boss: 'mid', soul: 'blue' }),
       boss: E({ key: 'ent', name: '숲의 거대 엔트', shape: 'ent', color: 0x7c5b34, dark: 0x3e6b32, hp: 760, atk: 34, speed: 1.35, atkRange: 3.2, atkCd: 1.9, aggro: 12, style: 'aoe', boss: 'boss', soul: 'purple' }),
@@ -324,11 +324,11 @@ export const ZONES = [
     scale: SCALE[2], dropW: DROP_W[2],
     mobs: {
       normal: [
-        E({ key: 'frog', name: '독개구리', shape: 'frog', color: 0x93c94f, dark: 0x4e7722, hp: 90, atk: 15, speed: 1.75, atkRange: 6.5, atkCd: 2.2, aggro: 8, style: 'poison', soul: 'gray' }),
-        E({ key: 'lizard', name: '리자드맨', shape: 'lizard', color: 0x5d9a76, dark: 0x2f5c44, hp: 110, atk: 18, speed: 2.25, atkRange: 2.1, atkCd: 1.35, aggro: 8.5, style: 'melee', soul: 'gray' }),
+        E({ key: 'frog', name: '독개구리', shape: 'frog', color: 0x93c94f, dark: 0x4e7722, hp: 90, atk: 15, speed: 1.75, atkRange: 6.5, atkCd: 2.2, aggro: 5.5, style: 'poison', soul: 'gray' }),
+        E({ key: 'lizard', name: '리자드맨', shape: 'lizard', color: 0x5d9a76, dark: 0x2f5c44, hp: 110, atk: 18, speed: 2.25, atkRange: 2.1, atkCd: 1.35, aggro: 6, style: 'melee', soul: 'gray' }),
       ],
       elite: [
-        E({ key: 'wraith', name: '늪지 망령', shape: 'wraith', color: 0x8f7fc4, dark: 0x3b2f5e, hp: 260, atk: 24, speed: 1.6, atkRange: 7, atkCd: 2.3, aggro: 9.5, style: 'ranged', elite: true, soul: 'green' }),
+        E({ key: 'wraith', name: '늪지 망령', shape: 'wraith', color: 0x8f7fc4, dark: 0x3b2f5e, hp: 260, atk: 24, speed: 1.6, atkRange: 7, atkCd: 2.3, aggro: 6.5, style: 'ranged', elite: true, soul: 'green' }),
       ],
       mid: E({ key: 'hydra', name: '늪지 히드라', shape: 'hydra', color: 0x6fae68, dark: 0x2f6136, hp: 1200, atk: 36, speed: 1.5, atkRange: 3.4, atkCd: 1.8, aggro: 10, style: 'poison', elite: true, boss: 'mid', soul: 'blue' }),
       boss: E({ key: 'witch', name: '부패한 늪지 마녀', shape: 'witch', color: 0x9b6fbf, dark: 0x3d2450, hp: 2400, atk: 46, speed: 1.45, atkRange: 7.5, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
@@ -376,11 +376,11 @@ export const ZONES = [
     scale: SCALE[3], dropW: DROP_W[3],
     mobs: {
       normal: [
-        E({ key: 'scorpion', name: '모래 전갈', shape: 'scorpion', color: 0xd08a3e, dark: 0x8a5220, hp: 175, atk: 26, speed: 2.3, atkRange: 1.9, atkCd: 1.15, aggro: 9, style: 'melee', soul: 'gray' }),
-        E({ key: 'mummy', name: '미라', shape: 'mummy', color: 0xd8cfa8, dark: 0x8f8258, hp: 210, atk: 30, speed: 1.25, atkRange: 7.5, atkCd: 2.4, aggro: 10, style: 'ranged', soul: 'gray' }),
+        E({ key: 'scorpion', name: '모래 전갈', shape: 'scorpion', color: 0xd08a3e, dark: 0x8a5220, hp: 175, atk: 26, speed: 2.3, atkRange: 1.9, atkCd: 1.15, aggro: 6.5, style: 'melee', soul: 'gray' }),
+        E({ key: 'mummy', name: '미라', shape: 'mummy', color: 0xd8cfa8, dark: 0x8f8258, hp: 210, atk: 30, speed: 1.25, atkRange: 7.5, atkCd: 2.4, aggro: 7, style: 'ranged', soul: 'gray' }),
       ],
       elite: [
-        E({ key: 'scarab', name: '스카라브 정예', shape: 'scarab', color: 0x3f8f9a, dark: 0x1e4f57, hp: 460, atk: 38, speed: 2.5, atkRange: 2.0, atkCd: 1.3, aggro: 10.5, style: 'melee', elite: true, soul: 'green' }),
+        E({ key: 'scarab', name: '스카라브 정예', shape: 'scarab', color: 0x3f8f9a, dark: 0x1e4f57, hp: 460, atk: 38, speed: 2.5, atkRange: 2.0, atkCd: 1.3, aggro: 7.5, style: 'melee', elite: true, soul: 'green' }),
       ],
       mid: E({ key: 'anubis', name: '아누비스 전사', shape: 'anubis', color: 0x2f3247, dark: 0xc9a13a, hp: 2200, atk: 52, speed: 2.0, atkRange: 2.6, atkCd: 1.4, aggro: 11, style: 'melee', elite: true, boss: 'mid', soul: 'blue' }),
       boss: E({ key: 'golem', name: '고대 모래 골렘', shape: 'golem', color: 0xc9a468, dark: 0x7a5a2c, hp: 4200, atk: 62, speed: 1.3, atkRange: 3.8, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
@@ -424,11 +424,11 @@ export const ZONES = [
     scale: SCALE[4], dropW: DROP_W[4],
     mobs: {
       normal: [
-        E({ key: 'merrow', name: '어인 머록', shape: 'merfolk', color: 0x4aa3b8, dark: 0x1e5566, hp: 380, atk: 44, speed: 2.3, atkRange: 2.1, atkCd: 1.2, aggro: 9.5, style: 'melee', soul: 'gray' }),
-        E({ key: 'naga', name: '심해 나가', shape: 'naga', color: 0x6f7fd0, dark: 0x2c3566, hp: 420, atk: 50, speed: 1.9, atkRange: 7.5, atkCd: 2.2, aggro: 10.5, style: 'ranged', soul: 'gray' }),
+        E({ key: 'merrow', name: '어인 머록', shape: 'merfolk', color: 0x4aa3b8, dark: 0x1e5566, hp: 380, atk: 44, speed: 2.3, atkRange: 2.1, atkCd: 1.2, aggro: 6.5, style: 'melee', soul: 'gray' }),
+        E({ key: 'naga', name: '심해 나가', shape: 'naga', color: 0x6f7fd0, dark: 0x2c3566, hp: 420, atk: 50, speed: 1.9, atkRange: 7.5, atkCd: 2.2, aggro: 7.5, style: 'ranged', soul: 'gray' }),
       ],
       elite: [
-        E({ key: 'crab', name: '갑각 크랩 정예', shape: 'crab', color: 0xd2703e, dark: 0x7a3a1c, hp: 980, atk: 62, speed: 2.2, atkRange: 2.3, atkCd: 1.3, aggro: 11, style: 'melee', elite: true, soul: 'green' }),
+        E({ key: 'crab', name: '갑각 크랩 정예', shape: 'crab', color: 0xd2703e, dark: 0x7a3a1c, hp: 980, atk: 62, speed: 2.2, atkRange: 2.3, atkCd: 1.3, aggro: 8, style: 'melee', elite: true, soul: 'green' }),
       ],
       mid: E({ key: 'siren', name: '세이렌', shape: 'siren', color: 0x7fe0d0, dark: 0x2a6a7a, hp: 3800, atk: 78, speed: 1.8, atkRange: 7.8, atkCd: 1.9, aggro: 12, style: 'aoe', elite: true, boss: 'mid', soul: 'blue' }),
       boss: E({ key: 'kraken', name: '심해 크라켄', shape: 'kraken', color: 0x7a4fa8, dark: 0x3a1c5a, hp: 7000, atk: 96, speed: 1.4, atkRange: 4.2, atkCd: 1.9, aggro: 14, style: 'aoe', boss: 'boss', soul: 'purple' }),
@@ -468,11 +468,11 @@ export const ZONES = [
     scale: SCALE[5], dropW: DROP_W[5],
     mobs: {
       normal: [
-        E({ key: 'skySpirit', name: '하늘 정령', shape: 'wraith', color: 0x9fc8e8, dark: 0x3a5a7a, hp: 520, atk: 58, speed: 1.8, atkRange: 7.0, atkCd: 2.2, aggro: 9, style: 'ranged', soul: 'gray' }),
-        E({ key: 'ruinGuard', name: '유적 수호병', shape: 'goblin', color: 0xb8a888, dark: 0x6a5a3a, hp: 570, atk: 64, speed: 2.1, atkRange: 1.8, atkCd: 1.3, aggro: 8, style: 'melee', soul: 'gray' }),
+        E({ key: 'skySpirit', name: '하늘 정령', shape: 'wraith', color: 0x9fc8e8, dark: 0x3a5a7a, hp: 520, atk: 58, speed: 1.8, atkRange: 7.0, atkCd: 2.2, aggro: 6.5, style: 'ranged', soul: 'gray' }),
+        E({ key: 'ruinGuard', name: '유적 수호병', shape: 'goblin', color: 0xb8a888, dark: 0x6a5a3a, hp: 570, atk: 64, speed: 2.1, atkRange: 1.8, atkCd: 1.3, aggro: 5.5, style: 'melee', soul: 'gray' }),
       ],
       elite: [
-        E({ key: 'skyKnight', name: '하늘 기사', shape: 'anubis', color: 0x7fb0d0, dark: 0x2a4a6a, hp: 1350, atk: 80, speed: 2.0, atkRange: 2.6, atkCd: 1.4, aggro: 10, style: 'melee', elite: true, soul: 'green' }),
+        E({ key: 'skyKnight', name: '하늘 기사', shape: 'anubis', color: 0x7fb0d0, dark: 0x2a4a6a, hp: 1350, atk: 80, speed: 2.0, atkRange: 2.6, atkCd: 1.4, aggro: 7, style: 'melee', elite: true, soul: 'green' }),
       ],
       mid: E({ key: 'skyGuardian', name: '하늘 수호자', shape: 'anubis', color: 0x9fc8e8, dark: 0x2a4a6a, hp: 5200, atk: 100, speed: 1.9, atkRange: 2.8, atkCd: 1.5, aggro: 11, style: 'melee', elite: true, boss: 'mid', soul: 'blue' }),
       boss: E({ key: 'skyPriest', name: '하늘 대제사장', shape: 'witch', color: 0xc0a0e8, dark: 0x4a2a6a, hp: 9500, atk: 122, speed: 1.45, atkRange: 7.5, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
@@ -504,11 +504,11 @@ export const ZONES = [
     scale: SCALE[6], dropW: DROP_W[6],
     mobs: {
       normal: [
-        E({ key: 'lavaSlime', name: '용암 슬라임', shape: 'slime', color: 0xe86a3a, dark: 0x7a2a1a, hp: 700, atk: 72, speed: 1.6, atkRange: 1.5, atkCd: 1.3, aggro: 8, style: 'melee', soul: 'gray' }),
-        E({ key: 'volcanoImp', name: '화산 임프', shape: 'goblin', color: 0xd05a4a, dark: 0x6a2418, hp: 760, atk: 78, speed: 2.3, atkRange: 1.9, atkCd: 1.2, aggro: 9, style: 'melee', soul: 'gray' }),
+        E({ key: 'lavaSlime', name: '용암 슬라임', shape: 'slime', color: 0xe86a3a, dark: 0x7a2a1a, hp: 700, atk: 72, speed: 1.6, atkRange: 1.5, atkCd: 1.3, aggro: 5.5, style: 'melee', soul: 'gray' }),
+        E({ key: 'volcanoImp', name: '화산 임프', shape: 'goblin', color: 0xd05a4a, dark: 0x6a2418, hp: 760, atk: 78, speed: 2.3, atkRange: 1.9, atkCd: 1.2, aggro: 6.5, style: 'melee', soul: 'gray' }),
       ],
       elite: [
-        E({ key: 'lavaGolem', name: '용암 골렘', shape: 'golem', color: 0xc05a2a, dark: 0x5a2410, hp: 1800, atk: 96, speed: 1.4, atkRange: 3.4, atkCd: 1.8, aggro: 10, style: 'aoe', elite: true, soul: 'green' }),
+        E({ key: 'lavaGolem', name: '용암 골렘', shape: 'golem', color: 0xc05a2a, dark: 0x5a2410, hp: 1800, atk: 96, speed: 1.4, atkRange: 3.4, atkCd: 1.8, aggro: 7, style: 'aoe', elite: true, soul: 'green' }),
       ],
       mid: E({ key: 'magmaGolem', name: '마그마 골렘', shape: 'golem', color: 0xd06a2a, dark: 0x6a2a10, hp: 7000, atk: 122, speed: 1.35, atkRange: 3.6, atkCd: 1.9, aggro: 11, style: 'aoe', elite: true, boss: 'mid', soul: 'blue' }),
       boss: E({ key: 'volcanoLord', name: '화산의 군주', shape: 'ogre', color: 0xb03a24, dark: 0x4a1810, hp: 12800, atk: 148, speed: 1.6, atkRange: 3.0, atkCd: 1.8, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
@@ -540,11 +540,11 @@ export const ZONES = [
     scale: SCALE[7], dropW: DROP_W[7],
     mobs: {
       normal: [
-        E({ key: 'moonShadow', name: '달그림자', shape: 'wraith', color: 0x8f8fb8, dark: 0x3a3a55, hp: 950, atk: 88, speed: 1.7, atkRange: 7.0, atkCd: 2.3, aggro: 9, style: 'ranged', soul: 'gray' }),
-        E({ key: 'moonRabbit', name: '달토끼', shape: 'frog', color: 0xd8d8e8, dark: 0x6a6a8a, hp: 1020, atk: 95, speed: 1.9, atkRange: 2.0, atkCd: 1.3, aggro: 8, style: 'melee', soul: 'gray' }),
+        E({ key: 'moonShadow', name: '달그림자', shape: 'wraith', color: 0x8f8fb8, dark: 0x3a3a55, hp: 950, atk: 88, speed: 1.7, atkRange: 7.0, atkCd: 2.3, aggro: 6.5, style: 'ranged', soul: 'gray' }),
+        E({ key: 'moonRabbit', name: '달토끼', shape: 'frog', color: 0xd8d8e8, dark: 0x6a6a8a, hp: 1020, atk: 95, speed: 1.9, atkRange: 2.0, atkCd: 1.3, aggro: 5.5, style: 'melee', soul: 'gray' }),
       ],
       elite: [
-        E({ key: 'moonKnight', name: '달의 기사', shape: 'anubis', color: 0x7a7ab0, dark: 0x2a2a4a, hp: 2400, atk: 115, speed: 2.0, atkRange: 2.6, atkCd: 1.4, aggro: 10, style: 'melee', elite: true, soul: 'green' }),
+        E({ key: 'moonKnight', name: '달의 기사', shape: 'anubis', color: 0x7a7ab0, dark: 0x2a2a4a, hp: 2400, atk: 115, speed: 2.0, atkRange: 2.6, atkCd: 1.4, aggro: 7, style: 'melee', elite: true, soul: 'green' }),
       ],
       mid: E({ key: 'moonGuardian', name: '달의 수호자', shape: 'anubis', color: 0x9a9ad0, dark: 0x3a3a5a, hp: 9500, atk: 148, speed: 2.0, atkRange: 2.8, atkCd: 1.5, aggro: 11, style: 'melee', elite: true, boss: 'mid', soul: 'blue' }),
       boss: E({ key: 'moonQueen', name: '달의 여왕', shape: 'siren', color: 0xc8b8e8, dark: 0x4a3a6a, hp: 17000, atk: 178, speed: 1.7, atkRange: 7.8, atkCd: 1.9, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
@@ -576,11 +576,11 @@ export const ZONES = [
     scale: SCALE[8], dropW: DROP_W[8],
     mobs: {
       normal: [
-        E({ key: 'iceSlime', name: '얼음 슬라임', shape: 'slime', color: 0x9fd8f0, dark: 0x3a6a8a, hp: 1280, atk: 106, speed: 1.6, atkRange: 1.5, atkCd: 1.3, aggro: 8, style: 'melee', soul: 'gray' }),
-        E({ key: 'glacierSpirit', name: '빙하 정령', shape: 'wraith', color: 0xb8e0f0, dark: 0x4a7a8a, hp: 1360, atk: 114, speed: 1.8, atkRange: 7.0, atkCd: 2.2, aggro: 9, style: 'ranged', soul: 'gray' }),
+        E({ key: 'iceSlime', name: '얼음 슬라임', shape: 'slime', color: 0x9fd8f0, dark: 0x3a6a8a, hp: 1280, atk: 106, speed: 1.6, atkRange: 1.5, atkCd: 1.3, aggro: 5.5, style: 'melee', soul: 'gray' }),
+        E({ key: 'glacierSpirit', name: '빙하 정령', shape: 'wraith', color: 0xb8e0f0, dark: 0x4a7a8a, hp: 1360, atk: 114, speed: 1.8, atkRange: 7.0, atkCd: 2.2, aggro: 6.5, style: 'ranged', soul: 'gray' }),
       ],
       elite: [
-        E({ key: 'crystalGolem', name: '수정 골렘', shape: 'golem', color: 0x7fc8d8, dark: 0x2a5a6a, hp: 3200, atk: 138, speed: 1.5, atkRange: 3.4, atkCd: 1.7, aggro: 10, style: 'aoe', elite: true, soul: 'green' }),
+        E({ key: 'crystalGolem', name: '수정 골렘', shape: 'golem', color: 0x7fc8d8, dark: 0x2a5a6a, hp: 3200, atk: 138, speed: 1.5, atkRange: 3.4, atkCd: 1.7, aggro: 7, style: 'aoe', elite: true, soul: 'green' }),
       ],
       mid: E({ key: 'glacierHydra', name: '빙하 히드라', shape: 'hydra', color: 0x6fb0d0, dark: 0x2a4a6a, hp: 12800, atk: 178, speed: 1.5, atkRange: 3.4, atkCd: 1.8, aggro: 11, style: 'poison', elite: true, boss: 'mid', soul: 'blue' }),
       boss: E({ key: 'glacierQueen', name: '빙하의 여왕', shape: 'witch', color: 0xa8d0e8, dark: 0x3a5a7a, hp: 23000, atk: 212, speed: 1.45, atkRange: 7.5, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
@@ -612,11 +612,11 @@ export const ZONES = [
     scale: SCALE[9], dropW: DROP_W[9],
     mobs: {
       normal: [
-        E({ key: 'snowSpirit', name: '눈보라 정령', shape: 'wraith', color: 0xd8e8f0, dark: 0x6a7a8a, hp: 1720, atk: 128, speed: 1.8, atkRange: 7.0, atkCd: 2.2, aggro: 9, style: 'ranged', soul: 'gray' }),
-        E({ key: 'snowYeti', name: '설산 예티', shape: 'ogre', color: 0xe8e8e8, dark: 0x8a8a8a, hp: 1820, atk: 136, speed: 1.7, atkRange: 2.6, atkCd: 1.6, aggro: 9, style: 'melee', soul: 'gray' }),
+        E({ key: 'snowSpirit', name: '눈보라 정령', shape: 'wraith', color: 0xd8e8f0, dark: 0x6a7a8a, hp: 1720, atk: 128, speed: 1.8, atkRange: 7.0, atkCd: 2.2, aggro: 6.5, style: 'ranged', soul: 'gray' }),
+        E({ key: 'snowYeti', name: '설산 예티', shape: 'ogre', color: 0xe8e8e8, dark: 0x8a8a8a, hp: 1820, atk: 136, speed: 1.7, atkRange: 2.6, atkCd: 1.6, aggro: 6.5, style: 'melee', soul: 'gray' }),
       ],
       elite: [
-        E({ key: 'snowGiant', name: '설산 거인', shape: 'ogre', color: 0xd0d8e0, dark: 0x5a6a7a, hp: 4300, atk: 165, speed: 1.7, atkRange: 2.8, atkCd: 1.6, aggro: 10, style: 'melee', elite: true, soul: 'green' }),
+        E({ key: 'snowGiant', name: '설산 거인', shape: 'ogre', color: 0xd0d8e0, dark: 0x5a6a7a, hp: 4300, atk: 165, speed: 1.7, atkRange: 2.8, atkCd: 1.6, aggro: 7, style: 'melee', elite: true, soul: 'green' }),
       ],
       mid: E({ key: 'snowGuardian', name: '설산의 수호자', shape: 'ogre', color: 0xe0e8f0, dark: 0x6a7a8a, hp: 17200, atk: 212, speed: 1.7, atkRange: 3.0, atkCd: 1.7, aggro: 11, style: 'aoe', elite: true, boss: 'mid', soul: 'blue' }),
       boss: E({ key: 'snowKing', name: '설산의 왕', shape: 'ent', color: 0xf0f4f8, dark: 0x5a6a7a, hp: 31000, atk: 252, speed: 1.35, atkRange: 3.4, atkCd: 1.9, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
