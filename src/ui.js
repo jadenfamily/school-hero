@@ -3,6 +3,7 @@ import {
   PLAYABLE, ZONES, GRADES, WEAPONS, ARMOR_KINDS, ACCESSORY_KINDS, TALENTS, SOUL_KINDS,
   COMPANION_CLASSES, CHARMS, SECRET_TOTAL, MEDAL_TIERS, MEDAL_STEP, OPT_LABEL, MOB_REWARD,
   AVATARS, avatarOf, SKILLS, SKILL_IDS, HEAL_SKILL_IDS, EVOLVE_NEED, BOSS_LABEL, BOSS_TIMER,
+  COMPANION_SKILLS, SKILL_BOOK_CLASS, COMPANION_SKILL_MAX_LEVEL,
   COSTUMES, COSTUME_MAP, COSTUME_PULL_COST, COSTUME_MAX_LEVEL, COSTUME_STAT_LABEL, COMPANION_PULL_COST,
   ELEMENTS, ELEM_BEATS, EARTH_GATE,
 } from './data.js';
@@ -55,44 +56,33 @@ export function createUI(game, THREE) {
     avatarEl.title = `${game.heroName()} · ${A.short}`;
   }
 
-  // ---------- 스킬 퀵슬롯 (하단 바) ----------
+  // ---------- 동료 스킬 퀵슬롯 (하단 바) ----------
+  // 스킬 개편: 주인공은 스킬을 쓰지 않는다. 하단 바에는 동행 중인 동료의
+  // 대표 스킬이 쿨다운과 함께 보인다 (표시 전용 — 자동 사용, 누르면 설명이 뜬다).
   const skillBar = $('skillBar');
   ui.renderSkillBar = function (force) {
-    if (!game.state || !game.state.skills) return;
-    const s = game.state.skills;
+    if (!game.state) return;
+    const list = game.companionSkillState ? game.companionSkillState() : [];
     // 매 프레임 DOM을 갈아끼우면 터치가 끊기므로 바뀔 때만 다시 그린다
-    const sig = JSON.stringify([s.auto, s.slots, s.learned, s.slots.map((id) => (id ? Math.ceil(s.cds[id] || 0) : 0))]);
+    const sig = JSON.stringify(list.map((x) => [x.id, x.skillId, x.level, Math.ceil(x.cd)]));
     if (!force && sig === ui._skillSig) return;
     ui._skillSig = sig;
-    skillBar.innerHTML = `<button class="skill-auto ${s.auto ? 'on' : ''}" data-skill-auto title="자동 사용">⚡</button>` +
-      s.slots.map((id, i) => {
-        const def = id ? SKILLS[id] : null;
-        const cd = id ? Math.ceil(s.cds[id] || 0) : 0;
-        return `<button class="skill-slot ${def ? '' : 'empty'}" data-skill-slot="${i}" data-skill-id="${id || ''}" title="${def ? def.name : '스킬 슬롯'} · ${def ? def.mp + ' MP' : '비어 있음'}">
-          <span>${def ? def.icon : '＋'}</span>${cd > 0 ? `<i class="cd">${cd}</i>` : ''}
-        </button>`;
-      }).join('');
+    skillBar.innerHTML = list.map((x, i) => {
+      const cd = Math.ceil(x.cd);
+      return `<button class="skill-slot comp-skill" data-comp-skill="${i}" title="${x.name} · ${x.skillName} Lv.${x.level}">
+        <span>${x.skillIcon}</span>${cd > 0 ? `<i class="cd">${cd}</i>` : ''}<em class="sk-lv">Lv.${x.level}</em>
+      </button>`;
+    }).join('');
   };
   skillBar.addEventListener('click', (ev) => {
-    const auto = ev.target.closest('[data-skill-auto]');
-    if (auto) {
-      const on = game.toggleSkillAuto();
-      ui.toast(on ? '스킬 자동 사용을 켰어요.' : '스킬 자동 사용을 껐어요.', '');
-      ui.renderSkillBar(true);
-      return;
-    }
-    const btn = ev.target.closest('[data-skill-slot]');
+    const btn = ev.target.closest('[data-comp-skill]');
     if (!btn) return;
-    const id = btn.dataset.skillId;
-    if (!id) { ui.openHub('skills'); return; }
-    const r = game.castSkill(id);
-    if (!r.ok) {
-      const msg = r.reason === 'mp' ? '마나가 부족해요.' : r.reason === 'cooldown' ? '아직 쿨다운이에요.' : r.reason === 'target' ? '사거리 안에 적이 없어요.' : '아직 배우지 않은 스킬이에요.';
-      ui.toast(msg, 'bad');
-    } else {
-      ui.toast(`${SKILLS[id].icon} ${SKILLS[id].name}!`, 'good');
-      ui.renderSkillBar(true);
-    }
+    const list = game.companionSkillState ? game.companionSkillState() : [];
+    const x = list[parseInt(btn.dataset.compSkill, 10)];
+    if (!x) return;
+    const def = COMPANION_SKILLS[x.cls];
+    const cd = Math.ceil(x.cd);
+    ui.toast(`${x.skillIcon} ${x.name}의 ${x.skillName} Lv.${x.level}${cd > 0 ? ` · 쿨다운 ${cd}초` : ' · 준비됨'} — ${def ? def.desc : ''}`, 'good');
   });
 
   // ---------- 좌표 ----------
@@ -1193,73 +1183,66 @@ export function createUI(game, THREE) {
     }));
   };
 
-  // ---------- 스킬북 ----------
+  // ---------- 스킬북 (스킬 개편) ----------
+  // 주인공은 스킬을 쓰지 않는다. 스킬은 동료만 쓴다.
+  // 스킬북을 쓰면 해당 직업 동료의 대표 스킬 보너스가 +1 된다.
   ui.openSkills = function () {
     if (!game.state || !game.state.skills) return;
     const s = game.state.skills;
     const books = game.state.skillbooks || {};
-    const slotRow = s.slots.map((id, i) => {
-      const def = id ? SKILLS[id] : null;
-      return `<div class="sslot ${def ? '' : 'empty'}">
-        <b>${i + 1}</b><span class="ss-ico">${def ? def.icon : '＋'}</span>
-        <span class="ss-name">${def ? def.name : '비어 있음'}</span>
-        ${def ? `<button class="ss-x" data-clear="${i}">✕</button>` : ''}
+    // 동료 대표 스킬 4종 (보유한 동료의 현재 레벨과 함께)
+    const sigCards = Object.values(COMPANION_SKILLS).map((def) => {
+      const cls = COMPANION_CLASSES[def.cls];
+      const owned = game.state.companions.filter((c) => c.cls === def.cls);
+      const lvText = owned.length
+        ? owned.map((c) => `${c.name} Lv.${game.companionSkillLevel(c)}`).join(' · ')
+        : '보유한 동료 없음';
+      return `<div class="skill-card">
+        <div class="sk-ico">${def.icon}</div>
+        <div class="sk-body">
+          <div class="sk-name">${def.name} <span class="sk-kind">${cls.role}</span></div>
+          <div class="sk-desc">${def.desc}</div>
+          <div class="sk-meta">쿨다운 ${def.cd}초 · 레벨이 오르면 ${def.cdMin}초까지 · ${lvText}</div>
+        </div>
       </div>`;
     }).join('');
+    // 스킬북 10종: 쓰면 해당 직업 동료 스킬 +1
     const cards = SKILL_IDS.map((id) => {
       const def = SKILLS[id];
+      const cls = SKILL_BOOK_CLASS[id];
+      const clsDef = COMPANION_CLASSES[cls];
       const learned = s.learned.includes(id);
       const n = books[id] || 0;
-      const kindLabel = def.kind === 'attack' ? '공격' : def.kind === 'heal' ? '회복' : '지원';
-      const slotBtns = learned ? `<div class="slot-picks">${s.slots.map((x, i) => `<button class="slot-pick ${x === id ? 'on' : ''}" data-assign="${id}" data-slot="${i}">${i + 1}</button>`).join('')}</div>` : '';
-      const act = learned
-        ? `<span class="sk-done">배움</span>${slotBtns}`
-        : n > 0 ? `<button class="btn gold" data-learn="${id}">배우기</button><span class="hint">보유 ${n}</span>`
-          : '<span class="hint">보스 처치로 획득</span>';
+      const act = n > 0
+        ? `<button class="btn gold" data-learn="${id}">강화하기</button><span class="hint">보유 ${n}</span>`
+        : learned ? '<span class="sk-done">이미 사용</span>' : '<span class="hint">보스 처치로 획득</span>';
       return `<div class="skill-card ${learned ? 'learned' : ''} ${n > 0 ? 'hasbook' : ''}">
         <div class="sk-ico">${def.icon}</div>
         <div class="sk-body">
-          <div class="sk-name">${def.name} <span class="sk-kind">${kindLabel}</span></div>
+          <div class="sk-name">${def.name} <span class="sk-kind">→ ${clsDef.role} 동료 스킬 +1</span></div>
           <div class="sk-desc">${def.desc}</div>
-          <div class="sk-meta">MP ${def.mp} · 쿨다운 ${def.cd}초${def.mult ? ` · 피해 ×${def.mult}` : ''}</div>
+          <div class="sk-meta">${clsDef.name}의 대표 스킬 '${COMPANION_SKILLS[cls].name}' 보너스가 올라갑니다</div>
         </div>
         <div class="sk-act">${act}</div>
       </div>`;
     }).join('');
-    const html = `${head('📖 스킬북', `배운 스킬 ${s.learned.length} / ${SKILL_IDS.length}`, 'skills')}
+    const html = `${head('📖 스킬북', '스킬은 동료만 써요', 'skills')}
       <div class="skill-top">
-        <span class="hint">중간보스·에픽보스가 스킬북을 떨어뜨립니다. 배운 스킬은 최대 4칸 슬롯에 장착하세요.</span>
-        <button class="btn ${s.auto ? 'gold' : 'ghost'}" data-auto>${s.auto ? '⚡ 자동 사용 중' : '⚡ 자동 사용 꺼짐'}</button>
+        <span class="hint">주인공은 스킬을 쓰지 않아요. 스킬북을 쓰면 해당 직업 동료의 대표 스킬이 강해집니다. 대표 스킬 레벨 = 동료 등급 + 1 + 스킬북 보너스 (최대 Lv.10).</span>
       </div>
-      <div class="skill-slots">${slotRow}</div>
+      <div class="skill-list" style="margin-bottom:10px">${sigCards}</div>
       <div class="skill-list">${cards}</div>`;
     const sheet = openSheet(html, 'hub-sheet skills-sheet');
-    sheet.querySelector('[data-auto]').addEventListener('click', () => {
-      game.toggleSkillAuto(); ui.renderSkillBar(); ui.openSkills();
-    });
     sheet.querySelectorAll('[data-learn]').forEach((el) => el.addEventListener('click', () => {
       const id = el.dataset.learn;
       const r = game.learnSkill(id);
-      if (r.ok) { ui.toast(`${SKILLS[id].icon} ${SKILLS[id].name}을(를) 배웠어요!`, 'gold'); ui.openSkills(); }
-      else ui.toast('아직 이 스킬의 스킬북이 없어요.', 'bad');
+      if (!r.ok) { ui.toast('아직 이 스킬의 스킬북이 없어요.', 'bad'); return; }
+      const clsDef = r.cls ? COMPANION_CLASSES[r.cls] : null;
+      if (r.pending) ui.toast(`${SKILLS[id].icon} ${SKILLS[id].name} — ${clsDef.role} 동료가 아직 없어서 나중에 뽑으면 보너스가 적용돼요`, 'gold');
+      else if (r.granted.length) ui.toast(`${SKILLS[id].icon} ${SKILLS[id].name} — ${r.granted.join(' · ')}의 대표 스킬이 강해졌어요!`, 'gold');
+      else ui.toast(`${SKILLS[id].icon} ${SKILLS[id].name}을(를) 사용했어요`, 'gold');
+      ui.openSkills();
     }));
-    sheet.querySelectorAll('[data-assign]').forEach((el) => el.addEventListener('click', () => {
-      game.assignSkill(parseInt(el.dataset.slot, 10), el.dataset.assign); ui.openSkills();
-    }));
-    sheet.querySelectorAll('[data-clear]').forEach((el) => el.addEventListener('click', () => {
-      game.assignSkill(parseInt(el.dataset.clear, 10), null); ui.openSkills();
-    }));
-  };
-  ui.skillCastFx = function (id) {
-    const def = SKILLS[id];
-    if (!def || !game.player) return;
-    const p = project(game.player.x, 2.0, game.player.z);
-    const el = document.createElement('div');
-    el.className = 'skill-cast';
-    el.innerHTML = `${def.icon} <b>${def.name}</b>`;
-    el.style.left = p.x + 'px'; el.style.top = p.y + 'px';
-    worldLayer.appendChild(el);
-    setTimeout(() => el.remove(), 900);
   };
 
   // ---------- 동료 ----------
@@ -1281,6 +1264,7 @@ export function createUI(game, THREE) {
           <div class="cls">${cls.role} · ${cls.name}</div>
           <div class="lv">Lv.${c.lv || 1} · 공격 ${Math.round(cls.atk * (1 + ((c.lv || 1) - 1) * 0.22) * (1 + (c.grade || 0) * 0.20))}</div>
           <div class="lv">체력 ${(() => { const live = (game.companions || []).find((x) => x.data && x.data.id === c.id); return live ? `${Math.round(live.hp)} / ${live.maxHp}` : `${Math.round(cls.hp * (1 + (c.grade || 0) * 0.15))}`; })()}</div>
+          <div class="lv">${(() => { const sk = COMPANION_SKILLS[c.cls]; return sk ? `${sk.icon} ${sk.name} Lv.${game.companionSkillLevel(c)}` : ''; })()}</div>
         </div>
         <div style="display:flex;flex-direction:column;gap:5px">
           <button class="btn ${inParty ? 'ghost' : ''}" data-party="${c.id}">${inParty ? '대기' : '동행'}</button>
@@ -1295,7 +1279,7 @@ export function createUI(game, THREE) {
         <button class="btn gold" data-pull>뽑기 ✨</button>
       </div>
       ${cards}
-      <div class="hint" style="margin-top:10px">탱커·힐러·근접딜러·마법딜러 중 최대 3명까지 함께 싸워요. 같은 동료가 다시 나오면 등급이 올라가요 (최대 신화).</div>`;
+      <div class="hint" style="margin-top:10px">탱커·힐러·근접딜러·마법딜러 중 최대 3명까지 함께 싸워요. 같은 동료가 다시 나오면 등급이 올라가요 (최대 신화). 동료는 각자 대표 스킬을 자동으로 써요. 스킬 레벨은 등급 + 1 + 스킬북 보너스 (최대 Lv.10).</div>`;
     const sheet = openSheet(html, 'hub-sheet');
     sheet.querySelectorAll('[data-comp-tab]').forEach((el) => el.addEventListener('click', () => ui.openCompanions(el.dataset.compTab)));
     sheet.querySelector('[data-pull]').addEventListener('click', () => {
