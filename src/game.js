@@ -4,6 +4,7 @@ import {
   MEDAL_TIERS, MEDAL_STEP, TALENTS, COMPANION_CLASSES, COMPANION_NAMES, CHARMS, SECRET_TOTAL,
   itemOptions, defaultBalance, MOB_REWARD, OPT_LABEL,
   AVATARS, AVATAR_MAP, avatarOf, SKILLS, SKILL_IDS, HEAL_SKILL_IDS,
+  COMPANION_SKILLS, SKILL_BOOK_CLASS, COMPANION_SKILL_MAX_LEVEL,
   BOSS_TIMER, BOSS_LABEL, EVOLVE_NEED, SOUL_KINDS, COSTUMES, COSTUME_MAP, COSTUME_PULL_COST, COSTUME_MAX_LEVEL, COSTUME_LEVEL_MULT, COMPANION_PULL_COST,
   ELEMENTS, ELEM_BEATS, EARTH_GATE,
 } from './data.js';
@@ -111,8 +112,10 @@ export function createGame(THREE) {
     zone: 1,
     kills: 0,
     pulls: 0,
-    skillbooks: {},   // 아직 배우지 않은 스킬북: "fireball": 1
-    skills: { learned: [], slots: [null, null, null, null], auto: true, cds: {} },
+    skillbooks: {},   // 아직 쓰지 않은 스킬북: "fireball": 1
+    // skills.learned는 이제 "주인공의 스킬"이 아니라 배운 스킬북 기록이다 (삭제하지 않는다).
+    // slots/auto/cds는 주인공 스킬 시절의 저장본 호환용으로만 남기고, 게임에서는 쓰지 않는다.
+    skills: { learned: [], slots: [null, null, null, null], auto: true, cds: {}, skillMigrationV1: false, pendingBonus: {} },
     tutorial: { step: 1, done: false },
     introSeen: false,
     bossTimers: {},   // "1:boss": Date.now() + 간격(남은 시간 계산용)
@@ -153,6 +156,8 @@ export function createGame(THREE) {
     }
     s.talents = saved.talents || [];
     s.companions = saved.companions || [];
+    // 동료 스킬북 보너스 (없으면 0). 등급+1이 기본 레벨이고 여기에 더해진다.
+    for (const c of s.companions) c.skillBonus = Math.max(0, Math.floor(Number(c.skillBonus) || 0));
     s.party = saved.party || [];
     s.unlocked = saved.unlocked && saved.unlocked.length ? saved.unlocked : [1];
     // 3차 개편 마이그레이션 (v1 → v2, 분리 맵 → 하나의 서울 지도):
@@ -203,9 +208,69 @@ export function createGame(THREE) {
       slots: [0, 1, 2, 3].map((i) => (Array.isArray(sk.slots) && SKILLS[sk.slots[i]] ? sk.slots[i] : null)),
       auto: sk.auto !== false,
       cds: sk.cds && typeof sk.cds === 'object' ? sk.cds : {},
+      skillMigrationV1: !!sk.skillMigrationV1,
+      pendingBonus: sk.pendingBonus && typeof sk.pendingBonus === 'object' ? sk.pendingBonus : {},
     };
-    // 배운 스킬만 슬롯에 남긴다
+    // 배운 스킬만 슬롯에 남긴다 (슬롯은 저장 호환용으로만 유지한다)
     s.skills.slots = s.skills.slots.map((id) => (id && s.skills.learned.includes(id) ? id : null));
+    for (const k of Object.keys(s.skills.pendingBonus)) {
+      const v = Math.max(0, Math.floor(Number(s.skills.pendingBonus[k]) || 0));
+      if (v > 0) s.skills.pendingBonus[k] = v; else delete s.skills.pendingBonus[k];
+    }
+    // 스킬 개편 마이그레이션 (최초 1회만): 주인공이 이미 배운 스킬은
+    // 같은 직업 동료의 대표 스킬 보너스 +1로 전환한다. 배운 목록 자체는 기록으로 남긴다.
+    // (skillMigrationV1이 저장되므로 새로고침해도 다시 지급되지 않는다)
+    if (!s.skills.skillMigrationV1) {
+      for (const id of s.skills.learned) {
+        const cls = SKILL_BOOK_CLASS[id];
+        if (cls) grantClassSkillBonus(s, cls, 1);
+      }
+      s.skills.skillMigrationV1 = true;
+    }
+    // 동료 중복 정리 (가챠 개편 전 저장본 마이그레이션): 개편 전 뽑기는 같은 동료를
+    // 새로 만들었기 때문에 저장본에 같은 이름+직업이 여러 개 있을 수 있다.
+    // 스킬 마이그레이션 뒤에 실행한다 (마이그레이션이 준 스킬북 보너스가 사라지지 않게
+    // 그룹 중 가장 큰 보너스를 생존자에게 승계한다). 정리 후에는 중복이 없어
+    // 다시 로드해도 아무 일도 일어나지 않는다 (멱등).
+    // 생존자: 가장 높은 레벨 (동점이면 가장 높은 등급, 그래도 동점이면 목록의 첫 번째).
+    // 복사본마다 가챠 중복 규칙을 적용한다: 생존자 등급이 5 미만이면 등급 +1,
+    // 이미 신화(5등급)면 레벨 +5. 파티에 있던 복사본 자리는 생존자가 한 번만 이어받는다.
+    {
+      const groups = new Map();
+      for (const c of s.companions) {
+        const k = `${c.name}:${c.cls}`;
+        if (!groups.has(k)) groups.set(k, []);
+        groups.get(k).push(c);
+      }
+      let merged = 0;
+      const dead = new Set();
+      const survivorOf = new Map();
+      for (const list of groups.values()) {
+        if (list.length < 2) continue;
+        const sorted = list.slice().sort((a, b) => (b.lv || 1) - (a.lv || 1) || (b.grade || 0) - (a.grade || 0));
+        const survivor = sorted[0];
+        survivor.lv = Math.max(...list.map((c) => c.lv || 1));
+        survivor.skillBonus = Math.max(...list.map((c) => c.skillBonus || 0));
+        for (const extra of sorted.slice(1)) {
+          if ((survivor.grade || 0) < 5) survivor.grade = (survivor.grade || 0) + 1;
+          else survivor.lv = (survivor.lv || 1) + 5;
+          dead.add(extra.id);
+          survivorOf.set(extra.id, survivor.id);
+          merged++;
+        }
+      }
+      if (merged > 0) {
+        s.companions = s.companions.filter((c) => !dead.has(c.id));
+        const newParty = [];
+        for (const pid of s.party) {
+          const keep = survivorOf.has(pid) ? survivorOf.get(pid) : pid;
+          if (!newParty.includes(keep)) newParty.push(keep);
+        }
+        s.party = newParty.slice(0, 3);
+        // 저장되지 않는 임시 표시 (serialize에 안 들어간다). game.start()에서 토스트로 알려준다.
+        s._dedupMerged = merged;
+      }
+    }
     const tu = saved.tutorial || {};
     s.tutorial = { step: Math.max(1, Math.min(3, Number(tu.step) || 1)), done: !!tu.done };
     s.introSeen = !!saved.introSeen;
@@ -2448,6 +2513,99 @@ export function createGame(THREE) {
     });
   }
 
+  // ---------- 동료 대표 스킬 (스킬 개편) ----------
+  // 주인공은 스킬을 쓰지 않는다. 동료만 직업별 대표 스킬 하나를 전투 중에 자동 사용한다.
+  // 조건이 안 맞으면(사거리 안에 적이 없거나, 아군이 안 다쳤거나) 쿨다운을 태우지 않고 0.5초 뒤 다시 확인한다.
+  // 성공하면 true, 조건이 안 맞아서 안 썼으면 false를 돌려준다.
+  function castCompanionSkill(c, skillLv) {
+    const def = COMPANION_SKILLS[c.cls.id];
+    if (!def) return false;
+    const p = game.player;
+    const atk = c.cls.atk * (1 + ((c.data.lv || 1) - 1) * 0.22) * (1 + (c.data.grade || 0) * 0.20);
+    const dmgOf = (mult) => atk * mult;
+    if (c.cls.id === 'tank') {
+      // 방패 강타: 주변 적에게 피해 + 맞은 적을 3초간 탱커에게 붙잡아 둔다 (보스급 제외)
+      if (!nearestEnemyFrom(c.x, c.z, def.radius + 1.4)) return false;
+      const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
+      let hit = 0;
+      for (const e of [...game.enemies]) {
+        if (!e.alive || Math.hypot(e.x - c.x, e.z - c.z) > def.radius + e.radius) continue;
+        game.dealDamage(e, dmg, { heavy: true, elem: def.elem, canCrit: false });
+        if (!e.def.boss) { e.targetType = 'tank'; e.state = 'chase'; e.tauntT = def.tauntT; }
+        hit++;
+      }
+      if (!hit) return false;
+      const ring = flatRing(c.x, c.z, 0.4, def.radius, 0x9fc4ff, 0.85, 0.12);
+      addFx(ring, 0.4, (fx, k) => { ring.scale.setScalar(0.5 + (1 - k) * 1.1); ring.material.opacity = k * 0.9; }, 'compskill:slam');
+      if (game.ui) game.ui.floatText(c.x, groundY(c.x, c.z) + 2.0, c.z, '방패 강타!', 'heal');
+      return true;
+    }
+    if (c.cls.id === 'melee') {
+      // 회전 베기: 주변 모든 적에게 피해
+      if (!nearestEnemyFrom(c.x, c.z, def.radius + 1.4)) return false;
+      const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
+      let hit = 0;
+      for (const e of [...game.enemies]) {
+        if (!e.alive || Math.hypot(e.x - c.x, e.z - c.z) > def.radius + e.radius) continue;
+        game.dealDamage(e, dmg, { heavy: true, elem: def.elem, canCrit: false });
+        hit++;
+      }
+      if (!hit) return false;
+      const ring = flatRing(c.x, c.z, 0.4, def.radius, 0xbfe6ff, 0.85, 0.12);
+      addFx(ring, 0.45, (fx, k) => { ring.scale.setScalar(0.5 + (1 - k) * 1.1); ring.material.opacity = k * 0.9; }, 'compskill:whirl');
+      for (let i = 0; i < 3; i++) {
+        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, def.radius * 0.9), fxMat(0xeaf6ff, 0.8));
+        blade.position.y = 0.7; blade.rotation.y = (i / 3) * TAU;
+        const g = new THREE.Group(); g.add(blade); g.position.set(c.x, groundY(c.x, c.z), c.z);
+        const off = (i / 3) * TAU;
+        addFx(g, 0.4, (fx) => { g.rotation.y = off + (fx.max - fx.life) * 14; blade.material.opacity = Math.min(0.85, fx.life * 2.2); }, 'compskill:blade');
+      }
+      if (game.ui) game.ui.floatText(c.x, groundY(c.x, c.z) + 2.0, c.z, '회전 베기!', 'heal');
+      return true;
+    }
+    if (c.cls.id === 'mage') {
+      // 파이어볼: 가장 가까운 적에게 불덩이 발사 (맞으면 폭발)
+      const t = nearestEnemyFrom(c.x, c.z, def.range);
+      if (!t) return false;
+      const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
+      spawnProjectile({
+        from: 'ally', x: c.x, y: 1.0, z: c.z, targetX: t.x, targetZ: t.z, speed: 14,
+        color: 0xff8a3c, dmg, range: def.range, style: 'fireball', skill: 'fireball', radius: 0.5,
+      });
+      return true;
+    }
+    if (c.cls.id === 'healer') {
+      // 치유의 빛: 전투 중에만 쓴다 (12m 안에 적이 있을 때). 아군이 다쳤을 때만 발동.
+      if (!nearestEnemyFrom(c.x, c.z, 12)) return false;
+      const d = game.derived();
+      const allies = [{ obj: 'player', hp: p.hp, max: d.maxHp, x: p.x, z: p.z },
+        ...game.companions.filter((x) => x.hp > 0).map((x) => ({ obj: x, hp: x.hp, max: x.maxHp, x: x.x, z: x.z }))];
+      allies.sort((a, b) => a.hp / a.max - b.hp / b.max);
+      const low = allies[0];
+      if (!low || low.hp / low.max >= 0.7) return false;
+      // Lv.4부터 두 명, Lv.7부터 파티 전체를 회복한다
+      const targets = skillLv >= 7 ? allies.filter((a) => a.hp / a.max < 0.95)
+        : skillLv >= 4 ? allies.filter((a) => a.hp / a.max < 0.95).slice(0, 2) : [low];
+      const pct = def.healPct + def.healPctPerLv * (skillLv - 1);
+      const flat = def.healFlat + def.healFlatPerLv * (skillLv - 1);
+      let healed = 0;
+      for (const a of targets) {
+        const h = healTarget(a.obj, pct, flat);
+        healed += h;
+        if (h > 0 && game.ui) game.ui.damageNumber(a.x, groundY(a.x, a.z) + 1.8, a.z, `+${h}`, 'heal');
+      }
+      if (!healed) return false;
+      // Lv.3부터는 주인공이 회복될 때 독도 함께 풀어준다
+      if (skillLv >= 3 && targets.some((a) => a.obj === 'player')) {
+        p.poisonT = 0; p.poisonStacks = 0;
+        game.state.cleanseT = 4;
+      }
+      if (game.ui) game.ui.floatText(c.x, groundY(c.x, c.z) + 2.1, c.z, '치유의 빛!', 'heal');
+      return true;
+    }
+    return false;
+  }
+
   function updateCompanions(dt) {
     const p = game.player;
     if (!p) return;
@@ -2504,40 +2662,22 @@ export function createGame(THREE) {
       c.healCd -= dt;
       const scale = 1 + ((c.data.lv || 1) - 1) * 0.22;
       const atk = c.cls.atk * scale * (1 + (c.data.grade || 0) * 0.20);
+      // 동료 대표 스킬 (자동 사용, 전투 중에만 — castCompanionSkill이 조건을 본다)
+      if (c.skillCd <= 0) {
+        const lv = game.companionSkillLevel(c.data);
+        const def = COMPANION_SKILLS[c.cls.id];
+        if (def && castCompanionSkill(c, lv)) c.skillCd = compSkillCd(def, lv);
+        else c.skillCd = 0.5; // 조건이 안 맞으면 쿨다운을 태우지 않고 0.5초 뒤 다시 확인
+      }
       if (c.cls.id === 'healer') {
-        const learned = game.state.skills.learned;
-        let acted = false;
-        // 독 해제
-        if (c.skillCd <= 0 && (p.poisonT > 0 || p.poisonStacks > 0) && learned.includes('cleanse')) {
-          c.skillCd = 5.5;
-          acted = true;
-          p.poisonT = 0; p.poisonStacks = 0;
-          game.state.cleanseT = 4;
-          const healed = healTarget('player', SKILLS.cleanse.healPct, SKILLS.cleanse.healFlat);
-          if (game.ui) game.ui.floatText(p.x, groundY(p.x, p.z) + 2.0, p.z, `독 해제 +${healed}`, 'heal');
-        }
-        // 단체 힐 (여러 명이 다쳤을 때)
-        if (!acted && c.skillCd <= 0 && learned.includes('healAll')) {
-          const hurt = [p, ...game.companions.filter((x) => x.hp > 0)];
-          const low = hurt.filter((x) => x.hp / (x === p ? d.maxHp : x.maxHp) < 0.6).length;
-          if (low >= 2) {
-            c.skillCd = 8;
-            acted = true;
-            for (const t of hurt) healTarget(t === p ? 'player' : t, SKILLS.healAll.healPct, SKILLS.healAll.healFlat);
-            if (game.ui) game.ui.floatText(p.x, groundY(p.x, p.z) + 2.1, p.z, '단체 힐!', 'heal');
-          }
-        }
-        // 단일 힐
-        if (!acted && c.healCd <= 0) {
+        // 기본 치유 (작은 지속 회복 — 대표 스킬 '치유의 빛'과 별개로 항상 돌아간다)
+        if (c.healCd <= 0) {
           const allies = [{ obj: 'player', hp: p.hp, max: d.maxHp, x: p.x, z: p.z }, ...game.companions.filter((x) => x.hp > 0).map((x) => ({ obj: x, hp: x.hp, max: x.maxHp, x: x.x, z: x.z }))];
           allies.sort((a, b) => a.hp / a.max - b.hp / b.max);
           const low = allies[0];
-          if (low && low.hp / low.max < (learned.includes('heal1') ? 0.75 : 0.85)) {
-            c.healCd = learned.includes('heal1') ? 4.4 : 3.4;
-            acted = true;
-            const pct = learned.includes('heal1') ? SKILLS.heal1.healPct : 0.12;
-            const flat = learned.includes('heal1') ? SKILLS.heal1.healFlat : Math.round(c.cls.heal * scale);
-            const healed = healTarget(low.obj, pct, flat);
+          if (low && low.hp / low.max < 0.85) {
+            c.healCd = 3.4;
+            const healed = healTarget(low.obj, 0.12, Math.round(c.cls.heal * scale));
             if (game.ui && healed > 0) game.ui.damageNumber(low.x, groundY(low.x, low.z) + 1.8, low.z, `+${healed}`, 'heal');
           }
         }
@@ -2571,6 +2711,47 @@ export function createGame(THREE) {
     return best;
   }
 
+  // ---------- 스킬북 보너스 지급 규칙 (마이그레이션·스킬북 사용 공통, 1가지) ----------
+  // 1) 그 직업 동료가 동행 중이면 동행 중인 전원에게 +n
+  // 2) 동행 중이 없으면 보유한 동료 중 첫 번째에게 +n
+  // 3) 그 직업 동료가 아예 없으면 pendingBonus에 쌓아두고, 나중에 그 직업 동료를 뽑으면 시작 보너스로 준다
+  // 보너스를 받은 동료 목록을 돌려준다 (빈 배열 = 동료가 없어서 pendingBonus에 쌓였다는 뜻).
+  function grantClassSkillBonus(s, cls, n = 1) {
+    const targets = s.companions.filter((c) => c.cls === cls && s.party.includes(c.id));
+    if (targets.length) {
+      for (const c of targets) c.skillBonus = (c.skillBonus || 0) + n;
+      return targets;
+    }
+    const first = s.companions.find((c) => c.cls === cls);
+    if (first) {
+      first.skillBonus = (first.skillBonus || 0) + n;
+      return [first];
+    }
+    if (!s.skills.pendingBonus) s.skills.pendingBonus = {};
+    s.skills.pendingBonus[cls] = (s.skills.pendingBonus[cls] || 0) + n;
+    return [];
+  }
+
+  // ---------- 동료 대표 스킬 ----------
+  // 스킬 레벨 = 등급 + 1 + 스킬북 보너스 (최대 10). 등급이 오르면 자동으로 강해진다.
+  game.companionSkillLevel = function (cData) {
+    if (!cData) return 1;
+    return Math.min(COMPANION_SKILL_MAX_LEVEL, (cData.grade || 0) + 1 + (cData.skillBonus || 0));
+  };
+  game.companionSkillDef = function (clsId) { return COMPANION_SKILLS[clsId] || null; };
+  game.companionSkillState = function () {
+    return (game.companions || []).map((c) => {
+      const def = COMPANION_SKILLS[c.cls.id];
+      const lv = game.companionSkillLevel(c.data);
+      return {
+        id: c.data.id, name: c.data.name, cls: c.cls.id,
+        skillId: def ? def.id : null, skillName: def ? def.name : '', skillIcon: def ? def.icon : '',
+        level: lv, cd: Math.max(0, c.skillCd || 0), cdMax: def ? compSkillCd(def, lv) : 0,
+      };
+    });
+  };
+  function compSkillCd(def, lv) { return Math.max(def.cdMin, def.cd - def.cdPerLv * (lv - 1)); }
+
   // ---------- 스킬북 ----------
   game.skillState = function () {
     const s = game.state.skills;
@@ -2584,240 +2765,30 @@ export function createGame(THREE) {
     };
   };
 
+  // 스킬북 사용 (스킬 개편): 주인공은 스킬을 배우지 않는다.
+  // 스킬북을 쓰면 해당 직업 동료의 대표 스킬 보너스가 +1 된다.
+  // 이미 배운 스킬의 책을 다시 써도 보너스는 적용된다 (책은 소모된다).
+  // 배운 스킬 목록(learned)은 기록으로 남기고 삭제하지 않는다.
   game.learnSkill = function (id) {
     const def = SKILLS[id];
     if (!def) return { ok: false, reason: 'unknown' };
-    const s = game.state.skills;
-    if (s.learned.includes(id)) return { ok: false, reason: 'learned' };
     if (!(game.state.skillbooks[id] > 0)) return { ok: false, reason: 'nobook' };
-    s.learned.push(id);
     game.state.skillbooks[id] -= 1;
     if (!(game.state.skillbooks[id] > 0)) delete game.state.skillbooks[id];
-    let slot = s.slots.findIndex((x) => !x);
-    if (slot < 0) slot = -1; else s.slots[slot] = id;
+    const s = game.state.skills;
+    if (!s.learned.includes(id)) s.learned.push(id);
+    const cls = SKILL_BOOK_CLASS[id];
+    const targets = cls ? grantClassSkillBonus(game.state, cls, 1) : [];
     game.save();
     if (game.ui) { game.ui.markDirty(true); game.ui.renderSkillBar && game.ui.renderSkillBar(); }
-    return { ok: true, slot };
+    return { ok: true, cls: cls || null, granted: targets.map((c) => c.name), pending: !!cls && targets.length === 0 };
   };
 
-  game.assignSkill = function (slot, id) {
-    const s = game.state.skills;
-    if (slot < 0 || slot >= s.slots.length) return { ok: false, reason: 'slot' };
-    if (id && !s.learned.includes(id)) return { ok: false, reason: 'learned' };
-    if (id) {
-      const prev = s.slots.indexOf(id);
-      if (prev >= 0) s.slots[prev] = null;
-    }
-    s.slots[slot] = id || null;
-    game.save();
-    if (game.ui) { game.ui.markDirty(true); game.ui.renderSkillBar && game.ui.renderSkillBar(); }
-    return { ok: true };
-  };
-
-  game.toggleSkillAuto = function (on) {
-    const s = game.state.skills;
-    s.auto = on === undefined ? !s.auto : !!on;
-    game.save();
-    if (game.ui) { game.ui.markDirty(); game.ui.renderSkillBar && game.ui.renderSkillBar(); }
-    return s.auto;
-  };
-
-  function skillLowestAlly() {
-    const d = game.derived();
-    const p = game.player;
-    const allies = [{ obj: 'player', hp: p.hp, max: d.maxHp, x: p.x, z: p.z }];
-    for (const c of game.companions) if (c.hp > 0) allies.push({ obj: c, hp: c.hp, max: c.maxHp, x: c.x, z: c.z });
-    allies.sort((a, b) => a.hp / a.max - b.hp / b.max);
-    return allies[0];
-  }
-
-  function poisonNearby() {
-    return game.effects.some((fx) => fx.kind === 'pool' && game.player && Math.hypot(game.player.x - fx.x, game.player.z - fx.z) < fx.r + 1);
-  }
-
-  function autoCondition(def) {
-    const p = game.player;
-    const d = game.derived();
-    if (def.id === 'cleanse') return (p.poisonT > 0 || p.poisonStacks > 0 || poisonNearby()) && game.zone.id === 2;
-    if (def.id === 'heal1') return skillLowestAlly().hp / skillLowestAlly().max < 0.62;
-    if (def.id === 'healAll') {
-      const p2 = game.player;
-      const list = [{ hp: p2.hp, max: d.maxHp }, ...game.companions.filter((c) => c.hp > 0).map((c) => ({ hp: c.hp, max: c.maxHp }))];
-      return list.filter((x) => x.hp / x.max < 0.65).length >= 2;
-    }
-    const range = def.radius ? def.radius + 1.5 : def.range || 8;
-    return !!nearestEnemyFrom(p.x, p.z, range);
-  }
-
-  game.canCastSkill = function (id) {
-    const def = SKILLS[id];
-    const s = game.state.skills;
-    if (!def || !s.learned.includes(id)) return { ok: false, reason: 'learned' };
-    if ((s.cds[id] || 0) > 0) return { ok: false, reason: 'cooldown' };
-    const d = game.derived();
-    const mp = game.player.mp === undefined ? d.maxMp : game.player.mp;
-    if (mp < def.mp) return { ok: false, reason: 'mp' };
-    if ((def.kind === 'attack' || def.target === 'enemy') && !nearestEnemyFrom(game.player.x, game.player.z, def.radius ? def.radius + 1.5 : (def.range || 8))) {
-      return { ok: false, reason: 'target' };
-    }
-    return { ok: true };
-  };
-
-  game.castSkill = function (id, opts = {}) {
-    const def = SKILLS[id];
-    const s = game.state.skills;
-    const p = game.player;
-    if (!def) return { ok: false, reason: 'unknown' };
-    if (!s.learned.includes(id)) return { ok: false, reason: 'learned' };
-    if (!p || !p.alive) return { ok: false, reason: 'dead' };
-    if ((s.cds[id] || 0) > 0) return { ok: false, reason: 'cooldown' };
-    const d = game.derived();
-    const mp = p.mp === undefined ? d.maxMp : p.mp;
-    if (mp < def.mp) {
-      if (game.ui) game.ui.toast('마나가 부족해요.', 'bad');
-      return { ok: false, reason: 'mp' };
-    }
-    const isHeal = def.kind === 'heal' || def.kind === 'support';
-    const target = nearestEnemyFrom(p.x, p.z, def.radius ? def.radius + 1.5 : (def.range || 8));
-    if (!isHeal && !target) return { ok: false, reason: 'target' };
-    p.mp = Math.max(0, mp - def.mp);
-    s.cds[id] = def.cd * (1 - Math.min(40, d.cdr || 0) / 100);
-    p.atkAnimMax = isHeal ? 0.34 : 0.3;
-    p.atkAnim = p.atkAnimMax;
-    p.atkKind = isHeal ? 'cast' : 'skill';
-    p.atkFam = isHeal ? 'staff' : def.element === 'arrow' ? 'bow' : def.element === 'blade' ? 'sword' : 'staff';
-    game.lastSkill = { id, at: game.time, auto: !!opts.auto };
-    if (game.ui) { game.ui.markDirty(); if (game.ui.skillCastFx) game.ui.skillCastFx(id); }
-    if (!isHeal && target) p.facing = Math.atan2(target.x - p.x, target.z - p.z);
-    const a = p.facing;
-    const dmgBase = d.attack * def.mult;
-    let dealt = 0, healed = 0;
-    switch (id) {
-      case 'fireball': {
-        spawnProjectile({
-          from: 'player', x: p.x, y: 1.1, z: p.z, targetX: target.x, targetZ: target.z, speed: 14,
-          color: 0xff8a3c, dmg: dmgBase, range: def.range, style: 'fireball', skill: 'fireball', radius: 0.5,
-        });
-        break;
-      }
-      case 'icebolt': {
-        spawnProjectile({
-          from: 'player', x: p.x, y: 1.1, z: p.z, targetX: target.x, targetZ: target.z, speed: 18,
-          color: 0x9fe8ff, dmg: dmgBase, range: def.range, style: 'ice', skill: 'icebolt', radius: 0.45,
-        });
-        break;
-      }
-      case 'firewall': {
-        const fx = p.x + Math.sin(a) * 3.4, fz = p.z + Math.cos(a) * 3.4;
-        const zx = target ? target.x : fx;
-        const zz = target ? target.z : fz;
-        fireZone(zx, zz, def.radius, d.attack * def.mult, def.duration);
-        break;
-      }
-      case 'swordwave': {
-        // 부채꼴 대신 세워진 칼날 파동이 날아간다
-        const blade = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.55, 0.08), fxMat(0xbfe6ff, 0.9));
-        blade.position.set(p.x + Math.sin(a) * 1.0, groundY(p.x, p.z) + 1.0, p.z + Math.cos(a) * 1.0);
-        blade.rotation.y = a;
-        addFx(blade, 0.42, (fx, k) => {
-          const t = 1 - k;
-          const dist = 1.0 + t * def.range;
-          blade.position.set(p.x + Math.sin(a) * dist, groundY(p.x + Math.sin(a) * dist, p.z + Math.cos(a) * dist) + 1.0, p.z + Math.cos(a) * dist);
-          blade.scale.set(1 + t * 0.6, 1 - t * 0.4, 1);
-          blade.rotation.z = Math.sin(t * 9) * 0.3;
-          blade.material.opacity = k;
-        }, 'skill:swordwave');
-        for (const e of [...game.enemies]) {
-          if (!e.alive) continue;
-          const dd = Math.hypot(e.x - p.x, e.z - p.z);
-          if (dd > def.range + e.radius) continue;
-          if (angleDiff(Math.atan2(e.x - p.x, e.z - p.z), a) > 0.45) continue;
-          dealt += game.dealDamage(e, dmgBase, { heavy: true });
-        }
-        break;
-      }
-      case 'whirlwind': {
-        for (const e of [...game.enemies]) {
-          if (!e.alive) continue;
-          if (Math.hypot(e.x - p.x, e.z - p.z) > def.radius + e.radius) continue;
-          dealt += game.dealDamage(e, dmgBase, { heavy: true });
-        }
-        const ring = flatRing(p.x, p.z, 0.4, def.radius, 0xbfe6ff, 0.85, 0.12);
-        addFx(ring, 0.45, (fx, k) => { ring.scale.setScalar(0.5 + (1 - k) * 1.1); ring.material.opacity = k * 0.9; }, 'skill:whirl');
-        for (let i = 0; i < 4; i++) {
-          const blade = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, def.radius * 0.9), fxMat(0xeaf6ff, 0.8));
-          blade.position.y = 0.7; blade.rotation.y = (i / 4) * TAU;
-          const g = new THREE.Group(); g.add(blade); g.position.set(p.x, groundY(p.x, p.z), p.z);
-          const off = (i / 4) * TAU;
-          addFx(g, 0.4, (fx) => { g.rotation.y = off + (fx.max - fx.life) * 14; blade.material.opacity = Math.min(0.85, fx.life * 2.2); }, 'skill:blade');
-        }
-        break;
-      }
-      case 'multishot': {
-        const n = 3 + Math.floor(Math.random() * 3);
-        const spread = def.spread || 0.55;
-        for (let i = 0; i < n; i++) {
-          const ang = a + (i - (n - 1) / 2) * (spread / Math.max(1, n - 1));
-          spawnProjectile({
-            from: 'player', x: p.x, y: 1.1, z: p.z,
-            targetX: p.x + Math.sin(ang) * def.range, targetZ: p.z + Math.cos(ang) * def.range,
-            speed: 20, color: 0xffd27f, dmg: dmgBase, range: def.range, style: 'arrow', radius: 0.4,
-          });
-        }
-        break;
-      }
-      case 'pierce': {
-        spawnProjectile({
-          from: 'player', x: p.x, y: 1.1, z: p.z, targetX: target.x, targetZ: target.z, speed: 26,
-          color: 0xdff4ff, dmg: dmgBase, range: def.range, style: 'pierce', pierce: def.pierce || 5, radius: 0.45,
-        });
-        break;
-      }
-      case 'heal1': {
-        const low = skillLowestAlly();
-        healed = healTarget(low.obj, def.healPct, def.healFlat);
-        if (game.ui) game.ui.damageNumber(low.x, groundY(low.x, low.z) + 1.9, low.z, `+${healed}`, 'heal');
-        break;
-      }
-      case 'healAll': {
-        healed += healTarget('player', def.healPct, def.healFlat);
-        for (const c of game.companions) if (c.hp > 0) healed += healTarget(c, def.healPct, def.healFlat);
-        if (game.ui) game.ui.floatText(p.x, groundY(p.x, p.z) + 2.2, p.z, '단체 힐!', 'heal');
-        break;
-      }
-      case 'cleanse': {
-        p.poisonT = 0; p.poisonStacks = 0;
-        game.state.cleanseT = 4;
-        for (const fx of game.effects) {
-          if (fx.kind === 'pool' && Math.hypot(p.x - fx.x, p.z - fx.z) < 8) fx.life = 0.01;
-        }
-        healed = healTarget('player', def.healPct, def.healFlat);
-        if (game.ui) game.ui.floatText(p.x, groundY(p.x, p.z) + 2.2, p.z, '독 해제!', 'heal');
-        break;
-      }
-      default: break;
-    }
-    game.save();
-    return { ok: true, dealt, healed, target: target ? target.def.key : null };
-  };
-
-  function autoCastTick(dt) {
-    const s = game.state.skills;
-    for (const id of Object.keys(s.cds)) if (s.cds[id] > 0) s.cds[id] = Math.max(0, s.cds[id] - dt);
-    if (!s.auto || !game.player || !game.player.alive) return;
-    s.autoT = (s.autoT || 0) - dt;
-    if (s.autoT > 0) return;
-    s.autoT = 0.4;
-    for (const id of s.slots) {
-      if (!id || !s.learned.includes(id)) continue;
-      if ((s.cds[id] || 0) > 0) continue;
-      const def = SKILLS[id];
-      if (!autoCondition(def)) continue;
-      const r = game.castSkill(id, { auto: true });
-      if (r.ok) return;
-    }
-  }
-  game.autoCastTick = autoCastTick;
+  // 주인공 스킬 시전은 스킬 개편으로 제거됐다 (주인공은 무기 공격만 한다).
+  // 스킬은 동료 대표 스킬로만 나간다 (castCompanionSkill).
+  // 예전 디버그 API가 깨지지 않게 실패 결과만 돌려준다.
+  game.castSkill = function () { return { ok: false, reason: 'companion-only' }; };
+  game.canCastSkill = function () { return { ok: false, reason: 'companion-only' }; };
 
   // ---------- 투사체 ----------
   function updateProjectiles(dt) {
@@ -3185,7 +3156,7 @@ export function createGame(THREE) {
       // 마나 재생
       const dd0 = game.derived();
       p.mp = Math.min(dd0.maxMp, (p.mp === undefined ? dd0.maxMp : p.mp) + 1.8 * dt);
-      autoCastTick(dt);
+      // (스킬 개편: 주인공 스킬 자동 시전 제거 — 스킬은 동료 대표 스킬로만 나간다)
       // 재생
       const d = game.derived();
       if (d.regen > 0) {
@@ -3253,6 +3224,11 @@ export function createGame(THREE) {
     if (!game.state.unlocked.includes(zid)) game.state.zone = 1;
     game.buildWorld({ silent: true });
     game.running = true;
+    // 중복 동료 정리 알림 (로드 시 1회): mergeState가 _dedupMerged에 개수를 남겨둔다
+    if (game.ui && game.state._dedupMerged > 0) {
+      game.ui.toast(`중복 동료 ${game.state._dedupMerged}명을 정리했어요`, 'gold');
+      game.state._dedupMerged = 0;
+    }
     requestAnimationFrame((t) => { last = t / 1000; frame(t); });
   };
 
@@ -3473,8 +3449,11 @@ export function createGame(THREE) {
       if (game.player && s.party.includes(dup.id)) refreshCompanions();
       return { ok: true, upgraded, companion: dup, cls: COMPANION_CLASSES[cls], grade: dup.grade };
     }
-    // 새 동료는 항상 일반(0등급)으로 시작한다
-    const c = { id: 'c' + Date.now() + Math.floor(Math.random() * 999), name, cls, grade: 0, lv: 1, xp: 0 };
+    // 새 동료는 항상 일반(0등급)으로 시작한다.
+    // 그 직업 스킬북 보너스가 쌓여 있으면(pendingBonus) 시작 보너스로 가져간다.
+    const pending = game.state.skills.pendingBonus[cls] || 0;
+    if (pending > 0) delete game.state.skills.pendingBonus[cls];
+    const c = { id: 'c' + Date.now() + Math.floor(Math.random() * 999), name, cls, grade: 0, lv: 1, xp: 0, skillBonus: pending };
     s.companions.push(c);
     game.save();
     return { ok: true, companion: c, cls: COMPANION_CLASSES[cls], grade: 0 };
@@ -3668,7 +3647,7 @@ export function createGame(THREE) {
       spawnBook(id) { addPickup('book', game.player.x + 1.0, game.player.z, id); return id; },
       cast(id) { return game.castSkill(id); },
       skills() { return game.skillState(); },
-      auto() { return game.toggleSkillAuto(); },
+      auto() { return { ok: false, reason: 'companion-only', msg: '주인공 스킬 자동 사용은 없어요. 스킬은 동료만 씁니다.' }; },
       effects(tag) { return game.effects.filter((f) => !tag || (f.tag || '').startsWith(tag)).map((f) => f.tag || f.kind); },
       projectiles() { return game.projectiles.map((p) => ({ style: p.style, skill: p.skill, from: p.from })); },
       admin(on) { if (on === false) return game.disableAdmin(); if (on === true) return game.enableAdmin(game.adminCode); return game.isAdmin(); },
