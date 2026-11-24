@@ -102,6 +102,7 @@ input,textarea,select{font-family:inherit}
 .boss-name{text-align:center;font-size:12px;font-weight:900;color:#ffd7d7;text-shadow:0 2px 6px rgba(0,0,0,.8);margin-bottom:3px}
 .boss-hp{height:15px;border-radius:8px;background:rgba(0,0,0,.6);border:1px solid rgba(255,130,130,.45);overflow:hidden;box-shadow:0 0 16px rgba(255,60,80,.25)}
 .boss-hp .fill{height:100%;width:100%;background:linear-gradient(180deg,#ff7a7a,#c01f38);transition:width .15s}
+.boss-bar .boss-row + .boss-row{margin-top:5px}
 
 /* ---------- 월드 오버레이 ---------- */
 .world-layer{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:2}
