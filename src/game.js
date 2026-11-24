@@ -4,7 +4,7 @@ import {
   MEDAL_TIERS, MEDAL_STEP, TALENTS, COMPANION_CLASSES, COMPANION_NAMES, CHARMS, SECRET_TOTAL,
   itemOptions, defaultBalance, MOB_REWARD, OPT_LABEL,
   AVATARS, AVATAR_MAP, avatarOf, SKILLS, SKILL_IDS, HEAL_SKILL_IDS,
-  BOSS_TIMER, BOSS_LABEL, EVOLVE_NEED, SOUL_KINDS, COSTUMES, COSTUME_MAP, COSTUME_PULL_COST, COSTUME_REFUND,
+  BOSS_TIMER, BOSS_LABEL, EVOLVE_NEED, SOUL_KINDS, COSTUMES, COSTUME_MAP, COSTUME_PULL_COST, COSTUME_MAX_LEVEL, COSTUME_LEVEL_MULT, COMPANION_PULL_COST,
   ELEMENTS, ELEM_BEATS, EARTH_GATE,
 } from './data.js';
 import { buildWorld, makePlayer, makeMonster, makeCompanion, groundHeight, districtAt, worldPos, WORLD_HALF } from './world.js';
@@ -116,7 +116,7 @@ export function createGame(THREE) {
     tutorial: { step: 1, done: false },
     introSeen: false,
     bossTimers: {},   // "1:boss": Date.now() + 간격(남은 시간 계산용)
-    appearance: { mode: 'armor', costumeId: null, unlocked: [] },
+    appearance: { mode: 'armor', costumeId: null, unlocked: [], costumeLv: {} },
     bossKills: { mid: 0, boss: 0, field: 0 },
     evolutions: 0,
     achClaimed: [],
@@ -182,10 +182,18 @@ export function createGame(THREE) {
     s.bossKills = Object.assign({ mid: 0, boss: 0, field: 0 }, saved.bossKills || {});
     s.evolutions = Number(saved.evolutions) || 0;
     const ap = saved.appearance || {};
+    const unlockedCostumes = Array.isArray(ap.unlocked) ? ap.unlocked.filter((id) => COSTUME_MAP[id]) : [];
+    // 이미 해금한 코스튬은 레벨이 없으면 Lv.1로 마이그레이션
+    const costumeLv = {};
+    for (const id of unlockedCostumes) {
+      const lv = ap.costumeLv && Number(ap.costumeLv[id]);
+      costumeLv[id] = lv >= 1 && lv <= COSTUME_MAX_LEVEL ? Math.floor(lv) : 1;
+    }
     s.appearance = {
       mode: ap.mode === 'uniform' || ap.mode === 'costume' ? ap.mode : 'armor',
       costumeId: COSTUME_MAP[ap.costumeId] ? ap.costumeId : null,
-      unlocked: Array.isArray(ap.unlocked) ? ap.unlocked.filter((id) => COSTUME_MAP[id]) : [],
+      unlocked: unlockedCostumes,
+      costumeLv,
     };
     if (s.appearance.mode === 'costume' && !s.appearance.costumeId) s.appearance.mode = 'armor';
     s.skillbooks = saved.skillbooks && typeof saved.skillbooks === 'object' ? saved.skillbooks : {};
@@ -349,16 +357,35 @@ export function createGame(THREE) {
     return t;
   };
 
-  // 보유한 코스튬의 수집 보너스 (착용 여부와 무관하게 영구 합산)
+  // 코스튬 레벨 (미보유 0, 보유 시 1~5)
+  game.costumeLevel = function (id) {
+    const ap = game.state.appearance || {};
+    if (!(ap.unlocked || []).includes(id)) return 0;
+    return Math.min(COSTUME_MAX_LEVEL, Math.max(1, (ap.costumeLv && ap.costumeLv[id]) || 1));
+  };
+  // 해당 레벨에서의 코스튬 스탯 (미보유면 Lv.1 미리보기 수치)
+  game.costumeScaledStats = function (id) {
+    const c = COSTUME_MAP[id];
+    const out = {};
+    if (!c || !c.stats) return out;
+    const m = COSTUME_LEVEL_MULT[game.costumeLevel(id) || 1];
+    for (const [k, v] of Object.entries(c.stats)) out[k] = Math.max(1, Math.round(v * m));
+    return out;
+  };
+  // 보유한 코스튬의 수집 보너스 (착용 여부와 무관하게 영구 합산, 레벨별 배율 적용)
   game.costumeBonus = function () {
     const t = { atkPct: 0, defPct: 0, hpPct: 0, crit: 0, critDmg: 0, evade: 0, moveSpeed: 0, mpPct: 0, cdr: 0 };
     const ap = game.state.appearance || { unlocked: [] };
     for (const id of ap.unlocked || []) {
-      const c = COSTUME_MAP[id];
-      if (!c || !c.stats) continue;
-      for (const [k, v] of Object.entries(c.stats)) if (t[k] !== undefined) t[k] += v;
+      const st = game.costumeScaledStats(id);
+      for (const [k, v] of Object.entries(st)) if (t[k] !== undefined) t[k] += v;
     }
     return t;
+  };
+  // 뽑기 가능 여부: 최대 레벨이 아닌 코스튬이 하나라도 있으면 뽑을 수 있다
+  game.costumePoolStatus = function () {
+    const eligible = COSTUMES.filter((c) => game.costumeLevel(c.id) < COSTUME_MAX_LEVEL);
+    return { eligible: eligible.length, total: COSTUMES.length, allMaxed: eligible.length === 0 };
   };
 
   game.derived = function () {
@@ -2350,7 +2377,7 @@ export function createGame(THREE) {
 
   // ---------- 동료 ----------
   function makeCompanionObj(c, cls, mesh, x, z) {
-    const maxHp = Math.round(cls.hp * (1 + (c.grade || 0) * 0.12) * (1 + ((c.lv || 1) - 1) * 0.08));
+    const maxHp = Math.round(cls.hp * (1 + (c.grade || 0) * 0.15) * (1 + ((c.lv || 1) - 1) * 0.08));
     return {
       data: c, cls, mesh, x, z, atkCd: Math.random(), healCd: 2, skillCd: 4,
       maxHp, hp: maxHp, tauntCd: 0.2, downT: 0, hitT: 0,
@@ -2425,7 +2452,7 @@ export function createGame(THREE) {
       c.skillCd -= dt;
       c.healCd -= dt;
       const scale = 1 + ((c.data.lv || 1) - 1) * 0.22;
-      const atk = c.cls.atk * scale * (1 + (c.data.grade || 0) * 0.16);
+      const atk = c.cls.atk * scale * (1 + (c.data.grade || 0) * 0.20);
       if (c.cls.id === 'healer') {
         const learned = game.state.skills.learned;
         let acted = false;
@@ -3302,26 +3329,32 @@ export function createGame(THREE) {
   };
   game.appearanceInfo = function () {
     const ap = game.state.appearance || { mode: 'armor', unlocked: [] };
-    return { ...ap, costumes: COSTUMES.map((c) => ({ ...c, owned: ap.unlocked.includes(c.id) })) };
+    return { ...ap, costumes: COSTUMES.map((c) => ({ ...c, owned: ap.unlocked.includes(c.id), level: game.costumeLevel(c.id) })) };
   };
-  // 외형 뽑기 (골드 소모 · 중복은 일부 환급)
+  // 외형 뽑기 (골드 소모 · 중복은 레벨업, 최대 레벨 코스튬은 뽑기 풀에서 제외)
   game.pullCostume = function () {
     const s = game.state;
-    const ap = s.appearance || (s.appearance = { mode: 'armor', owned: [], unlocked: [] });
+    const ap = s.appearance || (s.appearance = { mode: 'armor', costumeId: null, unlocked: [], costumeLv: {} });
+    ap.unlocked = ap.unlocked || [];
+    ap.costumeLv = ap.costumeLv || {};
+    // 최대 레벨(Lv.5) 코스튬은 뽑기 풀에서 제외 — 중복 뽑기가 나올 수 없다
+    const eligible = COSTUMES.filter((c) => game.costumeLevel(c.id) < COSTUME_MAX_LEVEL);
+    if (!eligible.length) return { ok: false, msg: '모든 외형이 최대 레벨이에요! 새 외형이 추가되면 뽑기가 다시 열려요.' };
     if (s.gold < COSTUME_PULL_COST) return { ok: false, msg: `골드가 부족해요 (${COSTUME_PULL_COST} 필요)` };
     s.gold -= COSTUME_PULL_COST;
-    const roll = COSTUMES[Math.floor(Math.random() * COSTUMES.length)];
-    let refund = 0;
+    const roll = eligible[Math.floor(Math.random() * eligible.length)];
+    let leveledUp = false;
     if (ap.unlocked.includes(roll.id)) {
-      refund = COSTUME_REFUND;
-      s.gold += refund;
+      ap.costumeLv[roll.id] = Math.min(COSTUME_MAX_LEVEL, (ap.costumeLv[roll.id] || 1) + 1);
+      leveledUp = true;
     } else {
       ap.unlocked.push(roll.id);
+      ap.costumeLv[roll.id] = 1;
     }
     game.save();
     game.flushSave();
     if (game.ui) game.ui.markDirty(true);
-    return { ok: true, costume: roll, refund, owned: !refund };
+    return { ok: true, costume: roll, level: ap.costumeLv[roll.id], leveledUp };
   };
 
   // ---------- 업적 도감 ----------
@@ -3373,18 +3406,27 @@ export function createGame(THREE) {
 
   game.pullCompanion = function () {
     const s = game.state;
-    if (s.gold < 120) return { ok: false, msg: '골드가 부족해요 (120 필요)' };
-    s.gold -= 120;
+    if (s.gold < COMPANION_PULL_COST) return { ok: false, msg: `골드가 부족해요 (${COMPANION_PULL_COST} 필요)` };
+    s.gold -= COMPANION_PULL_COST;
     s.pulls++;
     const clsIds = Object.keys(COMPANION_CLASSES);
     const cls = clsIds[Math.floor(Math.random() * clsIds.length)];
-    const roll = Math.random();
-    const grade = roll < 0.5 ? 0 : roll < 0.78 ? 1 : roll < 0.92 ? 2 : roll < 0.98 ? 3 : 4;
     const name = COMPANION_NAMES[Math.floor(Math.random() * COMPANION_NAMES.length)];
-    const c = { id: 'c' + Date.now() + Math.floor(Math.random() * 999), name, cls, grade, lv: 1, xp: 0 };
+    // 같은 이름 + 같은 직업이 이미 있으면 새로 만들지 않고 업그레이드 (최대 신화 5등급)
+    const dup = s.companions.find((x) => x.name === name && x.cls === cls);
+    if (dup) {
+      let upgraded;
+      if ((dup.grade || 0) < 5) { dup.grade = (dup.grade || 0) + 1; upgraded = 'grade'; }
+      else { dup.lv = (dup.lv || 1) + 5; upgraded = 'level'; }
+      game.save();
+      if (game.player && s.party.includes(dup.id)) refreshCompanions();
+      return { ok: true, upgraded, companion: dup, cls: COMPANION_CLASSES[cls], grade: dup.grade };
+    }
+    // 새 동료는 항상 일반(0등급)으로 시작한다
+    const c = { id: 'c' + Date.now() + Math.floor(Math.random() * 999), name, cls, grade: 0, lv: 1, xp: 0 };
     s.companions.push(c);
     game.save();
-    return { ok: true, companion: c, cls: COMPANION_CLASSES[cls], grade };
+    return { ok: true, companion: c, cls: COMPANION_CLASSES[cls], grade: 0 };
   };
 
   game.toggleParty = function (id) {
@@ -3418,6 +3460,21 @@ export function createGame(THREE) {
       if (cls.id === 'tank' && !game.tank) game.tank = o;
     });
   }
+
+  // 안 쓰는 동료 보내기 (동행 중이면 동행에서도 제외, 환급 없음)
+  game.dismissCompanion = function (id) {
+    const s = game.state;
+    const i = s.companions.findIndex((x) => x.id === id);
+    if (i < 0) return { ok: false };
+    const c = s.companions[i];
+    s.companions.splice(i, 1);
+    const pi = s.party.indexOf(id);
+    if (pi >= 0) s.party.splice(pi, 1);
+    game.save();
+    if (game.player) refreshCompanions();
+    if (game.ui) game.ui.markDirty(true);
+    return { ok: true, name: c.name };
+  };
 
   game.talkNpc = function () {
     const q = game.questInfo(game.zone.id);
@@ -3594,7 +3651,7 @@ export function createGame(THREE) {
       setName(n) { return game.setHeroName(n); },
       appearance(mode, id) { return game.setAppearance(mode, id); },
       pullCostume() { return game.pullCostume(); },
-      unlockCostume(id) { game.state.appearance.unlocked.push(id); game.save(); return game.state.appearance; },
+      unlockCostume(id) { const ap = game.state.appearance; if (!ap.unlocked.includes(id)) ap.unlocked.push(id); ap.costumeLv = ap.costumeLv || {}; if (!ap.costumeLv[id]) ap.costumeLv[id] = 1; game.save(); return game.state.appearance; },
       heroInfo() { return { name: game.heroName(), avatar: game.state.avatar, weapon: game.state.equip.weapon, armor: game.state.equip.armor }; },
       timer(type, sec) { game.state.bossTimers[`${game.zone.id}:${type}`] = Date.now() + sec * 1000; game.save(); return game.bossRemain(game.zone.id, type); },
     };
