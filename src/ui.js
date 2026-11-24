@@ -2,8 +2,8 @@
 import {
   PLAYABLE, ZONES, GRADES, WEAPONS, ARMOR_KINDS, ACCESSORY_KINDS, TALENTS, SOUL_KINDS,
   COMPANION_CLASSES, CHARMS, SECRET_TOTAL, MEDAL_TIERS, MEDAL_STEP, OPT_LABEL, MOB_REWARD,
-  AVATARS, avatarOf, SKILLS, SKILL_IDS, HEAL_SKILL_IDS, EVOLVE_NEED, BOSS_LABEL, BOSS_TIMER,
-  COMPANION_SKILLS, SKILL_BOOK_CLASS, COMPANION_SKILL_MAX_LEVEL,
+  AVATARS, avatarOf, SKILLS, EVOLVE_NEED, BOSS_LABEL, BOSS_TIMER,
+  COMPANION_SKILLS, COMPANION_SKILL_POOLS, SKILL_BOOK_SKILL, COMPANION_SKILL_MAX_LEVEL,
   COSTUMES, COSTUME_MAP, COSTUME_PULL_COST, COSTUME_MAX_LEVEL, COSTUME_STAT_LABEL, COMPANION_PULL_COST,
   ELEMENTS, ELEM_BEATS, EARTH_GATE,
 } from './data.js';
@@ -80,7 +80,7 @@ export function createUI(game, THREE) {
     const list = game.companionSkillState ? game.companionSkillState() : [];
     const x = list[parseInt(btn.dataset.compSkill, 10)];
     if (!x) return;
-    const def = COMPANION_SKILLS[x.cls];
+    const def = COMPANION_SKILLS[x.skillId];
     const cd = Math.ceil(x.cd);
     ui.toast(`${x.skillIcon} ${x.name}의 ${x.skillName} Lv.${x.level}${cd > 0 ? ` · 쿨다운 ${cd}초` : ''} — ${def ? def.desc : ''}`, 'good');
   });
@@ -698,7 +698,6 @@ export function createUI(game, THREE) {
     { id: 'merge', icon: '⚗️', name: '합성' },
     { id: 'souls', icon: '🌳', name: '특성' },
     { id: 'stats', icon: '💪', name: '스탯' },
-    { id: 'skills', icon: '📖', name: '스킬' },
     { id: 'companions', icon: '🐾', name: '동료' },
     { id: 'ach', icon: '🏆', name: '업적' },
     { id: 'settings', icon: '⚙️', name: '설정' },
@@ -728,7 +727,6 @@ export function createUI(game, THREE) {
     else if (tab === 'merge') ui.openMerge();
     else if (tab === 'souls') ui.openSouls();
     else if (tab === 'stats') ui.openStats();
-    else if (tab === 'skills') ui.openSkills();
     else if (tab === 'companions') ui.openCompanions();
     else if (tab === 'ach') ui.openAch();
     else if (tab === 'settings') ui.openSettings();
@@ -800,6 +798,15 @@ export function createUI(game, THREE) {
       const equipped = s.equip.charm && s.equip.charm.fam === fam;
       return `<button class="btn ${equipped ? 'gold' : 'ghost'}" data-charm="${fam}" ${equipped ? 'disabled' : ''}>${c.icon} ${c.name}${equipped ? ' · 장착 중' : ''}</button>`;
     }).join('');
+
+    // 스킬북 (동료 개편): 가방에서 바로 쓴다. 스킬 메뉴는 없어졌다.
+    // 책은 이제 보스에게서 떨어지지 않으니, 이미 가진 책만 여기에 보인다.
+    const bookIds = Object.keys(game.state.skillbooks || {}).filter((id) => (game.state.skillbooks[id] || 0) > 0 && SKILLS[id]);
+    const bookBox = bookIds.length ? `<div class="skillbook-box"><b>📖 스킬북</b><div class="hint">쓰면 같은 스킬을 쓰는 동료가 강해져요. 책을 쓰는 동료가 아직 없으면 나중에 뽑을 때 보너스가 적용돼요.</div>${bookIds.map((id) => {
+      const def = SKILLS[id];
+      const sk = COMPANION_SKILLS[SKILL_BOOK_SKILL[id]];
+      return `<div class="row-line"><span><b>${def.icon} ${def.name}</b> × ${game.state.skillbooks[id]}<br><span class="hint">${sk ? `${sk.icon} ${sk.name} 스킬을 쓰는 동료 +1` : def.desc}</span></span><button class="btn gold" data-book="${id}">사용하기</button></div>`;
+    }).join('')}</div>` : '';
 
     const grid = entries.length ? entries.map((it) => {
       const g = GRADES[it.grade] || GRADES[0];
@@ -876,6 +883,7 @@ export function createUI(game, THREE) {
       </div>
       <div class="equip-block">${equipRows}</div>
       ${charmBtns ? `<div class="charm-box"><b>🧿 보유 부적</b><div class="charm-row">${charmBtns}</div><div class="hint">눌러서 장착 중인 부적을 교체할 수 있어요. 해독 부적은 늪지 독을 막고, 수중호흡 아티팩트는 한강 심해 유적을 열어줘요.</div></div>` : ''}
+      ${bookBox}
       <div class="hint" style="margin:6px 2px 9px">아이템을 누르면 <b>설명 · 스탯 비교</b>가 열리고, <b>[장착하기]</b>를 눌러야 장착됩니다. 같은 등급·같은 아이템을 모으면 <b style="color:#ff5566">빨강(신화)</b>으로 진화해요. <button class="link-btn" data-hub="merge">합성·진화 →</button></div>
       <div class="item-grid">${grid}</div>`;
 
@@ -913,6 +921,18 @@ export function createUI(game, THREE) {
     });
     sheet.querySelectorAll('[data-charm]').forEach((el) => {
       el.addEventListener('click', () => { if (game.equipCharm(el.dataset.charm)) ui.openBag(); });
+    });
+    sheet.querySelectorAll('[data-book]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const id = el.dataset.book;
+        const r = game.learnSkill(id);
+        if (!r.ok) { ui.toast('아직 이 스킬의 스킬북이 없어요.', 'bad'); return; }
+        const sk = COMPANION_SKILLS[r.skillId];
+        if (r.pending) ui.toast(`${SKILLS[id].icon} ${SKILLS[id].name} — ${sk ? sk.name : '스킬'}을 쓰는 동료가 아직 없어서 나중에 뽑으면 보너스가 적용돼요`, 'gold');
+        else if (r.granted.length) ui.toast(`${SKILLS[id].icon} ${SKILLS[id].name} — ${r.granted.join(' · ')}의 ${sk ? sk.name : '스킬'}이 강해졌어요!`, 'gold');
+        else ui.toast(`${SKILLS[id].icon} ${SKILLS[id].name}을(를) 사용했어요`, 'gold');
+        ui.openBag();
+      });
     });
   };
 
@@ -1194,68 +1214,6 @@ export function createUI(game, THREE) {
     }));
   };
 
-  // ---------- 스킬북 (스킬 개편) ----------
-  // 주인공은 스킬을 쓰지 않는다. 스킬은 동료만 쓴다.
-  // 스킬북을 쓰면 해당 직업 동료의 대표 스킬 보너스가 +1 된다.
-  ui.openSkills = function () {
-    if (!game.state || !game.state.skills) return;
-    const s = game.state.skills;
-    const books = game.state.skillbooks || {};
-    // 동료 대표 스킬 4종 (보유한 동료의 현재 레벨과 함께)
-    const sigCards = Object.values(COMPANION_SKILLS).map((def) => {
-      const cls = COMPANION_CLASSES[def.cls];
-      const owned = game.state.companions.filter((c) => c.cls === def.cls);
-      const lvText = owned.length
-        ? owned.map((c) => `${c.name} Lv.${game.companionSkillLevel(c)}`).join(' · ')
-        : '보유한 동료 없음';
-      return `<div class="skill-card">
-        <div class="sk-ico">${def.icon}</div>
-        <div class="sk-body">
-          <div class="sk-name">${def.name} <span class="sk-kind">${cls.role}</span></div>
-          <div class="sk-desc">${def.desc}</div>
-          <div class="sk-meta">쿨다운 ${def.cd}초 · 레벨이 오르면 ${def.cdMin}초까지 · ${lvText}</div>
-        </div>
-      </div>`;
-    }).join('');
-    // 스킬북 10종: 쓰면 해당 직업 동료 스킬 +1
-    const cards = SKILL_IDS.map((id) => {
-      const def = SKILLS[id];
-      const cls = SKILL_BOOK_CLASS[id];
-      const clsDef = COMPANION_CLASSES[cls];
-      const learned = s.learned.includes(id);
-      const n = books[id] || 0;
-      const act = n > 0
-        ? `<button class="btn gold" data-learn="${id}">강화하기</button><span class="hint">보유 ${n}</span>`
-        : learned ? '<span class="sk-done">이미 사용</span>' : '<span class="hint">보스 처치로 획득</span>';
-      return `<div class="skill-card ${learned ? 'learned' : ''} ${n > 0 ? 'hasbook' : ''}">
-        <div class="sk-ico">${def.icon}</div>
-        <div class="sk-body">
-          <div class="sk-name">${def.name} <span class="sk-kind">→ ${clsDef.role} 동료 스킬 +1</span></div>
-          <div class="sk-desc">${def.desc}</div>
-          <div class="sk-meta">${clsDef.name}의 대표 스킬 '${COMPANION_SKILLS[cls].name}' 보너스가 올라갑니다</div>
-        </div>
-        <div class="sk-act">${act}</div>
-      </div>`;
-    }).join('');
-    const html = `${head('📖 스킬북', '스킬은 동료만 써요', 'skills')}
-      <div class="skill-top">
-        <span class="hint">주인공은 스킬을 쓰지 않아요. 스킬북을 쓰면 해당 직업 동료의 대표 스킬이 강해집니다. 대표 스킬 레벨 = 동료 등급 + 1 + 스킬북 보너스 (최대 Lv.10).</span>
-      </div>
-      <div class="skill-list" style="margin-bottom:10px">${sigCards}</div>
-      <div class="skill-list">${cards}</div>`;
-    const sheet = openSheet(html, 'hub-sheet skills-sheet');
-    sheet.querySelectorAll('[data-learn]').forEach((el) => el.addEventListener('click', () => {
-      const id = el.dataset.learn;
-      const r = game.learnSkill(id);
-      if (!r.ok) { ui.toast('아직 이 스킬의 스킬북이 없어요.', 'bad'); return; }
-      const clsDef = r.cls ? COMPANION_CLASSES[r.cls] : null;
-      if (r.pending) ui.toast(`${SKILLS[id].icon} ${SKILLS[id].name} — ${clsDef.role} 동료가 아직 없어서 나중에 뽑으면 보너스가 적용돼요`, 'gold');
-      else if (r.granted.length) ui.toast(`${SKILLS[id].icon} ${SKILLS[id].name} — ${r.granted.join(' · ')}의 대표 스킬이 강해졌어요!`, 'gold');
-      else ui.toast(`${SKILLS[id].icon} ${SKILLS[id].name}을(를) 사용했어요`, 'gold');
-      ui.openSkills();
-    }));
-  };
-
   // ---------- 동료 ----------
   ui.openCompanions = function (filter) {
     const s = game.state;
@@ -1278,7 +1236,7 @@ export function createUI(game, THREE) {
           <div class="cls">${cls.role} · ${cls.name}</div>
           <div class="lv">Lv.${effLv}${inParty ? ` · 슬롯 ${slotIdx + 1}` : ' · 배치 시'} · 공격 ${Math.round(game.companionAtk(cls, c.grade, effLv))}</div>
           <div class="lv">체력 ${(() => { const live = (game.companions || []).find((x) => x.data && x.data.id === c.id); return live ? `${Math.round(live.hp)} / ${live.maxHp}` : `${Math.round(game.companionMaxHp(cls, c.grade, effLv))}`; })()}</div>
-          <div class="lv">${(() => { const sk = COMPANION_SKILLS[c.cls]; return sk ? `${sk.icon} ${sk.name} Lv.${game.companionSkillLevel(c)}` : ''; })()}</div>
+          <div class="lv">${(() => { const sk = COMPANION_SKILLS[c.skillId] || COMPANION_SKILLS[(COMPANION_SKILL_POOLS[c.cls] || [])[0]]; return sk ? `${sk.icon} ${sk.name} Lv.${game.companionSkillLevel(c)}` : ''; })()}</div>
         </div>
         <div style="display:flex;flex-direction:column;gap:5px">
           <button class="btn ${inParty ? 'ghost' : ''}" data-party="${c.id}">${inParty ? '대기' : '동행'}</button>
@@ -1293,15 +1251,15 @@ export function createUI(game, THREE) {
         <button class="btn gold" data-pull>뽑기 ✨</button>
       </div>
       ${cards}
-      <div class="hint" style="margin-top:10px">탱커·힐러·근접딜러·마법딜러 중 최대 3명까지 함께 싸워요. 같은 동료가 다시 나오면 등급이 올라가요 (최대 신화). 동료는 각자 대표 스킬을 자동으로 써요. 스킬 레벨은 등급 + 1 + 스킬북 보너스 (최대 Lv.10). 동료 레벨은 파티 슬롯에 매겨져요 — 동료를 바꿔도 슬롯 레벨이 이어져요. 대기 중인 동료는 배치될 슬롯의 레벨로 싸워요.</div>`;
+      <div class="hint" style="margin-top:10px">탱커·힐러·근접딜러·마법딜러 중 최대 3명까지 함께 싸워요. 동료마다 고유 스킬이 있어요 — 같은 직업이라도 쓰는 스킬이 다를 수 있어요. 같은 동료가 다시 나오면 등급이 오르고 스킬도 강해져요 (최대 Lv.10). 스킬북은 가방에서 쓸 수 있어요 — 같은 스킬을 쓰는 동료가 강해져요. 스킬 레벨은 등급 + 1 + 보너스 (최대 Lv.10). 동료 레벨은 파티 슬롯에 매겨져요 — 동료를 바꿔도 슬롯 레벨이 이어져요. 대기 중인 동료는 배치될 슬롯의 레벨로 싸워요.</div>`;
     const sheet = openSheet(html, 'hub-sheet');
     sheet.querySelectorAll('[data-comp-tab]').forEach((el) => el.addEventListener('click', () => ui.openCompanions(el.dataset.compTab)));
     sheet.querySelector('[data-pull]').addEventListener('click', () => {
       const r = game.pullCompanion();
       if (!r.ok) { ui.toast(r.msg, 'bad'); return; }
-      if (r.upgraded === 'grade') ui.toast(`${r.cls.icon} ${r.companion.name} 등급 상승! ${GRADES[r.grade].name}이 됐어요`, 'good');
-      else if (r.upgraded === 'level') ui.toast(r.slotGained ? `${r.cls.icon} ${r.companion.name} 이미 신화라 슬롯 ${(r.slotIndex || 0) + 1} 레벨 +5!` : `${r.cls.icon} ${r.companion.name} 이미 신화라 더 이상 강해지지 않아요`, 'good');
-      else ui.toast(`${r.cls.icon} ${r.companion.name} (${r.cls.role}, ${GRADES[r.grade].name}) 등장!`, 'gold');
+      if (r.upgraded === 'grade') ui.toast(`${r.cls.icon} ${r.companion.name} 등급 상승! ${GRADES[r.grade].name} · 스킬 Lv.${r.skillLv} 달성!`, 'good');
+      else if (r.upgraded === 'skill') ui.toast(r.consolation ? `${r.cls.icon} ${r.companion.name} 이미 최대라 위로금 ${r.consolation}골드를 받았어요` : `${r.cls.icon} ${r.companion.name} 스킬 Lv.${r.skillLv} 달성!`, 'good');
+      else { const sk = COMPANION_SKILLS[r.skillId]; ui.toast(`${r.cls.icon} ${r.companion.name} (${r.cls.role}, ${GRADES[r.grade].name}) 등장! 스킬: ${sk ? `${sk.icon} ${sk.name}` : ''}`, 'gold'); }
       ui.openCompanions();
     });
     sheet.querySelectorAll('[data-party]').forEach((el) => el.addEventListener('click', () => {
@@ -1729,7 +1687,7 @@ export function createUI(game, THREE) {
     el.addEventListener('click', () => {
       const k = el.dataset.open;
       if (k === 'bag') { if (game.tutorialHook) game.tutorialHook('view'); ui.openBag(); }
-      else if (k === 'merge' || k === 'souls' || k === 'stats' || k === 'companions' || k === 'skills' || k === 'settings' || k === 'help') ui.openHub(k);
+      else if (k === 'merge' || k === 'souls' || k === 'stats' || k === 'companions' || k === 'settings' || k === 'help') ui.openHub(k);
       else if (k === 'quests') ui.openQuests();
     });
   });
