@@ -121,6 +121,7 @@ export function createGame(THREE) {
     bossKills: { mid: 0, boss: 0, field: 0 },
     evolutions: 0,
     achClaimed: [],
+    achBonusGranted: 0, // 이미 스탯 보너스를 지급한 업적 수 (중복 지급 방지)
   });
 
   function loadState() {
@@ -157,6 +158,13 @@ export function createGame(THREE) {
     s.zoneKills = saved.zoneKills || {};
     s.chestOpened = saved.chestOpened || [];
     s.achClaimed = Array.isArray(saved.achClaimed) ? saved.achClaimed.filter((id) => typeof id === 'string') : [];
+    // 업적 스탯 보너스 마이그레이션 (Phase 1): 패치 전 이미 수령한 업적 중
+    // 보너스를 아직 못 받은 개수만큼 스탯 포인트를 지급한다. achBonusGranted가
+    // 저장되므로 이 지급은 최초 1회만 일어나고, 새로고침해도 중복되지 않는다.
+    const achPaid = Number(s.achBonusGranted) || 0;
+    const achOwed = Math.max(0, s.achClaimed.length - achPaid);
+    if (achOwed > 0) s.statPts = (Number(s.statPts) || 0) + achOwed;
+    s.achBonusGranted = s.achClaimed.length;
     s.quests = saved.quests || {};
     s.balance = mergeBalance(defaultBalance(), saved.balance || {});
     s.avatar = AVATAR_MAP[saved.avatar] ? saved.avatar : 'boyA';
@@ -255,7 +263,7 @@ export function createGame(THREE) {
       quests: s.quests, zone: s.zone, kills: s.kills, pulls: s.pulls, balance: s.balance,
       skillbooks: s.skillbooks, skills: s.skills, tutorial: s.tutorial, introSeen: s.introSeen,
       bossTimers: s.bossTimers, bossKills: s.bossKills, evolutions: s.evolutions, appearance: s.appearance,
-      achClaimed: s.achClaimed,
+      achClaimed: s.achClaimed, achBonusGranted: s.achBonusGranted || 0,
     };
   };
 
@@ -968,7 +976,10 @@ export function createGame(THREE) {
   };
 
   game.gainCompanionXp = function (n) {
+    // 동행 중인 파티원(최대 3명)에게만 경험치를 나눈다 — 파티 밖 동료는 성장하지 않는다
+    const party = new Set(game.state.party || []);
     for (const c of game.state.companions) {
+      if (!party.has(c.id)) continue;
       c.xp = (c.xp || 0) + n;
       let need = 60 + (c.lv || 1) * 40;
       while (c.xp >= need) { c.xp -= need; c.lv = (c.lv || 1) + 1; need = 60 + c.lv * 40; }
@@ -1483,6 +1494,12 @@ export function createGame(THREE) {
         }
         continue;
       }
+      e.moving = false; // 매 프레임 초기화 — moveEnemy()가 실제 이동 시 true로 설정
+      // 도발 지속시간이 끝나면 다시 플레이어를 노린다
+      if (e.tauntT > 0) {
+        e.tauntT -= dt;
+        if (e.tauntT <= 0 && e.targetType === 'tank') e.targetType = 'player';
+      }
       e.floatT += dt;
       if (e.slowT > 0) e.slowT -= dt;
       if (e.skillCd > 0) e.skillCd -= dt;
@@ -1587,6 +1604,7 @@ export function createGame(THREE) {
   }
 
   function moveEnemy(e, dx, dz) {
+    if (dx || dz) e.moving = true;
     e.x = clamp(e.x + dx, -43, 43);
     e.z = clamp(e.z + dz, -43, 43);
     for (const pr of game.world.props) {
@@ -1615,6 +1633,15 @@ export function createGame(THREE) {
       return;
     }
     if (style === 'aoe') {
+      // 일반 몹은 텔레그래프 광역기를 쓰지 않는다 (보스급 전용) — 근접 타격으로 대체
+      if (!e.isMid && !e.isBoss && !e.isField) {
+        const ddm = Math.hypot(tx - e.x, tz - e.z);
+        if (ddm < e.def.atkRange + e.radius + 0.6) {
+          if (useTank) damageCompanion(tank, e.atk * 0.7);
+          else game.damagePlayer(e.atk * 0.7, e);
+        }
+        return;
+      }
       // 스킬 쿨다운을 두어 광역기를 너무 자주 쓰지 않게 한다
       if ((e.skillCd || 0) > 0) {
         const ddm = Math.hypot(tx - e.x, tz - e.z);
@@ -1681,9 +1708,9 @@ export function createGame(THREE) {
       e.atkCd -= dt;
       if (e.atkCd <= 0) { enemyAttack(e); e.atkCd = e.def.atkCd; }
     }
-    // 강공격 텔레그래프 (빈도 완화)
+    // 강공격 텔레그래프 — 보스급만 사용, 빈도 완화 (필드 26초 / 보스 22초 / 중간보스 18초)
     if (e.telegraphT <= 0 && dd < 15) {
-      e.telegraphT = e.isField ? 16 : e.isBoss ? 13 : 10;
+      e.telegraphT = e.isField ? 26 : e.isBoss ? 22 : 18;
       addTelegraph(p.x, p.z, e.isField ? 5.6 : e.isBoss ? 4.6 : 3.6, 1.5, e.atk * 1.9, e);
     }
     // 분열 패턴 (히드라 계열): 체력 60%에서 두 마리로 갈라진다
@@ -1891,16 +1918,17 @@ export function createGame(THREE) {
         c.mesh.userData.legL.rotation.x = swing;
         c.mesh.userData.legR.rotation.x = -swing;
       }
-      // 탱커: 주변 몬스터의 어그로를 끈다 (도발)
+      // 탱커 도발: 12초마다 10m 안의 적을 4초간 탱커에게 붙잡아 둔다 (보스급 제외)
       if (c.cls.id === 'tank') {
         c.tauntCd -= dt;
         if (c.tauntCd <= 0) {
-          c.tauntCd = 1.0;
+          c.tauntCd = 12;
           let taunted = 0;
           for (const e of game.enemies) {
             if (!e.alive || e.def.boss) continue;
-            if (Math.hypot(e.x - c.x, e.z - c.z) > 9) continue;
+            if (Math.hypot(e.x - c.x, e.z - c.z) > 10) continue;
             if (e.targetType !== 'tank') { e.targetType = 'tank'; e.state = 'chase'; taunted++; }
+            e.tauntT = 4;
           }
           if (taunted && game.ui) game.ui.floatText(c.x, groundY(c.x, c.z) + 1.95, c.z, '도발!', 'heal');
         }
@@ -2489,11 +2517,11 @@ export function createGame(THREE) {
     game.effects = game.effects.filter((f) => f.life > 0);
   }
 
-  let respawnT = 4;
+  let respawnT = 12;
   function updateRespawn(dt) {
     respawnT -= dt;
     if (respawnT > 0) return;
-    respawnT = 4.5;
+    respawnT = 12; // 몹 젠 완화: 4.5초 → 12초마다 체크 (생존 상한 13마리 유지)
     const alive = game.enemies.filter((e) => e.alive && !e.isBoss && !e.isMid).length;
     if (alive >= 13) return;
     const zone = game.zone;
@@ -2797,10 +2825,13 @@ export function createGame(THREE) {
     game.state.achClaimed = game.state.achClaimed || [];
     game.state.achClaimed.push(id);
     game.state.gold += a.reward;
+    // 업적 달성 시 스탯 포인트 +1 (영구) — 지급 횟수를 기록해 중복 지급 방지
+    game.state.statPts = (game.state.statPts || 0) + 1;
+    game.state.achBonusGranted = (game.state.achBonusGranted || 0) + 1;
     game.save();
     game.flushSave();
     if (game.ui) game.ui.markDirty(true);
-    return { ok: true, reward: a.reward };
+    return { ok: true, reward: a.reward, statPts: 1 };
   };
 
   game.learnTalent = function (id) {
