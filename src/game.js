@@ -127,13 +127,18 @@ export function createGame(THREE) {
     s.souls = Object.assign({ gray: 0, green: 0, blue: 0, purple: 0, gold: 0 }, saved.souls || {});
     s.equip = Object.assign({ weapon: null, armor: null, necklace: null, ring: null, earring: null, charm: null }, saved.equip || {});
     // 저장본의 장착 무기가 현재 WEAPONS에 없는 fam이면 derived()가 터져서
-    // 부팅/게임 루프가 멈춘다. 레벨·골드 등은 그대로 두고 무기만 기본 검으로 복구한다.
-    if (s.equip.weapon && !WEAPONS[s.equip.weapon.fam]) {
-      s.equip.weapon = { kind: 'weapon', fam: 'sword', grade: Math.min(5, Math.max(0, Number(s.equip.weapon.grade) || 0)) };
-    }
+    // 부팅/게임 루프가 멈춘다. 이상한 무기는 기본 검으로 바꾸지 않고 삭제한다.
+    if (s.equip.weapon && !WEAPONS[s.equip.weapon.fam]) s.equip.weapon = null;
     if (s.equip.armor && !ARMOR_KINDS[s.equip.armor.fam]) s.equip.armor = null;
     for (const slot of ['necklace', 'ring', 'earring']) {
       if (s.equip[slot] && !ACCESSORY_KINDS[s.equip[slot].fam]) s.equip[slot] = null;
+    }
+    // 가방에 있는 이상한 무기도 삭제한다. 나중에 다시 장착해서 터지는 것을 막기 위해서다.
+    for (const key of Object.keys(s.bag)) {
+      const [kind, fam] = String(key).split(':');
+      if (kind === 'weapon' && !WEAPONS[fam]) delete s.bag[key];
+      else if (kind === 'armor' && !ARMOR_KINDS[fam]) delete s.bag[key];
+      else if (kind === 'accessory' && !ACCESSORY_KINDS[fam]) delete s.bag[key];
     }
     s.bag = saved.bag || {};
     s.talents = saved.talents || [];
