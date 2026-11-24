@@ -150,39 +150,112 @@ export const HEAL_SKILL_IDS = ['heal1', 'healAll', 'cleanse'];
 // 스킬 레벨 = 등급 + 1 + 스킬북 보너스 (최대 10). 레벨이 오르면 피해·회복이 커지고 쿨다운이 조금씩 짧아진다.
 // cdPerLv: 레벨당 쿨다운 감소량 (최소 cdMin까지). multPerLv: 레벨당 피해 배율 증가량.
 export const COMPANION_SKILL_MAX_LEVEL = 10;
+// 동료 고유 스킬 16종 — 동료마다 직업 풀에서 하나씩 가진다 (skillId, 뽑을 때 랜덤 지정).
+// 스킬 레벨 = 등급 + 1 + 스킬 보너스 (최대 Lv.10).
+// 기존 4종(방패 강타·치유의 빛·회전 베기·파이어볼)은 수치 그대로 유지한다.
 export const COMPANION_SKILLS = {
-  tank: {
+  shieldSlam: {
     cls: 'tank', id: 'shieldSlam', name: '방패 강타', icon: '🛡️',
     cd: 10, cdMin: 7, cdPerLv: 0.3, radius: 3.2, mult: 1.2, multPerLv: 0.15, tauntT: 3, elem: 'blade',
     desc: '방패로 주변을 강타해 피해를 주고, 맞은 적을 3초간 자신에게 붙잡아 둡니다 (보스급 제외).',
   },
-  healer: {
-    cls: 'healer', id: 'compHeal', name: '치유의 빛', icon: '💗',
-    cd: 8, cdMin: 5, cdPerLv: 0.3, healPct: 0.15, healPctPerLv: 0.02, healFlat: 10, healFlatPerLv: 5,
-    desc: '가장 다친 아군을 회복합니다. Lv.4부터 두 명, Lv.7부터 파티 전체를 회복하고, Lv.3부터 대상의 독도 풉니다.',
+  tauntRoar: {
+    cls: 'tank', id: 'tauntRoar', name: '도발의 포효', icon: '📣',
+    cd: 10, cdMin: 7, cdPerLv: 0.3, radius: 6, mult: 0.5, multPerLv: 0.1, tauntT: 4, elem: 'blade',
+    desc: '포효로 6m 안의 모든 적을 4초간 자신에게 붙잡아 둡니다 (보스급 제외).',
   },
-  melee: {
-    cls: 'melee', id: 'compWhirl', name: '회전 베기', icon: '🌀',
-    cd: 9, cdMin: 6, cdPerLv: 0.3, radius: 3.6, mult: 1.3, multPerLv: 0.12, elem: 'blade',
-    desc: '몸을 빙글 돌려 주변 모든 적을 한 번에 벱니다.',
+  stunSlam: {
+    cls: 'tank', id: 'stunSlam', name: '내려찍기', icon: '🔨',
+    cd: 9, cdMin: 6, cdPerLv: 0.3, radius: 3.0, mult: 1.4, multPerLv: 0.15, stunT: 1.5, elem: 'blade',
+    desc: '주변을 내려찍어 피해를 주고 맞은 적을 1.5초 기절시킵니다 (보스급은 피해만).',
   },
-  mage: {
-    cls: 'mage', id: 'compFireball', name: '파이어볼', icon: '🔥',
+  fireball: {
+    cls: 'mage', id: 'fireball', name: '파이어볼', icon: '🔥',
     cd: 7, cdMin: 4.5, cdPerLv: 0.25, range: 8.5, mult: 1.6, multPerLv: 0.15, elem: 'fire',
     desc: '불덩이를 날려 맞은 적 주변을 폭발시킵니다.',
   },
+  icebolt: {
+    cls: 'mage', id: 'icebolt', name: '아이스볼트', icon: '❄️',
+    cd: 6, cdMin: 4, cdPerLv: 0.25, range: 9, mult: 1.4, multPerLv: 0.15, elem: 'ice',
+    desc: '얼음 화살을 쏘아 한 명의 적에게 냉기 피해를 줍니다.',
+  },
+  firewall: {
+    cls: 'mage', id: 'firewall', name: '파이어월', icon: '🧨',
+    cd: 9, cdMin: 6, cdPerLv: 0.3, range: 8, radius: 2.5, mult: 0.25, multPerLv: 0.03, duration: 4, elem: 'fire',
+    desc: '적 위치에 4초 동안 타오르는 불길 장판을 만들어 계속 피해를 줍니다.',
+  },
+  blizzard: {
+    cls: 'mage', id: 'blizzard', name: '블리자드', icon: '🌨️',
+    cd: 10, cdMin: 7, cdPerLv: 0.3, range: 8, radius: 3.5, mult: 1.5, multPerLv: 0.15, elem: 'ice',
+    desc: '적 위치에 큰 눈보라를 일으켜 넓은 범위의 적에게 냉기 피해를 줍니다.',
+  },
+  thunderbolt: {
+    cls: 'mage', id: 'thunderbolt', name: '썬더볼트', icon: '⚡',
+    cd: 8, cdMin: 5, cdPerLv: 0.25, range: 9, mult: 2.2, multPerLv: 0.2, elem: 'holy',
+    desc: '벼락을 떨어뜨려 한 명의 적에게 큰 피해를 줍니다.',
+  },
+  whirlwind: {
+    cls: 'melee', id: 'whirlwind', name: '회전 베기', icon: '🌀',
+    cd: 9, cdMin: 6, cdPerLv: 0.3, radius: 3.6, mult: 1.3, multPerLv: 0.12, elem: 'blade',
+    desc: '몸을 빙글 돌려 주변 모든 적을 한 번에 벱니다.',
+  },
+  swordwave: {
+    cls: 'melee', id: 'swordwave', name: '검기 날리기', icon: '🌪️',
+    cd: 8, cdMin: 5, cdPerLv: 0.3, range: 7, mult: 1.4, multPerLv: 0.15, elem: 'blade',
+    desc: '전방으로 참격파를 날려 일직선의 적을 베어냅니다.',
+  },
+  multishot: {
+    cls: 'melee', id: 'multishot', name: '멀티샷', icon: '🎯',
+    cd: 8, cdMin: 5, cdPerLv: 0.25, range: 8, mult: 1.0, multPerLv: 0.12, shots: 3, elem: 'blade',
+    desc: '가까운 적 3명에게 화살을 한 발씩 동시에 쏩니다.',
+  },
+  pierce: {
+    cls: 'melee', id: 'pierce', name: '관통 사격', icon: '➡️',
+    cd: 8, cdMin: 5, cdPerLv: 0.3, range: 9, mult: 1.5, multPerLv: 0.15, elem: 'blade',
+    desc: '고속 화살이 일직선의 적을 꿰뚫고 지나갑니다.',
+  },
+  stunStrike: {
+    cls: 'melee', id: 'stunStrike', name: '스턴 강타', icon: '💥',
+    cd: 9, cdMin: 6, cdPerLv: 0.3, range: 2.5, mult: 1.8, multPerLv: 0.18, stunT: 1.5, elem: 'blade',
+    desc: '가장 가까운 적을 세게 쳐서 큰 피해와 함께 1.5초 기절시킵니다 (보스급은 피해만).',
+  },
+  heal: {
+    cls: 'healer', id: 'heal', name: '치유의 빛', icon: '💗',
+    cd: 8, cdMin: 5, cdPerLv: 0.3, healPct: 0.15, healPctPerLv: 0.02, healFlat: 10, healFlatPerLv: 5,
+    desc: '가장 다친 아군을 회복합니다. Lv.4부터 두 명, Lv.7부터 파티 전체를 회복하고, Lv.3부터 대상의 독도 풉니다.',
+  },
+  groupHeal: {
+    cls: 'healer', id: 'groupHeal', name: '단체 힐', icon: '💖',
+    cd: 10, cdMin: 7, cdPerLv: 0.3, healPct: 0.12, healPctPerLv: 0.015, healFlat: 8, healFlatPerLv: 4,
+    desc: '주인공과 동행 중인 동료 모두의 체력을 회복합니다.',
+  },
+  cleanse: {
+    cls: 'healer', id: 'cleanse', name: '독 해제', icon: '🧼',
+    cd: 9, cdMin: 6, cdPerLv: 0.3, healPct: 0.08, healPctPerLv: 0.01, healFlat: 6, healFlatPerLv: 3,
+    desc: '아군의 독을 풀고 4초 동안 독에 걸리지 않게 하며, 다친 아군을 조금 회복합니다.',
+  },
 };
 
-// 스킬북 → 동료 직업 매핑 (스킬북 사용 시 해당 직업 동료의 대표 스킬 보너스 +1).
-// 탱커는 매핑되는 스킬북이 없다 (등급으로만 스킬이 강해진다).
-export const SKILL_BOOK_CLASS = {
-  fireball: 'mage', icebolt: 'mage', firewall: 'mage',
-  swordwave: 'melee', whirlwind: 'melee', multishot: 'melee', pierce: 'melee',
-  heal1: 'healer', healAll: 'healer', cleanse: 'healer',
+// 직업별 고유 스킬 풀 — 동료를 뽑을 때 이 중에서 하나를 랜덤으로 받는다.
+export const COMPANION_SKILL_POOLS = {
+  tank: ['shieldSlam', 'tauntRoar', 'stunSlam'],
+  mage: ['fireball', 'icebolt', 'firewall', 'blizzard', 'thunderbolt'],
+  melee: ['whirlwind', 'swordwave', 'multishot', 'pierce', 'stunStrike'],
+  healer: ['heal', 'groupHeal', 'cleanse'],
 };
 
-// 스킬북이 없는 상태에서 보스가 떨어뜨릴 책을 고를 때 쓰는 순서
-// (모두 배웠으면 골드로 대체)
+// 스킬북 → 동료 고유 스킬 매핑 (스킬북을 쓰면 같은 스킬을 쓰는 동료의 보너스 +1).
+export const SKILL_BOOK_SKILL = {
+  fireball: 'fireball', icebolt: 'icebolt', firewall: 'firewall',
+  swordwave: 'swordwave', whirlwind: 'whirlwind', multishot: 'multishot', pierce: 'pierce',
+  heal1: 'heal', healAll: 'groupHeal', cleanse: 'cleanse',
+};
+
+// 동료 피해 계수 — 동료가 주인공보다 세서 돌아만 다녀도 몹이 다 죽던 문제를 잡는다.
+// 기본 공격·스킬 모두 companionAtk를 거치므로 이 한 곳만 바꾸면 둘 다 줄어든다.
+// (체력·치유·도발은 건드리지 않는다)
+export const COMPANION_DMG_FACTOR = 0.6;
+
 export const GRADE_ADJ = ['낡은', '단단한', '빛나는', '에픽의', '전설의', '신화의'];
 export const WEAPON_BASE = {
   sword: '학생회 장검', dagger: '급식 단검', axe: '체육 도끼', mace: '철퇴',
