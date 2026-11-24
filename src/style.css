@@ -684,3 +684,6 @@ input.num{width:58px;padding:5px 6px;border-radius:8px;border:1px solid rgba(255
 .mob-row .mr-name .elem{font-style:normal;font-weight:800}
 .mob-row .weak{font-size:9px;color:#ffd479;font-weight:800}
 .zi-elem{margin:6px 0 8px;font-size:11px;color:#cfdcf2;background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:10px;padding:6px 9px;text-align:left}
+
+/* ===== 2차: 특수 타격 문구 (어두운 알약 배경으로 또렷하게) ===== */
+.dmg.special{background:rgba(12,10,22,.72);border:1px solid currentColor;border-radius:10px;padding:1px 8px 2px;box-shadow:0 4px 12px rgba(0,0,0,.5)}

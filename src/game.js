@@ -1209,7 +1209,7 @@ export function createGame(THREE) {
       }, 'special:shard');
     }
     game.camShake = Math.max(game.camShake, c.shake);
-    if (game.ui) game.ui.floatText(e.x, (e.headY || 1.2) + 1.25, e.z, c.label, 'crit');
+    if (game.ui) game.ui.floatText(e.x, (e.headY || 1.2) + 0.85, e.z, c.label, 'crit special');
   }
   game.specialHit = specialHit;
 
