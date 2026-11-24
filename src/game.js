@@ -863,12 +863,26 @@ export function createGame(THREE) {
     return Math.max(1, zone.scale.lvl + (def.boss === 'field' ? 5 : def.boss === 'boss' ? 3 : def.boss === 'mid' ? 1 : def.elite ? 1 : 0));
   }
 
+  // 필드몹 동적 레벨 — 일반/정예만 주인공 레벨을 따라간다 (보스는 고정 레벨)
+  // effective = max(구역 기본 레벨, 주인공 레벨 - 3). 구역 기본보다 낮아지지는 않는다.
+  const MOB_SCALE_GAP = 3;            // 주인공보다 최대 3레벨 아래까지만
+  const MOB_SCALE_HP_PER_LV = 0.08;   // 레벨당 체력 +8%
+  const MOB_SCALE_ATK_PER_LV = 0.06;  // 레벨당 공격력 +6%
+  const MOB_SCALE_REWARD_PER_LV = 0.10; // 레벨당 경험치·골드 +10%
+  function scaledMobLevel(def, zone) {
+    const base = enemyLevel(def, zone);
+    if (def.boss) return base; // 중간/에픽/필드 보스는 고정 레벨
+    const heroLv = (game.state && game.state.level) || 1;
+    return Math.max(base, heroLv - MOB_SCALE_GAP);
+  }
+  game.scaledMobLevel = scaledMobLevel;
+
   function spawnEnemy(def, x, z, fixed = false) {
     const zone = game.zone;
     const mesh = makeMonster(THREE, def);
     mesh.position.set(x, groundY(x, z), z);
     scene.add(mesh);
-    const lvl = enemyLevel(def, zone);
+    const lvl = scaledMobLevel(def, zone);
     const ov = game.mobStats(zone.id, def);
     const hp = Math.round(ov.hp);
     const e = {
@@ -946,11 +960,21 @@ export function createGame(THREE) {
     const role = def.boss === 'boss' ? 'boss' : def.boss === 'mid' ? 'mid' : def.elite ? 'elite' : 'normal';
     const r = MOB_REWARD[role];
     const ov = (game.balance.mobs || {})[`${zoneId}:${def.key}`] || {};
-    return {
+    const base = {
       hp: typeof ov.hp === 'number' ? ov.hp : def.hp,
       atk: typeof ov.atk === 'number' ? ov.atk : def.atk,
       xp: typeof ov.xp === 'number' ? ov.xp : Math.round(r.xp * zone.scale.xp),
       gold: typeof ov.gold === 'number' ? ov.gold : Math.round(r.gold * zone.scale.gold),
+    };
+    // 필드몹(일반/정예)은 주인공 레벨을 따라 강해진다 — 보스는 dLvl 0이라 그대로.
+    // 스폰·처치 보상·드롭 골드가 모두 이 함수를 거치므로 한 번만 적용하면 일관된다.
+    const dLvl = scaledMobLevel(def, zone) - enemyLevel(def, zone);
+    if (dLvl <= 0) return base;
+    return {
+      hp: Math.round(base.hp * (1 + MOB_SCALE_HP_PER_LV * dLvl)),
+      atk: Math.round(base.atk * (1 + MOB_SCALE_ATK_PER_LV * dLvl)),
+      xp: Math.round(base.xp * (1 + MOB_SCALE_REWARD_PER_LV * dLvl)),
+      gold: Math.round(base.gold * (1 + MOB_SCALE_REWARD_PER_LV * dLvl)),
     };
   };
 
@@ -2526,6 +2550,7 @@ export function createGame(THREE) {
     game.compObjects.forEach((c, i) => {
       const fixed = pushOutOfProps(game.player.x - 1.6 + i * 1.6, game.player.z + 1.8, 0.35);
       c.x = fixed.x; c.z = fixed.z;
+      c.engageT = null; // 순간이동하면 쫓던 적은 잊고 대열부터 잡는다
       if (c.mesh) {
         c.mesh.position.set(c.x, groundY(c.x, c.z), c.z);
         c.mesh.rotation.y = Math.PI;
@@ -2626,6 +2651,9 @@ export function createGame(THREE) {
     return false;
   }
 
+  // 동료 전투 AI — 탱커/근접이 달라붙는 범위 (주인공 기준)
+  const COMPANION_AGGRO = 12; // 적 발견 범위
+  const COMPANION_LEASH = 14; // 최대 추격 거리 (이보다 멀어지면 대열로 복귀)
   function updateCompanions(dt) {
     const p = game.player;
     if (!p) return;
@@ -2642,10 +2670,24 @@ export function createGame(THREE) {
       c.mesh.rotation.z = 0;
       if (c.hitT <= 0) c.hp = Math.min(c.maxHp, c.hp + c.maxHp * 0.02 * dt);
       const off = [[-1.8, 2.2], [1.8, 2.2], [0, 3.2]][i] || [0, 3];
-      const tx = p.x + off[0], tz = p.z + off[1];
+      // 직업별 전투 행동 — 탱커/근접은 달라붙고, 마법/힐러는 대열 자리를 지킨다
+      let tx = p.x + off[0], tz = p.z + off[1];
+      let stopDist = 1.2;
+      if (c.cls.id === 'tank' || c.cls.id === 'melee') {
+        // 이미 쫓던 적은 14m 리시까지 유지, 없으면 주인공 12m 안에서 새로 찾는다 (석상은 제외)
+        let t = (c.engageT && c.engageT.alive) ? c.engageT : null;
+        if (t && Math.hypot(t.x - p.x, t.z - p.z) > COMPANION_LEASH) t = null;
+        if (!t) t = nearestEnemyFrom(p.x, p.z, COMPANION_AGGRO, true);
+        c.engageT = t || null;
+        if (t) {
+          tx = t.x; tz = t.z;
+          stopDist = c.cls.range + 0.6; // 공격 사거리 안에서 멈춘다
+        }
+      }
       const dx = tx - c.x, dz = tz - c.z;
       const dd = Math.hypot(dx, dz);
-      if (dd > 1.2) {
+      const moving = dd > stopDist;
+      if (moving) {
         const sp = 4.4;
         c.x += (dx / dd) * sp * dt;
         c.z += (dz / dd) * sp * dt;
@@ -2657,7 +2699,7 @@ export function createGame(THREE) {
       c.mesh.position.set(c.x, groundY(c.x, c.z) + Math.abs(Math.sin(game.time * 7 + i)) * 0.05, c.z);
       // 3D 동료 걷기 모션
       if (c.mesh.userData.legL) {
-        const swing = dd > 1.2 ? Math.sin(game.time * 9 + i) * 0.5 : 0;
+        const swing = moving ? Math.sin(game.time * 9 + i) * 0.5 : 0;
         c.mesh.userData.legL.rotation.x = swing;
         c.mesh.userData.legR.rotation.x = -swing;
       }
@@ -2721,10 +2763,10 @@ export function createGame(THREE) {
     });
   }
 
-  function nearestEnemyFrom(x, z, range) {
+  function nearestEnemyFrom(x, z, range, skipStatue) {
     let best = null, bd = 69420;
     for (const e of game.enemies) {
-      if (!e.alive) continue;
+      if (!e.alive || (skipStatue && e.statue)) continue;
       const dd = Math.hypot(e.x - x, e.z - z);
       if (dd < range && dd < bd) { bd = dd; best = e; }
     }
