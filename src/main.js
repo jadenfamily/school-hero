@@ -10,22 +10,73 @@ document.addEventListener('touchmove', (e) => { if (e.touches && e.touches.lengt
 document.addEventListener('visibilitychange', () => { document.documentElement.style.height = window.innerHeight + 'px'; });
 window.addEventListener('resize', () => { document.documentElement.style.height = window.innerHeight + 'px'; });
 
+async function importWithTimeout(url, ms = 15000) {
+  let timer = null;
+  try {
+    return await Promise.race([
+      import(url),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('three-timeout')), ms); }),
+    ]);
+  } finally { if (timer) clearTimeout(timer); }
+}
+
 async function loadThree() {
+  // importmap('three')이 가장 정확하고, 상대 경로는 src/main.js 기준이다.
+  // './vendor/...'는 src/vendor를 가리켜 404가 나므로 목록에서 뺐다.
+  // '?retry=1'은 일반 탭에 남은 오래되거나 깨진 캐시를 우회하기 위한 재시도다.
   const sources = [
+    'three',
     '../vendor/three.module.min.js',
-    './vendor/three.module.min.js',
+    '../vendor/three.module.min.js?retry=1',
     'https://unpkg.com/three@0.160.0/build/three.module.js',
     'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js',
   ];
+  let lastErr = null;
   for (const url of sources) {
     try {
-      const m = await import(url);
+      const m = await importWithTimeout(url);
       if (m && m.WebGLRenderer) return m;
     } catch (e) {
+      lastErr = e;
       console.warn('3D 엔진을 불러오지 못했습니다:', url.split('/').slice(0, 3).join('/'));
     }
   }
-  throw new Error('three-unavailable');
+  throw new Error('three-unavailable' + (lastErr && lastErr.message ? ': ' + lastErr.message : ''));
+}
+
+function showFatalError(message) {
+  const safe = String(message || 'unknown').replace(/</g, '&lt;');
+  const text = '게임을 시작하지 못했어요.<br>오류: ' + safe + '<br>인터넷 연결을 확인한 뒤 다시 시도해 주세요.';
+  // 로딩 화면이 아직 있으면 거기에, 이미 사라졌으면(3D 실행 중) 새 오버레이에 표시한다.
+  let box = document.getElementById('loading');
+  if (box && box.parentNode) {
+    const t = document.getElementById('loadingText');
+    if (t) t.innerHTML = text;
+    const bar = document.querySelector('.loading-bar');
+    if (bar) bar.style.display = 'none';
+    box.classList.remove('gone');
+    box.style.opacity = '1';
+    box.style.pointerEvents = 'auto';
+  } else {
+    box = document.createElement('div');
+    box.id = 'fatalError';
+    box.style.cssText = 'position:fixed;inset:0;z-index:80;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:radial-gradient(circle at 50% 30%,#1b2a4a,#070b14 70%);color:#eef4ff;text-align:center;padding:20px;font-size:12px;line-height:1.7;';
+    box.innerHTML = '<div>' + text + '</div>';
+    document.getElementById('app').appendChild(box);
+  }
+  if (!document.getElementById('bootRetryBtn')) {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;justify-content:center;';
+    wrap.innerHTML = '<button id="bootRetryBtn" style="padding:12px 16px;border-radius:12px;border:none;background:#ffd966;color:#3a2400;font-weight:900;cursor:pointer;">다시 시도</button>'
+      + '<button id="bootResetBtn" style="padding:12px 16px;border-radius:12px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.08);color:#fff;font-weight:900;cursor:pointer;">로그인부터 다시 시작</button>';
+    box.appendChild(wrap);
+    document.getElementById('bootRetryBtn').addEventListener('click', () => location.reload());
+    // 세션만 지운다. 저장본(sh.device.*)은 그대로 두므로 같은 아이디로 다시 로그인하면 이어서 할 수 있다.
+    document.getElementById('bootResetBtn').addEventListener('click', () => {
+      try { localStorage.removeItem('sh.session'); } catch (e) { /* 무시 */ }
+      location.reload();
+    });
+  }
 }
 
 function readToken() {
@@ -72,6 +123,11 @@ async function boot() {
     const game = createGame(THREE);
     game.store = store;
     if (session.state) game.applyState(session.state);
+    // WebGL 컨텍스트가 날아가면 검은 화면으로만 남지 않고, 원인과 다시 시도 버튼을 보여준다.
+    document.getElementById('gl').addEventListener('webglcontextlost', (ev) => {
+      ev.preventDefault();
+      showFatalError('webgl-context-lost');
+    }, false);
     const ui = createUI(game, THREE);
     game.ui = ui;
     game.start();
@@ -93,9 +149,7 @@ async function boot() {
     else goIntro();
   } catch (e) {
     console.warn('시작하지 못했습니다:', e && e.message);
-    loadingText.innerHTML = '게임을 시작하지 못했어요.<br>인터넷 연결을 확인한 뒤 새로고침해 주세요.';
-    const bar = document.querySelector('.loading-bar');
-    if (bar) bar.style.display = 'none';
+    showFatalError((e && e.message) || 'unknown');
   }
 }
 
