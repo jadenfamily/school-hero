@@ -1622,7 +1622,7 @@ export function createUI(game, THREE) {
       return `<div class="ach-card ${a.progress >= a.goal ? 'done' : ''}">
         <div class="ach-ico">${a.progress >= a.goal ? a.icon : '🔒'}</div>
         <div class="ach-body">
-          <div class="ach-name">${a.name}<span class="ach-rw">${a.reward}G</span></div>
+          <div class="ach-name">${a.name}<span class="ach-rw">${a.reward}G · 스탯+1</span></div>
           <div class="hint">${a.desc}</div>
           <div class="ach-bar"><i style="width:${r * 100}%"></i></div>
           <div class="ach-num">${Math.min(a.progress, a.goal)} / ${a.goal}</div>
@@ -1631,11 +1631,11 @@ export function createUI(game, THREE) {
       </div>`;
     }).join('');
     const sheet = openSheet(`${head('🏆 업적', `${done}/${list.length} 달성`)}
-      <div class="hint" style="margin-bottom:10px">모험 기록이 자동으로 쌓입니다. 달성한 업적은 보상을 받을 수 있어요.</div>
+      <div class="hint" style="margin-bottom:10px">모험 기록이 자동으로 쌓입니다. 달성한 업적마다 골드와 스탯 포인트 +1을 받을 수 있어요.</div>
       <div class="ach-list">${cards}</div>`, 'hub-sheet');
     sheet.querySelectorAll('[data-ach]').forEach((el) => el.addEventListener('click', () => {
       const r = game.claimAch(el.dataset.ach);
-      if (r.ok) { ui.toast(`업적 보상 +${r.reward}G`, 'gold'); ui.openAch(); }
+      if (r.ok) { ui.toast(`업적 보상 +${r.reward}G · 스탯 포인트 +1`, 'gold'); ui.openAch(); }
     }));
   };
 
