@@ -64,7 +64,7 @@ export function createGame(THREE) {
     time: 0,
     running: false,
     input: { mx: 0, mz: 0, keys: new Set() },
-    enemies: [], companions: [], projectiles: [], pickups: [], effects: [], telegraphs: [], graves: [],
+    enemies: [], companions: [], projectiles: [], pickups: [], effects: [], telegraphs: [], graves: [], bossGroups: {},
     zone: null, world: null,
     player: null,
     ui: null,
@@ -459,7 +459,7 @@ export function createGame(THREE) {
     for (const t of game.telegraphs) { scene.remove(t.mesh); scene.remove(t.ring); if (t.mark) scene.remove(t.mark); }
     if (game.world) { scene.remove(game.world.group); disposeGroup(game.world.group); }
     game.compObjects && game.compObjects.forEach((c) => scene.remove(c.mesh));
-    game.enemies = []; game.companions = []; game.projectiles = []; game.pickups = []; game.effects = []; game.telegraphs = [];
+    game.enemies = []; game.companions = []; game.projectiles = []; game.pickups = []; game.effects = []; game.telegraphs = []; game.bossGroups = {};
     game.state.zone = zoneId;
     game.zone = zone;
     game.world = buildZone(THREE, zone, game.state.chestOpened);
@@ -479,7 +479,7 @@ export function createGame(THREE) {
       x: sp.x, z: sp.z, facing: Math.PI, vy: 0,
       hp: clamp(game.state.hp || d.maxHp, 1, d.maxHp),
       mp: d.maxMp,
-      atkCd: 0.2, regenT: 0, alive: true, respawnT: 0,
+      atkCd: 0.2, regenT: 0, alive: true, respawnT: 0, stunT: 0,
       walkT: 0, moving: false, atkAnim: 0, poisonT: 0, poisonStacks: 0,
       combatT: 0, target: null, atkKind: null, castT: 0,
     };
@@ -503,7 +503,7 @@ export function createGame(THREE) {
     // 몬스터 배치
     game.clearGraves();
     spawnZoneMobs(zone);
-    for (const t of ['mid', 'boss', 'field']) if (game.bossRemain(zone.id, t) > 0) game.addGrave(t);
+    for (const t of [...new Set(allBossDefs(zone).map((b) => b.type))]) if (game.bossRemain(zone.id, t) > 0) game.addGrave(t);
 
     // 카메라 즉시 이동 (플레이어 지형 높이 기준)
     const aspect0 = window.innerWidth / Math.max(1, window.innerHeight);
@@ -544,6 +544,13 @@ export function createGame(THREE) {
     if (bossReady(zone.id, 'mid')) spawnEnemy(zone.mobs.mid, zone.mid.x, zone.mid.z, true);
     if (bossReady(zone.id, 'boss')) spawnEnemy(zone.mobs.boss, zone.boss.x, zone.boss.z, true);
     if (zone.field && bossReady(zone.id, 'field')) spawnEnemy(zone.mobs.field, zone.field.x, zone.field.z, true);
+    // 추가 보스 (드래곤·쌍둥이·3형제·독버섯) — 각자 타이머가 지난 경우에만 등장
+    for (const ex of (zone.extraBosses || [])) {
+      if (!bossReady(zone.id, ex.type)) continue;
+      const defs = ex.defs || [ex.def];
+      const spawned = defs.map((d, i) => spawnEnemy(d, ex.x + (i - (defs.length - 1) / 2) * 3.2, ex.z + (i % 2) * 2, true));
+      if (defs[0].group) linkBossGroup(defs[0].group, spawned);
+    }
   }
 
   // ---------- 보스 리스폰 ----------
@@ -556,29 +563,55 @@ export function createGame(THREE) {
   function bossReady(zoneId, type) {
     return game.bossRemain(zoneId, type) <= 0;
   }
+  // 구역의 모든 보스(기본 3종 + 추가 보스) 정의 목록 — 타이머/묘비/리스폰 공용
+  function allBossDefs(zone) {
+    const list = [
+      { type: 'mid', def: zone.mobs.mid, x: zone.mid.x, z: zone.mid.z, label: BOSS_LABEL.mid, name: zone.mobs.mid.name },
+      { type: 'boss', def: zone.mobs.boss, x: zone.boss.x, z: zone.boss.z, label: BOSS_LABEL.boss, name: zone.mobs.boss.name },
+    ];
+    if (zone.field) list.push({ type: 'field', def: zone.mobs.field, x: zone.field.x, z: zone.field.z, label: BOSS_LABEL.field, name: zone.mobs.field.name });
+    for (const ex of (zone.extraBosses || [])) {
+      const defs = ex.defs || [ex.def];
+      for (const d of defs) list.push({ type: ex.type, def: d, x: ex.x, z: ex.z, label: ex.label || BOSS_LABEL[ex.type] || '보스', name: ex.label || d.name });
+    }
+    return list;
+  }
   game.bossStatus = function (zoneId) {
     const zone = PLAYABLE.find((z) => z.id === zoneId);
     if (!zone) return [];
-    const list = [
-      { type: 'mid', name: zone.mobs.mid.name, lv: zone.scale.lvl + 1 },
-      { type: 'boss', name: zone.mobs.boss.name, lv: zone.scale.lvl + 3 },
-    ];
-    if (zone.field) list.push({ type: 'field', name: zone.mobs.field.name, lv: zone.scale.lvl + 5 });
-    return list.map((b) => ({ ...b, remain: game.bossRemain(zoneId, b.type), total: BOSS_TIMER[b.type] || 0, label: BOSS_LABEL[b.type] }));
+    const seen = new Set();
+    return allBossDefs(zone).filter((b) => { if (seen.has(b.type)) return false; seen.add(b.type); return true; })
+      .map((b) => ({ type: b.type, name: b.name, lv: enemyLevel(b.def, zone), remain: game.bossRemain(zoneId, b.type), total: BOSS_TIMER[b.type] || 0, label: b.label }));
   };
 
   // ---------- 보스 특수 패턴 ----------
   const BOSS_PATTERN = {
-    ogre: 'charge', golem: 'charge', anubis: 'charge',
-    ent: 'nova', witch: 'nova', kraken: 'nova', siren: 'nova',
+    ogre: 'charge', golem: 'cannon', anubis: 'whirlwind',
+    ent: 'nova', witch: 'necromancer', kraken: 'portal', siren: 'nova',
     hydra: 'split',
   };
+
+  // 쌍둥이 보호막 표시 (쌍둥이 중 한 명에게만 씌우는 파란 구체)
+  function setShieldVisual(e, on) {
+    if (e.shieldMesh) e.shieldMesh.visible = on;
+  }
+  // 쌍둥이·3형제처럼 여러 개체가 하나의 타이머·보상을 공유하는 보스 그룹 연결
+  function linkBossGroup(group, members) {
+    game.bossGroups[group] = members.filter(Boolean);
+    if (group === 'twins' && game.bossGroups.twins[0]) {
+      const first = game.bossGroups.twins[0];
+      first.shielded = true;
+      setShieldVisual(first, true);
+      first.twinSwapT = 8;
+    }
+  }
 
   // ---------- 보스 묘비 + 리스폰 카운트다운 ----------
   function graveSpot(type) {
     const z = game.zone;
     if (!z) return null;
-    return type === 'mid' ? z.mid : type === 'field' ? z.field : z.boss;
+    const hit = allBossDefs(z).find((b) => b.type === type);
+    return hit ? { x: hit.x, z: hit.z } : null;
   }
   function bossTimerKey(type) { return `${game.zone.id}:${type}`; }
   game.addGrave = function (type) {
@@ -620,10 +653,11 @@ export function createGame(THREE) {
       if (g.until - Date.now() <= 0) {
         game.removeGrave(g.type);
         const zone = game.zone;
-        const def = g.type === 'mid' ? zone.mobs.mid : g.type === 'field' ? zone.mobs.field : zone.mobs.boss;
-        if (def) {
-          spawnEnemy(def, g.x, g.z, true);
-          if (game.ui) game.ui.toast(`${def.name}이(가) 다시 나타났어요!`, 'bad');
+        const defs = allBossDefs(zone).filter((b) => b.type === g.type);
+        if (defs.length) {
+          const spawned = defs.map((b, i) => spawnEnemy(b.def, b.x + (i - (defs.length - 1) / 2) * 3.2, b.z + (i % 2) * 2, true));
+          if (defs[0].def.group) linkBossGroup(defs[0].def.group, spawned);
+          if (game.ui) game.ui.toast(`${defs[0].name}이(가) 다시 나타났어요!`, 'bad');
         }
       }
     }
@@ -652,11 +686,29 @@ export function createGame(THREE) {
       level: lvl, tag: null, floatT: Math.random() * 6, telegraphT: 9 + Math.random() * 4,
       skillCd: 2.5 + Math.random() * 2.5,
       summonDone: false, splitDone: false, chargeCd: 5 + Math.random() * 3, charge: null,
-      pattern: def.boss ? (BOSS_PATTERN[def.shape] || 'nova') : null,
+      pattern: def.pattern || (def.boss ? (BOSS_PATTERN[def.shape] || 'nova') : null),
+      timerType: def.timerType || null,
+      group: def.group || null,
+      statue: !!def.statue,
+      shielded: false, shieldMesh: null, flyY: 0, dragonPhase: null, dragonT: 0,
+      baseAtk: ov.atk, baseSpeed: def.speed, enrageStacks: 0, enrageT: 0,
+      patternCd: 6 + Math.random() * 4, weaponCd: 5 + Math.random() * 3,
+      splitStage: 0, necroWave: 0, necroT: 9, portalAdds: null, portalT: 0, buffOn: false,
+      twinSwapT: 8,
       deadT: 0, facing: Math.PI, fixed,
       targetType: 'player', leashing: false, knockT: 0,
     };
     mesh.userData.ref = e;
+    // 쌍둥이는 보호막 구체를 달고 다닌다 (켜진 쪽만 보인다)
+    if (def.group === 'twins') {
+      const sh = new THREE.Mesh(new THREE.SphereGeometry(1.5, 12, 10), new THREE.MeshBasicMaterial({ color: 0x7fd0ff, transparent: true, opacity: 0.22, depthWrite: false }));
+      sh.position.y = 1.3;
+      sh.visible = false;
+      mesh.add(sh);
+      e.shieldMesh = sh;
+    }
+    // 석상 상태의 3형제는 돌빛으로 보인다
+    if (e.statue && mesh.userData.setColorTint) mesh.userData.setColorTint(0x8f8f8f);
     // 탱커가 근처에 있으면 등장 순간부터 탱커가 어그로를 잡는다
     if (game.tank && game.tank.hp > 0 && !def.boss && Math.hypot(x - game.tank.x, z - game.tank.z) < 9) e.targetType = 'tank';
     game.enemies.push(e);
@@ -822,6 +874,15 @@ export function createGame(THREE) {
   };
   game.dealDamage = function (e, baseDmg, opts = {}) {
     if (!e.alive) return 0;
+    if (e.statue) return 0; // 석상은 깨지기 전에는 맞지 않는다
+    if (e.shielded) {
+      if (Math.random() < 0.3 && game.ui) game.ui.floatText(e.x, groundY(e.x, e.z) + (e.headY || 1) + 0.3, e.z, '보호막!', 'hurt');
+      return 0;
+    }
+    if ((e.flyY || 0) > 1) {
+      if (Math.random() < 0.3 && game.ui) game.ui.floatText(e.x, groundY(e.x, e.z) + (e.headY || 1) + 0.3, e.z, '닿지 않아요', 'hurt');
+      return 0;
+    }
     const d = game.derived();
     const medal = game.medalInfo(game.zone.id).bonus;
     let dmg = baseDmg * (1 + medal) * (1 + (game.state.level - 1) * 0.02);
@@ -876,6 +937,13 @@ export function createGame(THREE) {
     if (!e.alive) return;
     e.alive = false;
     e.deadT = 0;
+    // 쌍둥이·3형제처럼 그룹 보스는 전원이 죽어야 보상·타이머·해금이 나간다
+    const grp = e.group ? (game.bossGroups[e.group] || []) : null;
+    const lastOfGroup = !grp || !grp.some((m) => m.alive);
+    if (grp) {
+      const alive = grp.filter((m) => m.alive);
+      if (alive.length === 1 && alive[0].shielded) { alive[0].shielded = false; setShieldVisual(alive[0], false); }
+    }
     game.state.kills++;
     if (game.tutorialHook) game.tutorialHook('kill');
     const zone = game.zone;
@@ -887,8 +955,8 @@ export function createGame(THREE) {
       game.ui.toast(`${zone.name} 메달 ${after.tier}등급 달성! 피해·방어 +${Math.round(after.bonus * 100)}%`, 'gold');
       if (game.ui.medalFx) game.ui.medalFx();
     }
-    // 퀘스트 진행
-    questKill(e);
+    // 퀘스트 진행 (그룹 보스는 전원 처치 시에만)
+    if (lastOfGroup) questKill(e);
     // 보상 표기
     const ov = game.mobStats(zone.id, e.def);
     const xp = Math.round(ov.xp);
@@ -896,11 +964,11 @@ export function createGame(THREE) {
     game.gainCompanionXp(Math.round(xp * 0.6));
     game.save();
     const normal = !e.elite && !e.isMid && !e.isBoss && !e.isField;
-    if (game.ui) game.ui.rewardText(e.x, e.headY + 0.3, e.z, normal ? `+${fmtNum(xp)} XP` : `+${fmtNum(xp)} XP  +${fmtNum(ov.gold)} G`);
-    dropLoot(e);
+    if (game.ui) game.ui.rewardText(e.x, e.headY + 0.3, e.z, (normal || !lastOfGroup) ? `+${fmtNum(xp)} XP` : `+${fmtNum(xp)} XP  +${fmtNum(ov.gold)} G`);
+    if (lastOfGroup) dropLoot(e);
     // 보스 리스폰 타이머 기록
-    const btype = e.isField ? 'field' : e.isBoss ? 'boss' : e.isMid ? 'mid' : null;
-    if (btype) {
+    const btype = e.timerType || (e.isField ? 'field' : e.isBoss ? 'boss' : e.isMid ? 'mid' : null);
+    if (btype && lastOfGroup) {
       game.state.bossTimers = game.state.bossTimers || {};
       game.state.bossTimers[`${zone.id}:${btype}`] = Date.now() + (BOSS_TIMER[btype] || 0);
       game.state.bossKills[btype] = (game.state.bossKills[btype] || 0) + 1;
@@ -910,10 +978,10 @@ export function createGame(THREE) {
     }
     // 사망 연출
     if (e.isField) { game.camShake = 0.9; if (game.ui) game.ui.toast(`${zone.name} 지역 필드보스 처치!`, 'gold'); }
-    if (e.isBoss) { game.camShake = 0.7; if (game.ui) game.ui.toast(`${zone.mobs.boss.name} 처치!`, 'gold'); }
-    if (e.isMid && game.ui) game.ui.toast(`${zone.mobs.mid.name} 처치!`, 'gold');
-    if (e.isBoss || e.isField) bossDefeated();
-    if (game.ui) game.ui.updateBossBar(null);
+    if (e.isBoss && lastOfGroup) { game.camShake = 0.7; if (game.ui) game.ui.toast(`${e.def.name} 처치!`, 'gold'); }
+    if (e.isMid && lastOfGroup && game.ui) game.ui.toast(`${e.def.name} 처치!`, 'gold');
+    if (lastOfGroup && (e.isBoss || e.isField)) bossDefeated();
+    if (game.ui) game.ui.updateBossBar(lastOfGroup ? null : (grp && grp.find((m) => m.alive)) || null);
   }
 
   function fmtRemain(ms) {
@@ -999,6 +1067,7 @@ export function createGame(THREE) {
     if (k.has('d') || k.has('arrowright')) mx += 1;
     const len = Math.hypot(mx, mz);
     if (len > 1) { mx /= len; mz /= len; }
+    if (p.stunT > 0) { p.stunT -= dt; mx = 0; mz = 0; } // 기절 중에는 움직이지 않는다
     p.moving = len > 0.06;
     const beforeX = p.x, beforeZ = p.z;
     if (p.moving) {
@@ -1112,6 +1181,7 @@ export function createGame(THREE) {
     let best = null, bestD = 1e9;
     for (const e of game.enemies) {
       if (!e.alive) continue;
+      if (e.statue || (e.flyY || 0) > 1) continue; // 석상·비행 중인 보스는 노리지 않는다
       const dx = e.x - game.player.x, dz = e.z - game.player.z;
       const dd = Math.hypot(dx, dz);
       if (dd > range + e.radius) continue;
@@ -1130,6 +1200,7 @@ export function createGame(THREE) {
     const W = game.weapon(fam);
     const d = game.derived();
     const p = game.player;
+    if (p.stunT > 0) return false; // 기절 중에는 공격하지 않는다
     let target = nearestEnemy(W.range + 1.2, 6.28, p.facing) || nearestEnemy(W.range, W.arc, p.facing);
     if (!target) return false;
     const a = Math.atan2(target.x - p.x, target.z - p.z);
@@ -1464,7 +1535,7 @@ export function createGame(THREE) {
   function placeEnemy(e) {
     if (!e.mesh) return;
     const jitter = e.knockT > 0 || e.hitFlash > 0 ? (Math.random() - 0.5) * 0.07 : 0;
-    e.mesh.position.set(e.x + jitter, groundY(e.x, e.z), e.z + jitter);
+    e.mesh.position.set(e.x + jitter, groundY(e.x, e.z) + (e.flyY || 0), e.z + jitter);
     if (e.mesh.userData.isSprite) {
       if (e.mesh.userData.update) e.mesh.userData.update(game.time, e, camera);
       if (e.tag) e.tag.style.opacity = '1';
@@ -1580,6 +1651,8 @@ export function createGame(THREE) {
       }
       // 이동 애니메이션 (+ 피격 흔들림)
       if (e.knockT > 0) e.knockT -= dt;
+      // 분열 자식도 체력이 줄면 다시 갈라진다 (1→2→4)
+      if (e.pattern === 'split') trySplit(e);
       placeEnemy(e);
     }
     if (game.enemies.some((e) => e.gone)) game.enemies = game.enemies.filter((e) => !e.gone);
@@ -1697,34 +1770,49 @@ export function createGame(THREE) {
       return;
     }
     e.leashing = false;
+    e.telegraphT -= dt;
+    // 석상 상태의 3형제는 깨질 때까지 가만히 있다
+    if (e.statue) { tryReleaseBrother(e); return; }
+    // 쌍둥이 보호막 교대 (보호막이 켜진 쪽이 시간을 잰다)
+    if (e.pattern === 'twins') bossTwins(e, dt);
+    if (e.shielded) return; // 보호막이 켜진 쌍둥이는 가만히 서 있다
+    // 광폭화 (필드보스 + enrage 지정 보스): 30초마다 공격력 +10% · 속도 +5% (최대 10단계)
+    if (e.isField || e.def.enrage) updateEnrage(e, dt);
+    // 드래곤 비행 시퀀스 (날아오르는 동안은 다른 행동을 쉰다)
+    if (e.pattern === 'dragon' && bossDragon(e, dt, dx, dz)) return;
     // 돌진 패턴 (오우거·골렘·아누비스 계열)
     if (e.pattern === 'charge' && bossCharge(e, dt, dx, dz)) return;
-    e.telegraphT -= dt;
-    if (dd > e.def.atkRange * 0.9 + e.radius) {
-      moveEnemy(e, (dx / dd) * e.speed * dt, (dz / dd) * e.speed * dt);
-      e.facing = Math.atan2(dx, dz);
-    } else {
-      e.facing = Math.atan2(dx, dz);
-      e.atkCd -= dt;
-      if (e.atkCd <= 0) { enemyAttack(e); e.atkCd = e.def.atkCd; }
+    // 네크로맨서: 도망치며 해골 소환 (도망치는 동안은 추격·공격을 쉰다)
+    const fleeing = e.pattern === 'necromancer' && bossNecromancer(e, dt, dx, dz);
+    // 포탈 버프 관리 (쫄을 다 잡으면 강화 해제)
+    if (e.portalAdds) updatePortalBuff(e, dt);
+    if (!fleeing) {
+      if (dd > e.def.atkRange * 0.9 + e.radius) {
+        moveEnemy(e, (dx / dd) * e.speed * dt, (dz / dd) * e.speed * dt);
+        e.facing = Math.atan2(dx, dz);
+      } else {
+        e.facing = Math.atan2(dx, dz);
+        e.atkCd -= dt;
+        if (e.atkCd <= 0) { enemyAttack(e); e.atkCd = e.def.atkCd; }
+      }
     }
     // 강공격 텔레그래프 — 보스급만 사용, 빈도 완화 (필드 26초 / 보스 22초 / 중간보스 18초)
     if (e.telegraphT <= 0 && dd < 15) {
       e.telegraphT = e.isField ? 26 : e.isBoss ? 22 : 18;
       addTelegraph(p.x, p.z, e.isField ? 5.6 : e.isBoss ? 4.6 : 3.6, 1.5, e.atk * 1.9, e);
     }
-    // 분열 패턴 (히드라 계열): 체력 60%에서 두 마리로 갈라진다
-    if (e.pattern === 'split' && !e.splitDone && e.hp < e.maxHp * 0.6) {
-      e.splitDone = true;
-      for (let i = 0; i < 2; i++) {
-        const def = game.zone.mobs.normal[i % game.zone.mobs.normal.length];
-        const ang = (i / 2) * TAU + 0.6;
-        spawnEnemy(def, e.x + Math.cos(ang) * 2.8, e.z + Math.sin(ang) * 2.8, true);
+    // 보스 패턴 발동 (텔레그래프와 같은 최소 간격)
+    e.patternCd -= dt;
+    if (e.patternCd <= 0 && dd < 16) {
+      if (triggerBossPattern(e, dx, dz)) {
+        e.patternCd = e.isField ? 26 : e.isBoss ? 22 : 18;
+        e.telegraphT = Math.max(e.telegraphT, 4);
       }
-      dustBurst(e.x, e.z, 0x9fe0a0, 12);
-      game.camShake = Math.max(game.camShake, 0.4);
-      if (game.ui) game.ui.toast(`${e.def.name}이(가) 분열했어요!`, 'bad');
     }
+    // 3형제 무기 스킬 (도끼 회전 베기 · 활 화살비 · 둔기 스턴 내려찍기)
+    if (e.pattern === 'brothers') bossBrotherWeapon(e, dt);
+    // 분열 패턴 (히드라 계열): 체력이 줄면 1→2→4로 갈라진다
+    trySplit(e);
     // 50% 이하 소환
     if (e.isBoss && !e.summonDone && e.hp < e.maxHp * 0.5) {
       e.summonDone = true;
@@ -1735,6 +1823,27 @@ export function createGame(THREE) {
       }
       if (game.ui) game.ui.toast(`${e.def.name}이(가) 부하를 불러냈어요!`, 'bad');
     }
+  }
+
+  // 분열: 체력 60%에서 2마리로, 그 자식들은 체력 50%에서 다시 2마리씩 (최대 1→2→4)
+  function trySplit(e) {
+    if (e.pattern !== 'split' || e.splitDone) return;
+    const stage = e.splitStage || 0;
+    if (stage >= 2) return;
+    const threshold = stage >= 1 ? 0.5 : 0.6;
+    if (e.hp >= e.maxHp * threshold) return;
+    e.splitDone = true;
+    for (let i = 0; i < 2; i++) {
+      const def = game.zone.mobs.normal[i % game.zone.mobs.normal.length];
+      const ang = (i / 2) * TAU + 0.6;
+      const child = spawnEnemy(def, e.x + Math.cos(ang) * 2.8, e.z + Math.sin(ang) * 2.8, true);
+      child.pattern = 'split';
+      child.splitStage = stage + 1;
+      child.splitDone = stage + 1 >= 2;
+    }
+    dustBurst(e.x, e.z, 0x9fe0a0, 12);
+    game.camShake = Math.max(game.camShake, 0.4);
+    if (game.ui) game.ui.toast(`${e.def.name}이(가) 분열했어요!`, 'bad');
   }
 
   // 돌진: 바닥 예고선 → 빠르게 들이받기
@@ -1774,7 +1883,259 @@ export function createGame(THREE) {
     return true;
   }
 
-  function addTelegraph(x, z, r, time, dmg, source) {
+  // ---------- 보스 특수 패턴 (2차) ----------
+  function triggerBossPattern(e, dx, dz) {
+    switch (e.pattern) {
+      case 'nova': return bossNova(e);
+      case 'whirlwind': return bossWhirlwind(e);
+      case 'cannon': return bossCannon(e);
+      case 'portal': return bossPortal(e);
+      case 'poison': return bossPoison(e);
+      case 'dragon': e.dragonPhase = 'rise'; e.dragonT = 0; return true;
+      default: return false;
+    }
+  }
+
+  // 나무 내려찍기: 빨간원이 다 차면 내려찍기 (기존 1.9배 광역기에 연출 추가)
+  function bossNova(e) {
+    const p = game.player;
+    addTelegraph(p.x, p.z, e.isField ? 6.0 : e.isBoss ? 5.0 : 4.0, 1.6, e.atk * 1.9, e);
+    dustBurst(e.x, e.z, 0x8a6a3a, 10);
+    if (game.ui) game.ui.floatText(e.x, groundY(e.x, e.z) + (e.headY || 2) + 0.4, e.z, '내려찍기!', 'hurt');
+    return true;
+  }
+
+  // 회오리 소환: 플레이어를 향해 천천히 이동하며 닿으면 피해를 주는 회오리
+  function bossWhirlwind(e) {
+    const p = game.player;
+    const dx = p.x - e.x, dz = p.z - e.z;
+    const dd = Math.hypot(dx, dz) || 1;
+    const sx = e.x + (dx / dd) * 3, sz = e.z + (dz / dd) * 3;
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(1.1, 2.8, 10), new THREE.MeshBasicMaterial({ color: 0xdff4ff, transparent: true, opacity: 0.5, depthWrite: false }));
+    cone.position.set(sx, groundY(sx, sz) + 1.4, sz);
+    scene.add(cone);
+    game.effects.push({ mesh: cone, kind: 'whirlwind', x: sx, z: sz, r: 1.9, life: 5, max: 5, tick: 0, dmg: e.atk * 0.8 });
+    if (game.ui) game.ui.toast('회오리가 나타났어요! 피하세요!', 'bad');
+    return true;
+  }
+
+  // 대포 소환 폭격: 보스 양옆에 대포 2문이 나타나 작은 빨간원 폭격을 3번씩 쏜다
+  function bossCannon(e) {
+    for (const s of [-1, 1]) {
+      const cx = e.x + s * 3.2, cz = e.z + 1.5;
+      const grp = new THREE.Group();
+      const base = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.7, 1.1), new THREE.MeshBasicMaterial({ color: 0x4a3a2a }));
+      base.position.y = 0.35; grp.add(base);
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 1.6, 8), new THREE.MeshBasicMaterial({ color: 0x2a2a30 }));
+      barrel.rotation.x = Math.PI / 2.6; barrel.position.set(0, 0.9, 0.3); grp.add(barrel);
+      grp.position.set(cx, groundY(cx, cz), cz);
+      scene.add(grp);
+      game.effects.push({ mesh: grp, kind: 'cannon', x: cx, z: cz, life: 6, max: 6, fireT: 0.4 + Math.random() * 0.4, shots: 0, boss: e });
+    }
+    if (game.ui) game.ui.floatText(e.x, groundY(e.x, e.z) + (e.headY || 2) + 0.4, e.z, '포격!', 'hurt');
+    return true;
+  }
+
+  // 중앙 포탈 + 대각선 쫄 4마리: 15초 안에 못 잡으면 보스 강화
+  function bossPortal(e) {
+    const cx = e.home.x, cz = e.home.z;
+    const ring = flatRing(cx, cz, 1.2, 3.4, 0xb46cff, 0.85, 0.15);
+    addFx(ring, 3, (fx, k) => { ring.scale.setScalar(0.6 + (1 - k) * 0.8); ring.material.opacity = k * 0.85; ring.rotation.z += 0.05; }, 'portal:ring');
+    const core = new THREE.Mesh(new THREE.CircleGeometry(2.6, 24), new THREE.MeshBasicMaterial({ color: 0x7a3fd0, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
+    core.rotation.x = -Math.PI / 2; core.position.set(cx, groundY(cx, cz) + 0.14, cz); core.renderOrder = 11;
+    addFx(core, 3, (fx, k) => { core.material.opacity = k * 0.5; core.scale.setScalar(0.4 + (1 - k) * 0.7); }, 'portal:core');
+    const adds = [];
+    for (const [ox, oz] of [[-6, -6], [6, -6], [-6, 6], [6, 6]]) {
+      const def = game.zone.mobs.normal[adds.length % game.zone.mobs.normal.length];
+      adds.push(spawnEnemy(def, cx + ox, cz + oz, true));
+    }
+    e.portalAdds = adds;
+    e.portalT = 15;
+    e.buffOn = false;
+    if (game.ui) game.ui.toast('포탈이 열렸어요! 쫄 4마리를 빨리 잡으세요!', 'bad');
+    return true;
+  }
+
+  function updatePortalBuff(e, dt) {
+    const adds = e.portalAdds;
+    if (!adds) return;
+    if (!adds.some((a) => a.alive)) {
+      if (e.buffOn) {
+        e.buffOn = false;
+        e.atk = e.baseAtk;
+        if (e.mesh && e.mesh.userData.setColorTint) e.mesh.userData.setColorTint(e.enrageStacks > 0 ? 0xff8080 : 0xffffff);
+        if (game.ui) game.ui.toast(`${e.def.name}의 강화가 풀렸어요!`, 'good');
+      }
+      e.portalAdds = null;
+      return;
+    }
+    if (!e.buffOn) {
+      e.portalT -= dt;
+      if (e.portalT <= 0) {
+        e.buffOn = true;
+        e.atk = Math.round(e.baseAtk * 1.35);
+        if (e.mesh && e.mesh.userData.setColorTint) e.mesh.userData.setColorTint(0xff7070);
+        if (game.ui) game.ui.toast('쫄을 못 잡아서 보스가 강화됐어요!', 'bad');
+      }
+    }
+  }
+
+  // 독버섯: 플레이어 주변에 독장판 3개
+  function bossPoison(e) {
+    const p = game.player;
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * TAU + Math.random();
+      addPoisonPool(p.x + Math.cos(a) * 2.2, p.z + Math.sin(a) * 2.2, e.atk * 0.8);
+    }
+    if (game.ui) game.ui.floatText(e.x, groundY(e.x, e.z) + (e.headY || 2) + 0.4, e.z, '독장판!', 'hurt');
+    return true;
+  }
+
+  // 드래곤: 날아올라 부채꼴 브레스 (날아오르는 동안은 맞지 않는다)
+  function bossDragon(e, dt, dx, dz) {
+    if (!e.dragonPhase) return false;
+    e.dragonT += dt;
+    const p = game.player;
+    if (e.dragonPhase === 'rise') {
+      e.flyY = Math.min(3.5, e.flyY + dt * 4);
+      if (e.dragonT >= 1.0) { e.dragonPhase = 'hover'; e.dragonT = 0; }
+    } else if (e.dragonPhase === 'hover') {
+      if (e.dragonT >= 0.6) {
+        e.dragonPhase = 'breath'; e.dragonT = 0;
+        const bx = p.x - e.x, bz = p.z - e.z;
+        const base = Math.atan2(bx, bz);
+        for (let i = -2; i <= 2; i++) {
+          const a = base + i * 0.35;
+          spawnProjectile({ from: 'enemy', x: e.x, y: 3.2, z: e.z, targetX: e.x + Math.sin(a) * 12, targetZ: e.z + Math.cos(a) * 12, speed: 11, color: 0x66c2ff, dmg: e.atk * 1.1, range: 12, style: 'orb' });
+        }
+        if (game.ui) game.ui.floatText(e.x, groundY(e.x, e.z) + 4, e.z, '브레스!', 'hurt');
+        game.camShake = Math.max(game.camShake, 0.4);
+      }
+    } else if (e.dragonPhase === 'breath') {
+      if (e.dragonT >= 0.4) { e.dragonPhase = 'fall'; e.dragonT = 0; }
+    } else if (e.dragonPhase === 'fall') {
+      e.flyY = Math.max(0, e.flyY - dt * 4.5);
+      if (e.flyY <= 0) {
+        e.flyY = 0; e.dragonPhase = null;
+        dustBurst(e.x, e.z, 0x9fc8e8, 12);
+        game.camShake = Math.max(game.camShake, 0.4);
+      }
+    }
+    return true;
+  }
+
+  // 네크로맨서: 플레이어에게서 도망치며 해골 소환 (웨이브마다 강해진다)
+  function bossNecromancer(e, dt, dx, dz) {
+    const p = game.player;
+    const dd = Math.hypot(dx, dz);
+    let fleeing = false;
+    if (dd < 5 && dd > 0.01) {
+      moveEnemy(e, (-dx / dd) * e.speed * 1.15 * dt, (-dz / dd) * e.speed * 1.15 * dt);
+      e.facing = Math.atan2(-dx, -dz);
+      fleeing = true;
+    }
+    e.necroT -= dt;
+    const aliveSkels = game.enemies.filter((x) => x.alive && x.def.key === 'skeleton').length;
+    if (e.necroT <= 0 && aliveSkels < 6) {
+      e.necroT = 12;
+      e.necroWave++;
+      const wave = e.necroWave;
+      const zone = game.zone;
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * TAU + Math.random();
+        const def = {
+          key: 'skeleton', name: '해골 전사', shape: 'skeleton', color: 0xe8e8e0, dark: 0x8a8a7a,
+          hp: Math.round((80 + zone.scale.lvl * 12) * (1 + 0.15 * (wave - 1))),
+          atk: Math.round((12 + zone.scale.lvl * 2) * (1 + 0.15 * (wave - 1))),
+          speed: 2.0, atkRange: 1.8, atkCd: 1.3, aggro: 10, style: 'melee', soul: 'gray', elem: 'shadow',
+        };
+        spawnEnemy(def, e.x + Math.cos(a) * 3, e.z + Math.sin(a) * 3, true);
+      }
+      dustBurst(e.x, e.z, 0xcfcfe8, 10);
+      if (game.ui) game.ui.toast(`해골 ${wave}번째 무리가 일어났어요! 점점 강해져요!`, 'bad');
+    }
+    return fleeing;
+  }
+
+  // 쌍둥이 보호막 교대 (8초마다 — 보호막이 켜진 쪽이 시간을 잰다)
+  function bossTwins(e, dt) {
+    if (!e.shielded) return;
+    e.twinSwapT -= dt;
+    if (e.twinSwapT <= 0) {
+      const grp = game.bossGroups.twins || [];
+      const other = grp.find((m) => m !== e && m.alive);
+      if (!other) { e.shielded = false; setShieldVisual(e, false); return; }
+      e.shielded = false; setShieldVisual(e, false);
+      other.shielded = true; setShieldVisual(other, true);
+      other.twinSwapT = 8;
+      if (game.ui) game.ui.toast('쌍둥이의 보호막이 바뀌었어요!', 'bad');
+    }
+  }
+
+  // 3형제 석상 해제: 앞 형제가 반피 이하이거나 죽으면 다음 석상이 깨어난다
+  function tryReleaseBrother(e) {
+    const order = ['barbAxe', 'barbBow', 'barbMace'];
+    const idx = order.indexOf(e.def.key);
+    if (idx < 0) return;
+    const p = game.player;
+    const dd = Math.hypot(p.x - e.x, p.z - e.z);
+    const grp = game.bossGroups.brothers || [];
+    let ok = false;
+    if (idx === 0) ok = dd < 9;
+    else {
+      const prev = grp.find((m) => m.def.key === order[idx - 1]);
+      ok = !prev || !prev.alive || prev.hp < prev.maxHp * 0.5;
+    }
+    if (!ok) return;
+    e.statue = false;
+    if (e.mesh && e.mesh.userData.setColorTint) e.mesh.userData.setColorTint(0xffffff);
+    dustBurst(e.x, e.z, 0xd8d8d8, 12);
+    game.camShake = Math.max(game.camShake, 0.3);
+    if (game.ui) game.ui.toast(`${e.def.name}의 석상이 깨어났어요!`, 'bad');
+  }
+
+  // 3형제 무기 스킬 (도끼 회전 베기 · 활 화살비 · 둔기 스턴 내려찍기)
+  function bossBrotherWeapon(e, dt) {
+    e.weaponCd -= dt;
+    if (e.weaponCd > 0) return;
+    const p = game.player;
+    const w = e.def.weapon;
+    if (w === 'axe') {
+      e.weaponCd = 9;
+      const ring = flatRing(e.x, e.z, 0.4, 3.5, 0xffd257, 0.9, 0.12);
+      addFx(ring, 0.45, (fx, k) => { ring.scale.setScalar(1 + (1 - k) * 1.4); ring.material.opacity = k * 0.9; }, 'brother:spin');
+      dustBurst(e.x, e.z, 0xffd257, 8);
+      if (Math.hypot(p.x - e.x, p.z - e.z) < 4.0) game.damagePlayer(e.atk * 1.3, e);
+      if (game.ui) game.ui.floatText(e.x, groundY(e.x, e.z) + (e.headY || 2) + 0.4, e.z, '회전 베기!', 'hurt');
+    } else if (w === 'bow') {
+      e.weaponCd = 10;
+      for (let i = 0; i < 6; i++) {
+        const a = Math.random() * TAU, r = 1 + Math.random() * 3.4;
+        addTelegraph(p.x + Math.cos(a) * r, p.z + Math.sin(a) * r, 1.6, 1.2, e.atk * 0.9, e);
+      }
+      if (game.ui) game.ui.floatText(e.x, groundY(e.x, e.z) + (e.headY || 2) + 0.4, e.z, '화살비!', 'hurt');
+    } else if (w === 'mace') {
+      e.weaponCd = 11;
+      addTelegraph(p.x, p.z, 3.0, 1.4, e.atk * 1.4, e, { stun: 1.5 });
+      if (game.ui) game.ui.floatText(e.x, groundY(e.x, e.z) + (e.headY || 2) + 0.4, e.z, '스턴 내려찍기!', 'hurt');
+    }
+  }
+
+  // 광폭화 (필드보스 + enrage 지정 보스): 30초마다 공격력 +10% · 속도 +5% (최대 10단계)
+  function updateEnrage(e, dt) {
+    e.enrageT += dt;
+    if (e.enrageStacks >= 10) return;
+    if (e.enrageT >= 30) {
+      e.enrageT = 0;
+      e.enrageStacks++;
+      e.atk = Math.round(e.baseAtk * (1 + 0.1 * e.enrageStacks));
+      e.speed = e.baseSpeed * (1 + 0.05 * e.enrageStacks);
+      if (e.mesh && e.mesh.userData.setColorTint) e.mesh.userData.setColorTint(0xff8080);
+      if (game.ui) game.ui.toast(`${e.def.name} 광폭화 ${e.enrageStacks}단계! 공격력이 올랐어요`, 'bad');
+    }
+  }
+
+  function addTelegraph(x, z, r, time, dmg, source, opts = {}) {
     // 지형·풀에 가려지지 않도록 바닥 위로 띄우고 깊이검사를 끈다
     const mesh = new THREE.Mesh(
       new THREE.CircleGeometry(r, 30),
@@ -1788,7 +2149,7 @@ export function createGame(THREE) {
     ring.rotation.x = -Math.PI / 2; ring.position.set(x, groundY(x, z) + 0.31, z); ring.renderOrder = 13; scene.add(ring);
     const mark = new THREE.Mesh(new THREE.RingGeometry(r * 0.12, r * 0.2, 20), new THREE.MeshBasicMaterial({ color: 0xffd0d0, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
     mark.rotation.x = -Math.PI / 2; mark.position.set(x, groundY(x, z) + 0.31, z); mark.renderOrder = 13; scene.add(mark);
-    game.telegraphs.push({ mesh, ring, mark, x, z, r, t: 0, max: time, dmg, source, done: false });
+    game.telegraphs.push({ mesh, ring, mark, x, z, r, t: 0, max: time, dmg, source, done: false, stun: opts.stun || 0 });
   }
 
   function updateTelegraphs(dt) {
@@ -1801,6 +2162,7 @@ export function createGame(THREE) {
       if (!t.done && t.t >= t.max) {
         t.done = true;
         if (p.alive && Math.hypot(p.x - t.x, p.z - t.z) < t.r) game.damagePlayer(t.dmg, t.source);
+        if (t.stun && p.alive && Math.hypot(p.x - t.x, p.z - t.z) < t.r) game.stunPlayer(t.stun);
         const tank = game.tank;
         if (tank && tank.hp > 0 && t.source && t.source.targetType === 'tank' && Math.hypot(tank.x - t.x, tank.z - t.z) < t.r) damageCompanion(tank, t.dmg);
         game.effects.push({ mesh: null, kind: 'shockwave', x: t.x, z: t.z, r: t.r, life: 0.4, max: 0.4 });
@@ -1838,6 +2200,15 @@ export function createGame(THREE) {
     if (p.hp <= 0) playerDown();
   };
 
+  // 둔기 보스 스턴 내려찍기용: 플레이어를 잠시 기절시킨다
+  game.stunPlayer = function (sec) {
+    const p = game.player;
+    if (!p || !p.alive) return;
+    p.stunT = Math.max(p.stunT || 0, sec);
+    stunStars(p.x, groundY(p.x, p.z) + 1.6, p.z);
+    if (game.ui) game.ui.floatText(p.x, groundY(p.x, p.z) + 1.9, p.z, '기절!', 'hurt');
+  };
+
   function playerDown() {
     const p = game.player;
     p.alive = false;
@@ -1851,11 +2222,27 @@ export function createGame(THREE) {
         e.hp = e.maxHp;
         e.x = e.home.x; e.z = e.home.z;
         e.state = 'idle'; e.atkCd = 1.5; e.summonDone = false; e.telegraphT = 4;
+        // 패턴 상태 초기화 (광폭화·포탈 강화·비행·보호막·석상)
+        e.patternCd = 6; e.weaponCd = 5; e.flyY = 0; e.dragonPhase = null; e.dragonT = 0;
+        e.enrageStacks = 0; e.enrageT = 0; e.atk = e.baseAtk; e.speed = e.baseSpeed;
+        e.portalAdds = null; e.portalT = 0; e.buffOn = false;
+        e.necroWave = 0; e.necroT = 9; e.splitDone = false;
+        if (e.mesh && e.mesh.userData.setColorTint) e.mesh.userData.setColorTint(0xffffff);
+        if (e.group === 'twins') { e.shielded = e.def.key === 'twinA'; setShieldVisual(e, e.shielded); e.twinSwapT = 8; }
+        if (e.group === 'brothers') {
+          e.statue = !!e.def.statue;
+          if (e.statue && e.mesh && e.mesh.userData.setColorTint) e.mesh.userData.setColorTint(0x8f8f8f);
+        }
         e.mesh.position.set(e.x, groundY(e.x, e.z), e.z);
       }
     }
     for (const t of game.telegraphs) { scene.remove(t.mesh); scene.remove(t.ring); if (t.mark) scene.remove(t.mark); }
     game.telegraphs = [];
+    // 회오리·대포 같은 보스 패턴 이펙트도 함께 정리한다
+    for (const fx of game.effects) {
+      if ((fx.kind === 'whirlwind' || fx.kind === 'cannon') && fx.mesh) { scene.remove(fx.mesh); disposeGroup(fx.mesh); }
+    }
+    game.effects = game.effects.filter((fx) => fx.kind !== 'whirlwind' && fx.kind !== 'cannon');
     for (const pr of game.projectiles) if (pr.from === 'enemy') scene.remove(pr.mesh);
     game.projectiles = game.projectiles.filter((pr) => pr.from !== 'enemy');
     if (game.ui) game.ui.updateBossBar(null);
@@ -2503,6 +2890,39 @@ export function createGame(THREE) {
         fx.mesh.scale.setScalar(1 + (1 - k) * (fx.r || 4) * 1.2);
         fx.mesh.material.opacity = k * 0.85;
         if (fx.life <= 0) { scene.remove(fx.mesh); fx.mesh.geometry.dispose(); fx.mesh.material.dispose(); }
+      } else if (fx.kind === 'whirlwind') {
+        // 회오리는 플레이어를 향해 천천히 이동하며 닿으면 피해를 준다
+        const p = game.player;
+        if (p && p.alive) {
+          const dx = p.x - fx.x, dz = p.z - fx.z;
+          const dd = Math.hypot(dx, dz) || 1;
+          fx.x += (dx / dd) * 2.2 * dt;
+          fx.z += (dz / dd) * 2.2 * dt;
+        }
+        fx.mesh.position.set(fx.x, groundY(fx.x, fx.z) + 1.4, fx.z);
+        fx.mesh.rotation.y += dt * 6;
+        fx.tick -= dt;
+        if (fx.tick <= 0) {
+          fx.tick = 0.7;
+          const p2 = game.player;
+          if (p2 && p2.alive && Math.hypot(p2.x - fx.x, p2.z - fx.z) < fx.r) game.damagePlayer(fx.dmg, null);
+        }
+        fx.mesh.material.opacity = 0.3 + Math.sin(game.time * 6) * 0.12;
+        if (fx.life <= 0) { scene.remove(fx.mesh); fx.mesh.geometry.dispose(); fx.mesh.material.dispose(); }
+      } else if (fx.kind === 'cannon') {
+        // 대포는 주기적으로 플레이어 주변에 작은 빨간원 폭격을 쏜다
+        const boss = fx.boss;
+        fx.fireT -= dt;
+        if (fx.fireT <= 0 && fx.shots < 3 && boss && boss.alive) {
+          fx.fireT = 1.0;
+          fx.shots++;
+          const p = game.player;
+          if (p && p.alive) {
+            addTelegraph(p.x + (Math.random() - 0.5) * 3, p.z + (Math.random() - 0.5) * 3, 1.7, 1.2, boss.atk * 1.2, boss);
+          }
+          dustBurst(fx.x, fx.z, 0xffa040, 4);
+        }
+        if (fx.life <= 0) { scene.remove(fx.mesh); disposeGroup(fx.mesh); }
       } else if (fx.kind === 'pool') {
         fx.tick -= dt;
         if (fx.tick <= 0) {
