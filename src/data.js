@@ -694,9 +694,15 @@ export const COSTUMES = [
 export const COSTUME_MAP = Object.fromEntries(COSTUMES.map((c) => [c.id, c]));
 export const COSTUME_PULL_COST = 500;
 // 코스튬 레벨: 1~5. Lv.1 스탯은 기본 수치의 40%에서 시작해 레벨마다 15%씩 올라 Lv.5에서 100%가 된다.
-// stats에 적힌 값은 Lv.5(최대) 수치다. 최대 레벨 코스튬은 뽑기 풀에서 제외된다 (환급 없음).
-export const COSTUME_MAX_LEVEL = 5;
+// stats에 적힌 값은 Lv.5 수치다. Lv.6부터는 레벨마다 0.5%씩만 오른다 (Lv.6 100.5% … Lv.99 147%).
+// 최대 레벨 코스튬은 뽑기 풀에서 제외된다 (환급 없음).
+export const COSTUME_MAX_LEVEL = 99;
 export const COSTUME_LEVEL_MULT = [0, 0.40, 0.55, 0.70, 0.85, 1.0];
+export function costumeLevelMult(lv) {
+  const l = Math.max(1, Math.floor(lv || 1));
+  if (l <= 5) return COSTUME_LEVEL_MULT[l];
+  return 1 + (l - 5) * 0.005; // Lv.6 100.5% … Lv.99 147%
+}
 export const COSTUME_STAT_LABEL = {
   atkPct: '공격력', defPct: '방어력', hpPct: '최대 체력', crit: '치명타', critDmg: '치명타 피해',
   evade: '회피', moveSpeed: '이동 속도', mpPct: '최대 마나', cdr: '쿨다운 감소',
