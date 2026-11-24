@@ -3,8 +3,8 @@ import {
   PLAYABLE, ZONES, GRADES, WEAPONS, ARMOR_KINDS, ACCESSORY_KINDS, GRADE_ADJ, WEAPON_BASE, ITEM_STATS,
   MEDAL_TIERS, MEDAL_STEP, TALENTS, COMPANION_CLASSES, COMPANION_NAMES, CHARMS, SECRET_TOTAL,
   itemOptions, defaultBalance, MOB_REWARD, OPT_LABEL,
-  AVATARS, AVATAR_MAP, avatarOf, SKILLS, SKILL_IDS, HEAL_SKILL_IDS,
-  COMPANION_SKILLS, SKILL_BOOK_CLASS, COMPANION_SKILL_MAX_LEVEL,
+  AVATARS, AVATAR_MAP, avatarOf, SKILLS,
+  COMPANION_SKILLS, COMPANION_SKILL_POOLS, SKILL_BOOK_SKILL, COMPANION_SKILL_MAX_LEVEL, COMPANION_DMG_FACTOR,
   BOSS_TIMER, BOSS_LABEL, EVOLVE_NEED, SOUL_KINDS, COSTUMES, COSTUME_MAP, COSTUME_PULL_COST, COSTUME_MAX_LEVEL, costumeLevelMult, COMPANION_PULL_COST,
   ELEMENTS, ELEM_BEATS, EARTH_GATE,
 } from './data.js';
@@ -161,6 +161,14 @@ export function createGame(THREE) {
     s.companions = saved.companions || [];
     // 동료 스킬북 보너스 (없으면 0). 등급+1이 기본 레벨이고 여기에 더해진다.
     for (const c of s.companions) c.skillBonus = Math.max(0, Math.floor(Number(c.skillBonus) || 0));
+    // 동료 고유 스킬 지정: 스킬이 없는 동료(개편 전 저장본)는 직업 풀에서 랜덤으로 하나 받는다.
+    // 한 번 지정되면 저장되어 다시 바뀌지 않는다. (스킬 마이그레이션보다 먼저 실행한다)
+    for (const c of s.companions) {
+      const pool = COMPANION_SKILL_POOLS[c.cls] || [];
+      if (!c.skillId || !COMPANION_SKILLS[c.skillId]) {
+        c.skillId = pool.length ? pool[Math.floor(Math.random() * pool.length)] : 'shieldSlam';
+      }
+    }
     s.party = saved.party || [];
     s.unlocked = saved.unlocked && saved.unlocked.length ? saved.unlocked : [1];
     // 3차 개편 마이그레이션 (v1 → v2, 분리 맵 → 하나의 서울 지도):
@@ -233,13 +241,23 @@ export function createGame(THREE) {
       const v = Math.max(0, Math.floor(Number(s.skills.pendingBonus[k]) || 0));
       if (v > 0) s.skills.pendingBonus[k] = v; else delete s.skills.pendingBonus[k];
     }
+    // 예전 직업 기준 pendingBonus(직업 키)는 스킬 기준으로 한 번만 바꾼다.
+    // (직업 풀에서 스킬 하나를 골라 그 스킬의 보너스로 옮긴다. 이후엔 스킬 키만 남는다)
+    for (const k of Object.keys(s.skills.pendingBonus)) {
+      if (COMPANION_SKILL_POOLS[k]) {
+        const pool = COMPANION_SKILL_POOLS[k];
+        const sk = pool[Math.floor(Math.random() * pool.length)];
+        s.skills.pendingBonus[sk] = (s.skills.pendingBonus[sk] || 0) + s.skills.pendingBonus[k];
+        delete s.skills.pendingBonus[k];
+      }
+    }
     // 스킬 개편 마이그레이션 (최초 1회만): 주인공이 이미 배운 스킬은
     // 같은 직업 동료의 대표 스킬 보너스 +1로 전환한다. 배운 목록 자체는 기록으로 남긴다.
     // (skillMigrationV1이 저장되므로 새로고침해도 다시 지급되지 않는다)
     if (!s.skills.skillMigrationV1) {
       for (const id of s.skills.learned) {
-        const cls = SKILL_BOOK_CLASS[id];
-        if (cls) grantClassSkillBonus(s, cls, 1);
+        const skillId = SKILL_BOOK_SKILL[id];
+        if (skillId) grantSkillBonus(s, skillId, 1);
       }
       s.skills.skillMigrationV1 = true;
     }
@@ -250,7 +268,8 @@ export function createGame(THREE) {
     // 다시 로드해도 아무 일도 일어나지 않는다 (멱등).
     // 생존자: 가장 높은 레벨 (동점이면 가장 높은 등급, 그래도 동점이면 목록의 첫 번째).
     // 복사본마다 가챠 중복 규칙을 적용한다: 생존자 등급이 5 미만이면 등급 +1,
-    // 이미 신화(5등급)면 레벨 +5. 파티에 있던 복사본 자리는 생존자가 한 번만 이어받는다.
+    // 스킬 보너스도 +1. 이미 신화(5등급)면 스킬 보너스만 +1 (레벨은 슬롯에 산다).
+    // 파티에 있던 복사본 자리는 생존자가 한 번만 이어받는다.
     // (레벨은 슬롯에 살지만, 여기서 정한 생존자 레벨은 뒤의 슬롯 마이그레이션이
     // 파티 기준으로 가져가므로, 정리된 레벨이 슬롯에 그대로 이어진다.)
     {
@@ -271,7 +290,7 @@ export function createGame(THREE) {
         survivor.skillBonus = Math.max(...list.map((c) => c.skillBonus || 0));
         for (const extra of sorted.slice(1)) {
           if ((survivor.grade || 0) < 5) survivor.grade = (survivor.grade || 0) + 1;
-          else survivor.lv = (survivor.lv || 1) + 5;
+          survivor.skillBonus = (survivor.skillBonus || 0) + 1;
           dead.add(extra.id);
           survivorOf.set(extra.id, survivor.id);
           merged++;
@@ -1081,9 +1100,8 @@ export function createGame(THREE) {
       // 반복 처치해도 항상 녹색(고급) 등급 장비 1개
       addPickup('item', e.x, e.z, { kind, fam, grade: 1 });
     }
-    // 스킬북: 구역 보스는 확정, 중간보스는 확률
-    const bookChance = e.isBoss ? 1 : e.isMid ? 0.45 : 0;
-    if (bookChance && Math.random() < bookChance) dropSkillBook(e.x, e.z);
+    // 스킬북은 더 이상 떨어지지 않는다 (동료 개편: 스킬 레벨은 중복 뽑기로 올린다).
+    // 이미 가진 책은 가방에서 쓸 수 있고, 바닥에 남은 책도 계속 주울 수 있다.
   }
 
   function pickKind() {
@@ -1095,23 +1113,6 @@ export function createGame(THREE) {
     if (kind === 'armor') { const k = Object.keys(ARMOR_KINDS); return k[Math.floor(Math.random() * k.length)]; }
     const k = Object.keys(ACCESSORY_KINDS); return k[Math.floor(Math.random() * k.length)];
   }
-
-  function unlearnedSkills() {
-    return SKILL_IDS.filter((id) => !game.state.skills.learned.includes(id));
-  }
-
-  function dropSkillBook(x, z) {
-    const pool = unlearnedSkills().filter((id) => !(game.state.skillbooks[id] > 0));
-    if (!pool.length) {
-      // 모든 스킬을 배웠거나 이미 책이 남아 있으면 골드로 대체
-      addPickup('gold', x, z, 120);
-      return null;
-    }
-    const id = pool[Math.floor(Math.random() * pool.length)];
-    addPickup('book', x, z, id);
-    return id;
-  }
-  game.dropSkillBook = dropSkillBook;
 
   function addPickup(type, x, z, data) {
     game.pickups.push({ type, x: x + (Math.random() - 0.5) * 1.2, z: z + (Math.random() - 0.5) * 1.2, data, vx: (Math.random() - 0.5) * 2, vz: (Math.random() - 0.5) * 2, t: 0, alive: true });
@@ -1320,8 +1321,10 @@ export function createGame(THREE) {
   function companionMaxHp(cls, grade, lv) {
     return Math.round(cls.hp * (1 + (grade || 0) * 0.15) * (1 + ((lv || 1) - 1) * 0.08));
   }
+  // 동료 피해: 레벨당 성장 0.18 + 전체 계수 0.6 (동료가 주인공보다 세지 않게).
+  // 기본 공격·스킬 모두 이 함수를 거치므로 피해만 줄고, 체력·치유·도발은 그대로다.
   function companionAtk(cls, grade, lv) {
-    return cls.atk * (1 + ((lv || 1) - 1) * 0.22) * (1 + (grade || 0) * 0.20);
+    return cls.atk * (1 + ((lv || 1) - 1) * 0.18) * (1 + (grade || 0) * 0.20) * COMPANION_DMG_FACTOR;
   }
   game.companionMaxHp = companionMaxHp;
   game.companionAtk = companionAtk;
@@ -1927,7 +1930,7 @@ export function createGame(THREE) {
     }
   }
 
-  function fireZone(x, z, radius, dmg, duration) {
+  function fireZone(x, z, radius, dmg, duration, attacker) {
     const ring = flatRing(x, z, radius * 0.2, radius, 0xff6a2a, 0.5, 0.09);
     addFx(ring, duration, (fx, k, dt2) => {
       ring.material.opacity = 0.25 + Math.sin(game.time * 8) * 0.12;
@@ -1935,7 +1938,7 @@ export function createGame(THREE) {
       fx.tickT = (fx.tickT || 0) - (dt2 || 0);
       if (fx.tickT <= 0) {
         fx.tickT = 0.5;
-        for (const e of [...game.enemies]) if (e.alive && Math.hypot(e.x - x, e.z - z) <= radius + e.radius) game.dealDamage(e, dmg);
+        for (const e of [...game.enemies]) if (e.alive && Math.hypot(e.x - x, e.z - z) <= radius + e.radius) game.dealDamage(e, dmg, attacker ? { attacker } : undefined);
       }
     }, 'fire:zone');
     for (let i = 0; i < 7; i++) {
@@ -2768,17 +2771,32 @@ export function createGame(THREE) {
     });
   }
 
-  // ---------- 동료 대표 스킬 (스킬 개편) ----------
-  // 주인공은 스킬을 쓰지 않는다. 동료만 직업별 대표 스킬 하나를 전투 중에 자동 사용한다.
+  // ---------- 동료 고유 스킬 (동료 개편) ----------
+  // 주인공은 스킬을 쓰지 않는다. 동료마다 직업 풀에서 받은 고유 스킬 하나를 전투 중에 자동 사용한다.
   // 조건이 안 맞으면(사거리 안에 적이 없거나, 아군이 안 다쳤거나) 쿨다운을 태우지 않고 0.5초 뒤 다시 확인한다.
   // 성공하면 true, 조건이 안 맞아서 안 썼으면 false를 돌려준다.
   function castCompanionSkill(c, skillLv) {
-    const def = COMPANION_SKILLS[c.cls.id];
+    const def = COMPANION_SKILLS[c.data.skillId] || COMPANION_SKILLS[(COMPANION_SKILL_POOLS[c.cls.id] || [])[0]];
     if (!def) return false;
     const p = game.player;
     const atk = companionAtk(c.cls, c.data.grade, c.slotLv);
     const dmgOf = (mult) => atk * mult;
-    if (c.cls.id === 'tank') {
+    // 주변 AoE: 주인공이 인식한 몹만 맞힌다. 맞힌 수를 돌려준다.
+    const aoeHit = (radius, dmg, onHit) => {
+      let hit = 0;
+      for (const e of [...game.enemies]) {
+        if (!e.alive || !isHeroRecognized(e) || Math.hypot(e.x - c.x, e.z - c.z) > radius + e.radius) continue;
+        game.dealDamage(e, dmg, { heavy: true, elem: def.elem, canCrit: false, attacker: c });
+        if (onHit) onHit(e);
+        hit++;
+      }
+      return hit;
+    };
+    // 힐러 스킬 3종이 함께 쓰는 아군 목록
+    const allyList = () => [{ obj: 'player', hp: p.hp, max: game.derived().maxHp, x: p.x, z: p.z },
+      ...game.companions.filter((x) => x.hp > 0).map((x) => ({ obj: x, hp: x.hp, max: x.maxHp, x: x.x, z: x.z }))];
+    const skillText = (name, cls) => { if (game.ui) game.ui.floatText(c.x, groundY(c.x, c.z) + 2.0, c.z, name, `skill ${cls}`); };
+    if (def.id === 'shieldSlam') {
       // 방패 강타: 주변 적에게 피해 + 맞은 적을 3초간 탱커에게 붙잡아 둔다 (보스급 제외)
       // 주인공이 인식한 몹이 근처에 있을 때만 발동한다
       if (!nearestEnemyFrom(c.x, c.z, def.radius + 1.4, false, true)) return false;
@@ -2804,7 +2822,37 @@ export function createGame(THREE) {
       if (game.ui) game.ui.floatText(c.x, groundY(c.x, c.z) + 2.0, c.z, '방패 강타!', 'skill skill-tank');
       return true;
     }
-    if (c.cls.id === 'melee') {
+    if (def.id === 'tauntRoar') {
+      // 도발의 포효: 6m 안의 적을 전부 4초간 탱커에게 붙잡아 둔다 (보스급 제외) + 작은 피해
+      if (!nearestEnemyFrom(c.x, c.z, def.radius + 1.4, false, true)) return false;
+      const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
+      const hit = aoeHit(def.radius, dmg, (e) => { if (!e.def.boss) { e.targetType = 'tank'; e.state = 'chase'; e.tauntT = def.tauntT; } });
+      if (!hit) return false;
+      const ring = flatRing(c.x, c.z, 0.4, def.radius, 0x9fc4ff, 0.85, 0.12);
+      addFx(ring, 0.5, (fx, k) => { ring.scale.setScalar(0.5 + (1 - k) * 1.1); ring.material.opacity = k * 0.9; }, 'compskill:roar');
+      const flash = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), fxMat(0xbfe0ff, 0.9));
+      flash.position.set(c.x, groundY(c.x, c.z) + 0.9, c.z);
+      addFx(flash, 0.28, (fx, k) => { flash.scale.setScalar(1 + (1 - k) * 2.4); flash.material.opacity = k * 0.85; }, 'compskill:roarflash');
+      game.camShake = Math.max(game.camShake, 0.18);
+      skillText('도발의 포효!', 'skill-tank');
+      return true;
+    }
+    if (def.id === 'stunSlam') {
+      // 내려찍기: 주변 적에게 피해 + 1.5초 기절 (보스급은 피해만)
+      if (!nearestEnemyFrom(c.x, c.z, def.radius + 1.4, false, true)) return false;
+      const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
+      const hit = aoeHit(def.radius, dmg, (e) => {
+        if (!e.def.boss) { e.stunT = def.stunT; stunStars(e.x, groundY(e.x, e.z) + (e.headY || 1) + 0.4, e.z, def.stunT); }
+      });
+      if (!hit) return false;
+      const ring = flatRing(c.x, c.z, 0.4, def.radius, 0xffe066, 0.85, 0.12);
+      addFx(ring, 0.45, (fx, k) => { ring.scale.setScalar(0.5 + (1 - k) * 1.1); ring.material.opacity = k * 0.9; }, 'compskill:stunslam');
+      dustBurst(c.x, c.z, 0xffe066, 8);
+      game.camShake = Math.max(game.camShake, 0.22);
+      skillText('내려찍기!', 'skill-tank');
+      return true;
+    }
+    if (def.id === 'whirlwind') {
       // 회전 베기: 주변 모든 적에게 피해 (주인공이 인식한 몹만)
       if (!nearestEnemyFrom(c.x, c.z, def.radius + 1.4, false, true)) return false;
       const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
@@ -2829,7 +2877,58 @@ export function createGame(THREE) {
       if (game.ui) game.ui.floatText(c.x, groundY(c.x, c.z) + 2.0, c.z, '회전 베기!', 'skill skill-melee');
       return true;
     }
-    if (c.cls.id === 'mage') {
+    if (def.id === 'swordwave') {
+      // 검기 날리기: 일직선의 적을 베는 참격파 (꿰뚫는 투사체)
+      const t = nearestEnemyFrom(c.x, c.z, def.range, false, true);
+      if (!t) return false;
+      const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
+      spawnProjectile({
+        from: 'ally', x: c.x, y: 1.0, z: c.z, targetX: t.x, targetZ: t.z, speed: 16,
+        color: 0xbfe6ff, dmg, range: def.range, style: 'pierce', skill: null, pierce: 99, radius: 0.5, source: c,
+      });
+      skillText('검기 날리기!', 'skill-melee');
+      return true;
+    }
+    if (def.id === 'multishot') {
+      // 멀티샷: 가까운 적 3명에게 화살을 한 발씩 동시에 쏜다
+      const targets = [...game.enemies].filter((e) => e.alive && isHeroRecognized(e) && Math.hypot(e.x - c.x, e.z - c.z) <= def.range + e.radius)
+        .sort((a, b) => Math.hypot(a.x - c.x, a.z - c.z) - Math.hypot(b.x - c.x, b.z - c.z)).slice(0, def.shots);
+      if (!targets.length) return false;
+      const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
+      for (const t of targets) {
+        spawnProjectile({
+          from: 'ally', x: c.x, y: 1.0, z: c.z, targetX: t.x, targetZ: t.z, speed: 16,
+          color: 0xd6ffd6, dmg, range: def.range, style: 'arrow', radius: 0.4, source: c,
+        });
+      }
+      skillText('멀티샷!', 'skill-melee');
+      return true;
+    }
+    if (def.id === 'pierce') {
+      // 관통 사격: 고속 화살이 일직선의 적을 꿰뚫고 지나간다 (최대 5명)
+      const t = nearestEnemyFrom(c.x, c.z, def.range, false, true);
+      if (!t) return false;
+      const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
+      spawnProjectile({
+        from: 'ally', x: c.x, y: 1.0, z: c.z, targetX: t.x, targetZ: t.z, speed: 20,
+        color: 0xffffff, dmg, range: def.range, style: 'pierce', skill: null, pierce: 5, radius: 0.4, source: c,
+      });
+      skillText('관통 사격!', 'skill-melee');
+      return true;
+    }
+    if (def.id === 'stunStrike') {
+      // 스턴 강타: 가장 가까운 적에게 큰 피해 + 1.5초 기절 (보스급은 피해만)
+      const t = nearestEnemyFrom(c.x, c.z, def.range, false, true);
+      if (!t) return false;
+      const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
+      game.dealDamage(t, dmg, { heavy: true, elem: def.elem, canCrit: false, attacker: c });
+      if (!t.def.boss) { t.stunT = def.stunT; stunStars(t.x, groundY(t.x, t.z) + (t.headY || 1) + 0.4, t.z, def.stunT); }
+      hitBurst(t.x, t.z, 0xffe066);
+      game.camShake = Math.max(game.camShake, 0.2);
+      skillText('스턴 강타!', 'skill-melee');
+      return true;
+    }
+    if (def.id === 'fireball') {
       // 파이어볼: 가장 가까운 적에게 불덩이 발사 (맞으면 폭발) — 주인공이 인식한 몹만 노린다
       const t = nearestEnemyFrom(c.x, c.z, def.range, false, true);
       if (!t) return false;
@@ -2844,7 +2943,77 @@ export function createGame(THREE) {
       });
       return true;
     }
-    if (c.cls.id === 'healer') {
+    if (def.id === 'icebolt') {
+      // 아이스볼트: 얼음 화살 한 발 (둔화 없음 — 얼음 연출 + 피해만)
+      const t = nearestEnemyFrom(c.x, c.z, def.range, false, true);
+      if (!t) return false;
+      const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
+      const flash = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 6), fxMat(0x9fe8ff, 0.9));
+      flash.position.set(c.x, groundY(c.x, c.z) + 1.1, c.z);
+      addFx(flash, 0.25, (fx, k) => { flash.scale.setScalar(1 + (1 - k) * 2.2); flash.material.opacity = k * 0.85; }, 'compskill:icecast');
+      skillText('아이스볼트!', 'skill-mage');
+      spawnProjectile({
+        from: 'ally', x: c.x, y: 1.0, z: c.z, targetX: t.x, targetZ: t.z, speed: 16,
+        color: 0x9fe8ff, dmg, range: def.range, style: 'ice', skill: 'compIcebolt', radius: 0.4, source: c,
+      });
+      return true;
+    }
+    if (def.id === 'firewall') {
+      // 파이어월: 적 위치에 4초간 타오르는 불길 장판
+      const t = nearestEnemyFrom(c.x, c.z, def.range, false, true);
+      if (!t) return false;
+      const tick = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
+      fireZone(t.x, t.z, def.radius, tick, def.duration, c);
+      skillText('파이어월!', 'skill-mage');
+      return true;
+    }
+    if (def.id === 'blizzard') {
+      // 블리자드: 적 위치에 큰 눈보라 — 넓은 범위의 적에게 냉기 피해
+      const t = nearestEnemyFrom(c.x, c.z, def.range, false, true);
+      if (!t) return false;
+      const targets = [...game.enemies].filter((e) => e.alive && isHeroRecognized(e) && Math.hypot(e.x - t.x, e.z - t.z) <= def.radius + e.radius);
+      if (!targets.length) return false;
+      const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
+      const disk = new THREE.Mesh(new THREE.CircleGeometry(1, 26), new THREE.MeshBasicMaterial({ color: 0x9fe8ff, transparent: true, opacity: 0.72, depthWrite: false, side: THREE.DoubleSide }));
+      disk.rotation.x = -Math.PI / 2;
+      disk.position.set(t.x, groundY(t.x, t.z) + 0.11, t.z);
+      addFx(disk, 0.45, (fx, k) => { disk.scale.setScalar(def.radius * (0.35 + (1 - k) * 0.85)); disk.material.opacity = 0.7 * k; }, 'compskill:blizzard');
+      const ring = flatRing(t.x, t.z, 0.3, 1.0, 0xbfe6ff, 0.95, 0.12);
+      addFx(ring, 0.5, (fx, k) => { ring.scale.setScalar(1 + (1 - k) * def.radius * 1.6); ring.material.opacity = k * 0.9; }, 'compskill:blizzardring');
+      for (let i = 0; i < 8; i++) {
+        const m = new THREE.Mesh(new THREE.OctahedronGeometry(0.16, 0), fxMat(0xd6f4ff, 0.95));
+        const sx = t.x + (Math.random() - 0.5) * def.radius * 1.4;
+        const sz = t.z + (Math.random() - 0.5) * def.radius * 1.4;
+        const sgy = groundY(sx, sz);
+        m.position.set(sx, sgy + 2.2, sz);
+        addFx(m, 0.5, (fx, k) => { m.position.y = sgy + 0.1 + 2.1 * k; m.material.opacity = k; m.rotation.y += 0.3; }, 'compskill:blizzardshard');
+      }
+      for (const e of targets) game.dealDamage(e, dmg, { heavy: true, elem: def.elem, canCrit: false, attacker: c });
+      game.camShake = Math.max(game.camShake, 0.2);
+      skillText('블리자드!', 'skill-mage');
+      return true;
+    }
+    if (def.id === 'thunderbolt') {
+      // 썬더볼트: 벼락 한 방 — 가장 가까운 적에게 큰 피해
+      const t = nearestEnemyFrom(c.x, c.z, def.range, false, true);
+      if (!t) return false;
+      const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
+      const tgy = groundY(t.x, t.z);
+      const beam = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.22, 0.3, 3.2, 8, 1, true),
+        new THREE.MeshBasicMaterial({ color: 0xfff2a8, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
+      );
+      beam.position.set(t.x, tgy + 1.6, t.z);
+      addFx(beam, 0.35, (fx, k) => { beam.material.opacity = 0.85 * k; beam.scale.x = beam.scale.z = 1 + (1 - k) * 1.6; }, 'compskill:thunder');
+      const flash = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 6), fxMat(0xfff2a8, 0.95));
+      flash.position.set(t.x, tgy + 0.9, t.z);
+      addFx(flash, 0.3, (fx, k) => { flash.scale.setScalar(1 + (1 - k) * 3); flash.material.opacity = k; }, 'compskill:thunderflash');
+      game.dealDamage(t, dmg, { heavy: true, elem: def.elem, canCrit: false, attacker: c });
+      game.camShake = Math.max(game.camShake, 0.18);
+      skillText('썬더볼트!', 'skill-mage');
+      return true;
+    }
+    if (def.id === 'heal') {
       // 치유의 빛: 전투 중에만 쓴다 (12m 안에 주인공이 인식한 적이 있을 때). 아군이 다쳤을 때만 발동.
       if (!nearestEnemyFrom(c.x, c.z, 12, false, true)) return false;
       const d = game.derived();
@@ -2874,6 +3043,47 @@ export function createGame(THREE) {
         game.state.cleanseT = 4;
       }
       if (game.ui) game.ui.floatText(c.x, groundY(c.x, c.z) + 2.1, c.z, '치유의 빛!', 'skill skill-heal');
+      return true;
+    }
+    if (def.id === 'groupHeal') {
+      // 단체 힐: 전투 중에만 쓴다 (12m 안에 주인공이 인식한 적이 있을 때). 다친 아군이 있을 때 파티 전체 회복.
+      if (!nearestEnemyFrom(c.x, c.z, 12, false, true)) return false;
+      const hurt = allyList().filter((a) => a.hp / a.max < 0.95);
+      if (!hurt.length) return false;
+      const pct = def.healPct + def.healPctPerLv * (skillLv - 1);
+      const flat = def.healFlat + def.healFlatPerLv * (skillLv - 1);
+      let healed = 0;
+      for (const a of hurt) {
+        const h = healTarget(a.obj, pct, flat);
+        healed += h;
+        if (h > 0) skillHealFx(a.x, a.z);
+        if (h > 0 && game.ui) game.ui.damageNumber(a.x, groundY(a.x, a.z) + 1.8, a.z, `+${h}`, 'heal');
+      }
+      if (!healed) return false;
+      if (game.ui) game.ui.floatText(c.x, groundY(c.x, c.z) + 2.1, c.z, '단체 힐!', 'skill skill-heal');
+      return true;
+    }
+    if (def.id === 'cleanse') {
+      // 독 해제: 전투 중에만 쓴다. 주인공이 독에 걸렸거나 아군이 다쳤을 때 쓴다.
+      if (!nearestEnemyFrom(c.x, c.z, 12, false, true)) return false;
+      const poisoned = (p.poisonT || 0) > 0;
+      const hurt = allyList().filter((a) => a.hp / a.max < 0.95);
+      if (!poisoned && !hurt.length) return false;
+      const pct = def.healPct + def.healPctPerLv * (skillLv - 1);
+      const flat = def.healFlat + def.healFlatPerLv * (skillLv - 1);
+      let healed = 0;
+      for (const a of hurt) {
+        const h = healTarget(a.obj, pct, flat);
+        healed += h;
+        if (h > 0) skillHealFx(a.x, a.z);
+        if (h > 0 && game.ui) game.ui.damageNumber(a.x, groundY(a.x, a.z) + 1.8, a.z, `+${h}`, 'heal');
+      }
+      if (poisoned) {
+        p.poisonT = 0; p.poisonStacks = 0;
+        game.state.cleanseT = 4;
+      }
+      if (!healed && !poisoned) return false;
+      if (game.ui) game.ui.floatText(c.x, groundY(c.x, c.z) + 2.1, c.z, '독 해제!', 'skill skill-heal');
       return true;
     }
     return false;
@@ -2955,12 +3165,12 @@ export function createGame(THREE) {
       c.skillCheckT = (c.skillCheckT || 0) - dt;
       const scale = 1 + ((c.slotLv || 1) - 1) * 0.22;
       const atk = companionAtk(c.cls, c.data.grade, c.slotLv);
-      // 동료 대표 스킬 (자동 사용, 전투 중에만 — castCompanionSkill이 조건을 본다)
+      // 동료 고유 스킬 (자동 사용, 전투 중에만 — castCompanionSkill이 조건을 본다)
       // skillCd는 진짜 쿨다운만 담는다. 조건이 안 맞아 못 쓰면 재확인 타이머만 따로 돈다
       // (예전엔 재확인 0.5초를 skillCd에 넣어 하단 바에 "1"이 영원히 떴다).
       if (c.skillCd <= 0 && c.skillCheckT <= 0) {
         const lv = game.companionSkillLevel(c.data);
-        const def = COMPANION_SKILLS[c.cls.id];
+        const def = COMPANION_SKILLS[c.data.skillId] || COMPANION_SKILLS[(COMPANION_SKILL_POOLS[c.cls.id] || [])[0]];
         if (def && castCompanionSkill(c, lv)) c.skillCd = compSkillCd(def, lv);
         else c.skillCheckT = 0.5; // 조건이 안 맞으면 쿨다운을 태우지 않고 0.5초 뒤 다시 확인
       }
@@ -3020,24 +3230,20 @@ export function createGame(THREE) {
     return best;
   }
 
-  // ---------- 스킬북 보너스 지급 규칙 (마이그레이션·스킬북 사용 공통, 1가지) ----------
-  // 1) 그 직업 동료가 동행 중이면 동행 중인 전원에게 +n
-  // 2) 동행 중이 없으면 보유한 동료 중 첫 번째에게 +n
-  // 3) 그 직업 동료가 아예 없으면 pendingBonus에 쌓아두고, 나중에 그 직업 동료를 뽑으면 시작 보너스로 준다
+  // ---------- 스킬 보너스 지급 규칙 (마이그레이션·스킬북 사용 공통, 1가지) ----------
+  // 스킬북은 같은 스킬을 쓰는 동료에게만 보너스를 준다.
+  // 1) 그 스킬을 쓰는 동료가 있으면 전원에게 +n (동행·대기 가리지 않는다)
+  // 2) 그 스킬을 쓰는 동료가 아예 없으면 pendingBonus[스킬]에 쌓아두고,
+  //    나중에 그 스킬을 가진 동료를 뽑으면 시작 보너스로 준다
   // 보너스를 받은 동료 목록을 돌려준다 (빈 배열 = 동료가 없어서 pendingBonus에 쌓였다는 뜻).
-  function grantClassSkillBonus(s, cls, n = 1) {
-    const targets = s.companions.filter((c) => c.cls === cls && s.party.includes(c.id));
+  function grantSkillBonus(s, skillId, n = 1) {
+    const targets = s.companions.filter((c) => c.skillId === skillId);
     if (targets.length) {
       for (const c of targets) c.skillBonus = (c.skillBonus || 0) + n;
       return targets;
     }
-    const first = s.companions.find((c) => c.cls === cls);
-    if (first) {
-      first.skillBonus = (first.skillBonus || 0) + n;
-      return [first];
-    }
     if (!s.skills.pendingBonus) s.skills.pendingBonus = {};
-    s.skills.pendingBonus[cls] = (s.skills.pendingBonus[cls] || 0) + n;
+    s.skills.pendingBonus[skillId] = (s.skills.pendingBonus[skillId] || 0) + n;
     return [];
   }
 
@@ -3047,10 +3253,10 @@ export function createGame(THREE) {
     if (!cData) return 1;
     return Math.min(COMPANION_SKILL_MAX_LEVEL, (cData.grade || 0) + 1 + (cData.skillBonus || 0));
   };
-  game.companionSkillDef = function (clsId) { return COMPANION_SKILLS[clsId] || null; };
+  game.companionSkillDef = function (skillId) { return COMPANION_SKILLS[skillId] || null; };
   game.companionSkillState = function () {
     return (game.companions || []).map((c) => {
-      const def = COMPANION_SKILLS[c.cls.id];
+      const def = COMPANION_SKILLS[c.data.skillId] || COMPANION_SKILLS[(COMPANION_SKILL_POOLS[c.cls.id] || [])[0]];
       const lv = game.companionSkillLevel(c.data);
       return {
         id: c.data.id, name: c.data.name, cls: c.cls.id,
@@ -3074,10 +3280,11 @@ export function createGame(THREE) {
     };
   };
 
-  // 스킬북 사용 (스킬 개편): 주인공은 스킬을 배우지 않는다.
-  // 스킬북을 쓰면 해당 직업 동료의 대표 스킬 보너스가 +1 된다.
+  // 스킬북 사용 (동료 개편): 주인공은 스킬을 배우지 않는다.
+  // 스킬북을 쓰면 같은 스킬을 쓰는 동료의 보너스가 +1 된다.
   // 이미 배운 스킬의 책을 다시 써도 보너스는 적용된다 (책은 소모된다).
   // 배운 스킬 목록(learned)은 기록으로 남기고 삭제하지 않는다.
+  // 스킬북은 더 이상 보스에게서 떨어지지 않는다 (이미 가진 책만 쓸 수 있다).
   game.learnSkill = function (id) {
     const def = SKILLS[id];
     if (!def) return { ok: false, reason: 'unknown' };
@@ -3086,15 +3293,15 @@ export function createGame(THREE) {
     if (!(game.state.skillbooks[id] > 0)) delete game.state.skillbooks[id];
     const s = game.state.skills;
     if (!s.learned.includes(id)) s.learned.push(id);
-    const cls = SKILL_BOOK_CLASS[id];
-    const targets = cls ? grantClassSkillBonus(game.state, cls, 1) : [];
+    const skillId = SKILL_BOOK_SKILL[id];
+    const targets = skillId ? grantSkillBonus(game.state, skillId, 1) : [];
     game.save();
     if (game.ui) { game.ui.markDirty(true); game.ui.renderSkillBar && game.ui.renderSkillBar(); }
-    return { ok: true, cls: cls || null, granted: targets.map((c) => c.name), pending: !!cls && targets.length === 0 };
+    return { ok: true, skillId: skillId || null, granted: targets.map((c) => c.name), pending: !!skillId && targets.length === 0 };
   };
 
   // 주인공 스킬 시전은 스킬 개편으로 제거됐다 (주인공은 무기 공격만 한다).
-  // 스킬은 동료 대표 스킬로만 나간다 (castCompanionSkill).
+  // 스킬은 동료 고유 스킬로만 나간다 (castCompanionSkill).
   // 예전 디버그 API가 깨지지 않게 실패 결과만 돌려준다.
   game.castSkill = function () { return { ok: false, reason: 'companion-only' }; };
   game.canCastSkill = function () { return { ok: false, reason: 'companion-only' }; };
@@ -3216,7 +3423,7 @@ export function createGame(THREE) {
       const id = it.data;
       game.state.skillbooks[id] = (game.state.skillbooks[id] || 0) + 1;
       const def = SKILLS[id];
-      if (game.ui) game.ui.toast(`스킬북 획득: ${def ? def.name : id} · 가방 → 스킬북에서 배울 수 있어요`, 'gold');
+      if (game.ui) game.ui.toast(`스킬북 획득: ${def ? def.name : id} · 가방에서 쓸 수 있어요`, 'gold');
     }
     game.save();
     if (game.ui) game.ui.markDirty();
@@ -3778,40 +3985,33 @@ export function createGame(THREE) {
     // 같은 이름 + 같은 직업이 이미 있으면 새로 만들지 않고 업그레이드 (최대 신화 5등급)
     const dup = s.companions.find((x) => x.name === name && x.cls === cls);
     if (dup) {
+      // 중복 뽑기 = 스킬 레벨 상승 (동료 개편).
+      // 등급이 5 미만이면 등급 +1 AND 스킬 보너스 +1 (스킬 레벨이 두 단계 오른다).
+      // 이미 신화(5등급)면 등급은 그대로, 스킬 보너스만 +1.
+      // 스킬 레벨 = 등급 + 1 + 스킬 보너스 (최대 Lv.10).
+      // 이미 완전히 최대(신화 + 스킬 Lv.10)면 더 줄 게 없어서 위로금 300골드를 준다.
+      const wasMaxed = (dup.grade || 0) >= 5 && game.companionSkillLevel(dup) >= COMPANION_SKILL_MAX_LEVEL;
       let upgraded;
-      let slotGained = false;
-      let slotIndex = -1;
       if ((dup.grade || 0) < 5) { dup.grade = (dup.grade || 0) + 1; upgraded = 'grade'; }
-      else {
-        // 신화 동료의 중복은 +5 레벨. 레벨은 슬롯에 사므로, 그 동료가 동행 중일 때만
-        // 그 슬롯이 +5 된다. 대기 중인 동료는 받을 슬롯이 없어 레벨이 오르지 않는다.
-        slotIndex = s.party.indexOf(dup.id);
-        if (slotIndex >= 0) {
-          s.slotLv[slotIndex] = (s.slotLv[slotIndex] || 1) + 5;
-          const live = (game.companions || []).find((x) => x.data && x.data.id === dup.id);
-          if (live) {
-            const old = live.maxHp;
-            live.maxHp = companionMaxHp(live.cls, live.data.grade, s.slotLv[slotIndex]);
-            live.slotLv = s.slotLv[slotIndex];
-            live.hp = Math.min(live.maxHp, live.hp + Math.max(0, live.maxHp - old));
-          }
-          slotGained = true;
-        }
-        dup.lv = (dup.lv || 1) + 5; // 기록에만 남는다 (전투·표시에는 슬롯 레벨을 쓴다)
-        upgraded = 'level';
-      }
+      else upgraded = 'skill';
+      dup.skillBonus = (dup.skillBonus || 0) + 1;
+      const skillLv = game.companionSkillLevel(dup);
+      let consolation = 0;
+      if (wasMaxed) { consolation = 300; s.gold += consolation; }
       game.save();
       if (game.player && s.party.includes(dup.id)) refreshCompanions();
-      return { ok: true, upgraded, companion: dup, cls: COMPANION_CLASSES[cls], grade: dup.grade, slotGained, slotIndex };
+      return { ok: true, upgraded, companion: dup, cls: COMPANION_CLASSES[cls], grade: dup.grade, skillLv, consolation };
     }
-    // 새 동료는 항상 일반(0등급)으로 시작한다.
-    // 그 직업 스킬북 보너스가 쌓여 있으면(pendingBonus) 시작 보너스로 가져간다.
-    const pending = game.state.skills.pendingBonus[cls] || 0;
-    if (pending > 0) delete game.state.skills.pendingBonus[cls];
-    const c = { id: 'c' + Date.now() + Math.floor(Math.random() * 999), name, cls, grade: 0, lv: 1, xp: 0, skillBonus: pending };
+    // 새 동료는 항상 일반(0등급)으로 시작한다. 직업 풀에서 고유 스킬을 하나 랜덤으로 받는다.
+    // 그 스킬의 스킬북 보너스가 쌓여 있으면(pendingBonus) 시작 보너스로 가져간다.
+    const pool = COMPANION_SKILL_POOLS[cls] || [];
+    const skillId = pool.length ? pool[Math.floor(Math.random() * pool.length)] : 'shieldSlam';
+    const pending = game.state.skills.pendingBonus[skillId] || 0;
+    if (pending > 0) delete game.state.skills.pendingBonus[skillId];
+    const c = { id: 'c' + Date.now() + Math.floor(Math.random() * 999), name, cls, grade: 0, lv: 1, xp: 0, skillBonus: pending, skillId };
     s.companions.push(c);
     game.save();
-    return { ok: true, companion: c, cls: COMPANION_CLASSES[cls], grade: 0 };
+    return { ok: true, companion: c, cls: COMPANION_CLASSES[cls], grade: 0, skillId };
   };
 
   game.toggleParty = function (id) {
