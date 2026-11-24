@@ -666,15 +666,23 @@ export function createGame(THREE) {
     return game.bossRemain(zoneId, type) <= 0;
   }
   // 구역의 모든 보스(기본 3종 + 추가 보스) 정의 목록 — 타이머/묘비/리스폰 공용
+  // 보스 좌표는 구역-로컬 좌표이므로, 모든 사용처(묘비·리스폰·지도 마커)가
+  // 월드 좌표로 쓰도록 여기서 한 번만 변환한다 (spawnZoneMobs와 같은 worldPos).
   function allBossDefs(zone) {
+    const midP = worldPos(zone, zone.mid.x, zone.mid.z);
+    const bossP = worldPos(zone, zone.boss.x, zone.boss.z);
     const list = [
-      { type: 'mid', def: zone.mobs.mid, x: zone.mid.x, z: zone.mid.z, label: BOSS_LABEL.mid, name: zone.mobs.mid.name },
-      { type: 'boss', def: zone.mobs.boss, x: zone.boss.x, z: zone.boss.z, label: BOSS_LABEL.boss, name: zone.mobs.boss.name },
+      { type: 'mid', def: zone.mobs.mid, x: midP.x, z: midP.z, label: BOSS_LABEL.mid, name: zone.mobs.mid.name },
+      { type: 'boss', def: zone.mobs.boss, x: bossP.x, z: bossP.z, label: BOSS_LABEL.boss, name: zone.mobs.boss.name },
     ];
-    if (zone.field) list.push({ type: 'field', def: zone.mobs.field, x: zone.field.x, z: zone.field.z, label: BOSS_LABEL.field, name: zone.mobs.field.name });
+    if (zone.field) {
+      const fP = worldPos(zone, zone.field.x, zone.field.z);
+      list.push({ type: 'field', def: zone.mobs.field, x: fP.x, z: fP.z, label: BOSS_LABEL.field, name: zone.mobs.field.name });
+    }
     for (const ex of (zone.extraBosses || [])) {
       const defs = ex.defs || [ex.def];
-      for (const d of defs) list.push({ type: ex.type, def: d, x: ex.x, z: ex.z, label: ex.label || BOSS_LABEL[ex.type] || '보스', name: ex.label || d.name });
+      const exP = worldPos(zone, ex.x, ex.z);
+      for (const d of defs) list.push({ type: ex.type, def: d, x: exP.x, z: exP.z, label: ex.label || BOSS_LABEL[ex.type] || '보스', name: ex.label || d.name });
     }
     return list;
   }
