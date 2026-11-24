@@ -33,21 +33,32 @@ export function worldPos(zone, lx, lz) {
 export const PATH_CENTERS = ZONES.filter((z) => z.map).map((z) => ({ x: z.map.cx, z: z.map.cz }));
 const PATH_SEGS = [];
 for (let i = 0; i < PATH_CENTERS.length - 1; i++) PATH_SEGS.push([PATH_CENTERS[i], PATH_CENTERS[i + 1]]);
-// 평탄화 지점: 각 구역의 스폰·NPC·보스·미드·필드·추가보스·게이트 (월드 좌표)
+// 평탄화 지점: 각 구역의 스폰·NPC·보스·미드·필드·추가보스·게이트 + 지구 귀환 게이트 + 숨은 상자
+// (월드 좌표 + 평탄 반경). 스폰·NPC는 작게(3m), 보스 아레나는 넓게(4.5m), 상자는 1.5m —
+// 그 밖은 지형이 그대로 살아 있다.
 const FLAT_POINTS = [];
 for (const zn of ZONES) {
   if (!zn.map) continue;
-  const pts = [zn.spawn, zn.npc, zn.boss, zn.mid, zn.field];
-  for (const p of pts) if (p) FLAT_POINTS.push(worldPos(zn, p.x, p.z));
-  for (const ex of (zn.extraBosses || [])) FLAT_POINTS.push({ x: zn.map.cx + ex.x, z: zn.map.cz + ex.z });
-  if (zn.gate) FLAT_POINTS.push({ x: zn.gate.x, z: zn.gate.z });
+  const add = (p, r) => { if (p) FLAT_POINTS.push({ ...worldPos(zn, p.x, p.z), r }); };
+  add(zn.spawn, 3);
+  add(zn.npc, 3);
+  add(zn.boss, 4.5);
+  add(zn.mid, 4.5);
+  add(zn.field, 4.5);
+  for (const ex of (zn.extraBosses || [])) FLAT_POINTS.push({ x: zn.map.cx + ex.x, z: zn.map.cz + ex.z, r: 4.5 });
+  if (zn.gate) FLAT_POINTS.push({ x: zn.gate.x, z: zn.gate.z, r: 3.5 });
+  for (const ch of (zn.chests || [])) FLAT_POINTS.push({ ...worldPos(zn, ch.x, ch.z), r: 1.5 });
 }
+FLAT_POINTS.push({ x: EARTH_GATE.x, z: EARTH_GATE.z, r: 4 });
 // 한강: 지도 가로를 흐르는 강 (구역 4 중심선 z=-96 부근, 얕은 수로)
 const RIVER_Z = -96;
 
 // ---------- 지형 높이 ----------
-// 결정적 지형 높이: 월드 좌표 기준, 서 있는 구역마다 다른 완만한 언덕/웅덩이. 진폭 약 1.2~2.0.
-// 스폰·NPC·보스/필드·메인 길목·게이트는 평탄하게 만든다. 한강 라인(z=-96)은 얕은 수로.
+// 결정적 지형 높이: 월드 좌표 기준, 서 있는 구역마다 다른 언덕/웅덩이.
+// 작은 파도(h1·h2)에 지도 규모의 큰 언덕·웅덩이(h3·h4)를 더해 산을 오르고 구덩이로
+// 내려가는 게 확실히 느껴진다. 진폭은 대략 ±3~4, 경사는 걷기에 무리 없는 수준.
+// 스폰·NPC·보스 아레나·게이트만 국소적으로 평탄하게 하고, 메인 길목 평탄화는 없앴다
+// (길도 언덕을 타고 오른다). 한강 라인(z=-96)은 얕은 수로.
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 const smooth = (t) => t * t * (3 - 2 * t);
 function distToSeg(px, pz, ax, az, bx, bz) {
@@ -58,26 +69,46 @@ function distToSeg(px, pz, ax, az, bx, bz) {
   return Math.hypot(px - (ax + dx * t), pz - (az + dz * t));
 }
 export function groundHeight(x, z) {
-  const zId = districtAt(x, z).id;
+  const d0 = districtAt(x, z);
+  const cx = d0.map.cx, cz = d0.map.cz;
+  // 구역 경계 단차 제거: 경계 10m 안에서 이웃 구역 높이와 섞는다
+  // (잡음 위상이 구역마다 달라서 그냥 두면 경계에서 최대 4m 단차가 생긴다.
+  //  모서리에서는 대각선 구역까지 섞어야 네 방향에서 모두 연속이 된다)
+  const px = (x - cx) / 96, pz = (z - cz) / 96; // -0.5..0.5 (구역 안 상대 위치)
+  // 경계에서는 양쪽 구역 높이의 평균이 되어야 연속이다 — 그래서 가중치는 경계에서 0.5까지만 오른다
+  const wx = 0.5 * smooth(clamp01((Math.abs(px) - 0.3958) / 0.1042));
+  const wz = 0.5 * smooth(clamp01((Math.abs(pz) - 0.3958) / 0.1042));
+  let h = rawHeightFor(x, z, d0.id);
+  if (wx > 0 || wz > 0) {
+    const hX = wx > 0 ? rawHeightFor(x, z, districtAt(cx + Math.sign(px) * 96, z).id) : h;
+    const hZ = wz > 0 ? rawHeightFor(x, z, districtAt(x, cz + Math.sign(pz) * 96).id) : h;
+    const hC = (wx > 0 && wz > 0) ? rawHeightFor(x, z, districtAt(cx + Math.sign(px) * 96, cz + Math.sign(pz) * 96).id) : h;
+    h = (1 - wx) * (1 - wz) * h + wx * (1 - wz) * hX + (1 - wx) * wz * hZ + wx * wz * hC;
+  }
+  // 평탄화: 모든 지점이 0을 향하므로 겹쳐도 서로 안 싸운다
+  // (스폰·NPC는 4m 간격, 보스 아레나끼리도 겹침 — 앵커가 다르면 단차가 생긴다)
+  let flat = 1;
+  for (const fp of FLAT_POINTS) {
+    const d = Math.hypot(x - fp.x, z - fp.z);
+    flat = Math.min(flat, smooth(clamp01((d - fp.r) / 7)));
+  }
+  h *= flat;
+  // 한강 수로: 평탄한 곳(보스 아레나·게이트)은 강 속 섬처럼 그대로 둔다
+  const dRiver = Math.abs(z - RIVER_Z);
+  const rk = (1 - smooth(clamp01((dRiver - 4) / 6))) * flat;
+  return h * (1 - rk) + (-0.7) * rk;
+}
+
+// 평탄화·수로 전 높이 (파도 + 큰 언덕·웅덩이) — zId를 지정하면 해당 구역 위상으로 잰다
+function rawHeightFor(x, z, zId) {
   const a = zId * 1.7 + 0.6;
   const b = zId * 2.3 + 1.9;
   const h1 = Math.sin(x * 0.09 + a) * Math.cos(z * 0.075 + b);
   const h2 = Math.sin(x * 0.045 - b * 0.7 + z * 0.06 + a * 0.5) * Math.cos(z * 0.05 - a);
-  let h = h1 * 0.9 + h2 * 0.7;
-  // 평탄화 지점 (스폰·NPC·보스·게이트 등)
-  for (const fp of FLAT_POINTS) {
-    const d = Math.hypot(x - fp.x, z - fp.z);
-    h *= smooth(clamp01((d - 3.5) / 4.5));
-  }
-  // 메인 길목: 구역 중심을 잇는 길에서 3.2 이내를 평탄하게
-  let dPath = Infinity;
-  for (const [p0, p1] of PATH_SEGS) dPath = Math.min(dPath, distToSeg(x, z, p0.x, p0.z, p1.x, p1.z));
-  h *= smooth(clamp01((dPath - 3.2) / 3.5));
-  // 한강 수로: 강 라인을 따라 얕게 팬다
-  const dRiver = Math.abs(z - RIVER_Z);
-  const rk = 1 - smooth(clamp01((dRiver - 4) / 6));
-  h = h * (1 - rk) + (-0.7) * rk;
-  return h;
+  // 큰 언덕·웅덩이 (파장 200m 안팎 — 구역을 가로지르는 오르막·내리막)
+  const h3 = Math.sin(x * 0.028 + a * 1.3) * Math.cos(z * 0.034 + b * 0.8);
+  const h4 = Math.sin((x + z) * 0.016 + b) * Math.cos((x - z) * 0.02 + a);
+  return h1 * 1.35 + h2 * 1.05 + h3 * 1.5 + h4 * 1.1;
 }
 
 function mat(THREE, color, opts = {}) {
@@ -308,21 +339,26 @@ function buildWeaponMesh(THREE, fam, M) {
       add(cyl(THREE, 0.03, 0.03, 0.13, 0x6a4a22), 0, -0.06, 0);
       add(box(THREE, 0.14, 0.04, 0.05, 0xdfe7f2), 0, -0.14, 0);
       add(box(THREE, 0.07, 0.2, 0.025, 0xdfe7f2), 0, -0.25, 0);
+      add(box(THREE, 0.02, 0.18, 0.028, 0xffffff), 0, -0.25, 0); // 날 선 하이라이트
       tipDown(cone(THREE, 0.035, 0.1, 0xdfe7f2, 4), -0.4);
+      add(sphere(THREE, 0.035, 0xdfe7f2, 6), 0, 0.02, 0); // 자루 끝 장식구
       break;
     }
     case 'axe': {
       add(cyl(THREE, 0.03, 0.035, 0.42, 0x8a6a3a), 0, -0.26, 0);
       add(box(THREE, 0.3, 0.2, 0.05, 0xdfe7f2), 0, -0.48, 0);
       add(box(THREE, 0.1, 0.12, 0.05, 0xdfe7f2), 0, -0.48, 0.08);
+      add(box(THREE, 0.22, 0.14, 0.04, 0xdfe7f2), 0, -0.48, -0.06); // 뒷날
+      tipDown(cone(THREE, 0.04, 0.12, 0xdfe7f2, 4), -0.64); // 머리 위 뾰족한 돌기
       break;
     }
     case 'mace': {
       add(cyl(THREE, 0.03, 0.035, 0.4, 0x8a6a3a), 0, -0.25, 0);
+      add(box(THREE, 0.07, 0.05, 0.07, 0xdfe7f2), 0, -0.32, 0); // 손잡이 띠
       add(sphere(THREE, 0.11, 0xdfe7f2, 8), 0, -0.47, 0);
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 6; i++) {
         const s = cone(THREE, 0.03, 0.08, 0xdfe7f2, 4);
-        const a = (i / 4) * Math.PI * 2;
+        const a = (i / 6) * Math.PI * 2;
         s.position.set(Math.cos(a) * 0.11, -0.47, Math.sin(a) * 0.11);
         s.rotation.z = -Math.cos(a) * 1.2; s.rotation.x = Math.sin(a) * 1.2;
         g.add(s);
@@ -334,7 +370,10 @@ function buildWeaponMesh(THREE, fam, M) {
       limbT.position.set(0, 0.2, -0.07); limbT.rotation.x = -0.4; g.add(limbT);
       const limbB = box(THREE, 0.04, 0.4, 0.04, 0x8a6a3a);
       limbB.position.set(0, -0.2, -0.07); limbB.rotation.x = 0.4; g.add(limbB);
+      add(box(THREE, 0.05, 0.05, 0.05, 0xdfe7f2), 0, 0.38, -0.14); // 활 끝 장식
+      add(box(THREE, 0.05, 0.05, 0.05, 0xdfe7f2), 0, -0.38, -0.14);
       add(box(THREE, 0.015, 0.72, 0.015, 0xf2ead0), 0, 0, -0.22);
+      add(box(THREE, 0.06, 0.12, 0.06, 0x6a4a22), 0, 0, 0); // 손잡이 감개
       const shaft = cyl(THREE, 0.015, 0.015, 0.5, 0xdcc39a, 5);
       shaft.rotation.x = Math.PI / 2; add(shaft, 0, 0, 0.12);
       const tip = cone(THREE, 0.03, 0.09, 0xe9f2ff, 4);
@@ -344,16 +383,25 @@ function buildWeaponMesh(THREE, fam, M) {
     case 'crossbow': {
       add(box(THREE, 0.07, 0.07, 0.42, 0x8a6a3a), 0, -0.05, 0.05);
       add(box(THREE, 0.44, 0.05, 0.05, 0xdfe7f2), 0, -0.02, 0.22);
+      add(box(THREE, 0.05, 0.08, 0.05, 0xdfe7f2), 0, 0.04, 0.05); // 조준기
+      const crank = cyl(THREE, 0.02, 0.02, 0.12, 0x6a4a22, 5);
+      crank.rotation.z = Math.PI / 2; add(crank, 0, -0.05, -0.16); // 감는 손잡이
       const bolt = cyl(THREE, 0.015, 0.015, 0.34, 0xd7e2f0, 5);
       bolt.rotation.x = Math.PI / 2; add(bolt, 0, 0.02, 0.12);
       break;
     }
     case 'staff': {
       add(cyl(THREE, 0.028, 0.035, 0.85, 0x8a6a3a), 0, -0.05, 0);
-      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), M.grade);
+      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), M.grade);
       add(orb, 0, 0.48, 0);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.02, 6, 14), M.metal);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.02, 6, 14), M.metal);
       ring.rotation.x = Math.PI / 2; add(ring, 0, 0.48, 0);
+      const ring2 = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.015, 6, 12), M.metal);
+      ring2.rotation.y = Math.PI / 2; add(ring2, 0, 0.48, 0);
+      for (const s of [-1, 1]) { // 궤도를 도는 작은 룬
+        const rune = new THREE.Mesh(new THREE.OctahedronGeometry(0.035, 0), M.grade);
+        add(rune, 0.22 * s, 0.48, 0);
+      }
       tipDown(cone(THREE, 0.04, 0.1, 0xdfe7f2, 4), -0.52);
       break;
     }
@@ -361,7 +409,9 @@ function buildWeaponMesh(THREE, fam, M) {
       const cover = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.06, 0.42), M.grade);
       add(cover, 0, -0.12, 0);
       add(box(THREE, 0.27, 0.045, 0.37, 0xf7f0d8), 0, -0.1, 0);
-      const rune = new THREE.Mesh(new THREE.OctahedronGeometry(0.05, 0), M.grade);
+      add(box(THREE, 0.34, 0.05, 0.06, 0x6a4a22), 0, -0.12, -0.19); // 책등
+      add(box(THREE, 0.05, 0.02, 0.14, 0xc0392b), 0.1, -0.1, 0.24); // 책갈피 리본
+      const rune = new THREE.Mesh(new THREE.OctahedronGeometry(0.07, 0), M.grade);
       add(rune, 0, 0.22, 0);
       break;
     }
@@ -370,9 +420,11 @@ function buildWeaponMesh(THREE, fam, M) {
       add(cyl(THREE, 0.03, 0.03, 0.14, 0x6a4a22), 0, -0.07, 0);
       add(box(THREE, 0.2, 0.045, 0.055, 0xdfe7f2), 0, -0.15, 0);
       add(box(THREE, 0.085, 0.28, 0.028, 0xdfe7f2), 0, -0.31, 0);
+      add(box(THREE, 0.02, 0.24, 0.032, 0xffffff), 0, -0.31, 0); // 검신 홈 하이라이트
       tipDown(cone(THREE, 0.042, 0.12, 0xdfe7f2, 4), -0.5);
       const gem = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 5), M.grade);
       add(gem, 0, -0.15, 0.045);
+      add(sphere(THREE, 0.04, 0xdfe7f2, 6), 0, 0.02, 0); // 자루 끝 장식구
       break;
     }
   }
@@ -410,13 +462,18 @@ export function makeHumanoid3D(THREE, opts = {}) {
   const g = new THREE.Group();
   g.add(blobShadow(THREE, 0.42));
 
-  // 다리 (고관절 y=0.55에서 회전)
+  // 다리 (고관절 y=0.55에서 회전) + 부츠
   const legGeo = new THREE.BoxGeometry(0.16, 0.5, 0.18);
   legGeo.translate(0, -0.25, 0);
+  const bootGeo = new THREE.BoxGeometry(0.18, 0.1, 0.26);
   const legL = new THREE.Group(); legL.position.set(-0.11 * bulk, 0.55, 0);
-  legL.add(new THREE.Mesh(legGeo, pantsM)); g.add(legL);
+  legL.add(new THREE.Mesh(legGeo, pantsM));
+  const bootL = new THREE.Mesh(bootGeo, darkM); bootL.position.set(0, -0.5, 0.03); legL.add(bootL);
+  g.add(legL);
   const legR = new THREE.Group(); legR.position.set(0.11 * bulk, 0.55, 0);
-  legR.add(new THREE.Mesh(legGeo, pantsM)); g.add(legR);
+  legR.add(new THREE.Mesh(legGeo, pantsM));
+  const bootR = new THREE.Mesh(bootGeo, darkM); bootR.position.set(0, -0.5, 0.03); legR.add(bootR);
+  g.add(legR);
   if (opts.robe || (av && av.skirt)) {
     const skirt = cone(THREE, 0.34 * bulk, 0.42, uniform, 8);
     skirt.position.y = 0.62; g.add(skirt);
@@ -427,12 +484,22 @@ export function makeHumanoid3D(THREE, opts = {}) {
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.55, 0.3), uniM);
   torso.scale.x = bulk;
   torso.position.y = 0.85; body.add(torso);
+  // 가슴 갑주 (금속 판) + 벨트 버클 + 망토 밑단
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.34, 0.05), metalM);
+  plate.scale.x = bulk;
+  plate.position.set(0, 0.9, 0.16); body.add(plate);
   const belt = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.08, 0.32), trimCol ? mat(THREE, trimCol) : gradeM);
   belt.scale.x = bulk;
   belt.position.y = 0.6; body.add(belt);
+  const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.04), metalM);
+  buckle.position.set(0, 0.6, 0.17); body.add(buckle);
   const cape = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.72, 0.05), capeM);
   cape.scale.x = bulk;
   cape.position.set(0, 0.82, -0.19); body.add(cape);
+  const capeDark = mat(THREE, new THREE.Color(capeCol).multiplyScalar(0.7).getHex());
+  const hem = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.1, 0.06), capeDark);
+  hem.scale.x = bulk;
+  hem.position.set(0, 0.48, -0.19); body.add(hem);
 
   // 머리
   const head = new THREE.Group(); head.position.y = 1.42; body.add(head);
@@ -485,6 +552,20 @@ export function makeHumanoid3D(THREE, opts = {}) {
     const browL = new THREE.Mesh(browGeo, hairM); browL.position.set(-0.11, 0.13, 0.27); head.add(browL);
     const browR = new THREE.Mesh(browGeo, hairM); browR.position.set(0.11, 0.13, 0.27); head.add(browR);
   }
+  // 코·입 (얼굴이 밋밋하다는 피드백 반영)
+  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 0.04), skinM);
+  nose.position.set(0, -0.03, 0.29); head.add(nose);
+  const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.02, 0.02), mat(THREE, 0x8a4a3a));
+  mouth.position.set(0, -0.14, 0.28); head.add(mouth);
+  // 옆머리 (앞머리·산발 스타일은 옆으로 흘러내리는 머리결 추가)
+  if (hs === 'fringe' || hs === 'messy') {
+    for (const s of [-1, 1]) {
+      const lock = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.3, 0.08), hairM);
+      lock.position.set(0.27 * s, -0.08, 0.08); head.add(lock);
+    }
+    const tuft = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.16, 4), hairM);
+    tuft.position.set(0.08, 0.38, 0.02); tuft.rotation.z = -0.3; head.add(tuft);
+  }
 
   // 팔 (어깨 y=1.08에서 회전)
   const armGeo = new THREE.BoxGeometry(0.14, 0.5, 0.16);
@@ -497,6 +578,12 @@ export function makeHumanoid3D(THREE, opts = {}) {
   armL.add(new THREE.Mesh(armGeo, uniM));
   const handL = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 5), skinM);
   handL.position.set(0, -0.48, 0); armL.add(handL); body.add(armL);
+  // 어깨 갑주 (양쪽)
+  for (const s of [-1, 1]) {
+    const paul = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6), metalM);
+    paul.scale.set(1, 0.6, 1);
+    paul.position.set(0.36 * bulk * s, 1.14, 0); body.add(paul);
+  }
 
   // 무기 (오른손)
   const weaponGroup = new THREE.Group();
@@ -596,7 +683,7 @@ export function makeMonster3D(THREE, def) {
   if (HUM[shape]) {
     const cfg = HUM[shape];
     const av = (cfg.longHair || cfg.robe)
-      ? { skin: color, uniform: dark, hair: dark, pants: dark, hairStyle: 'long', skirt: !!cfg.robe, ribbon: 0, iris: (shape === 'skeleton' || shape === 'mummy') ? 0x1a1a22 : 0xffffff }
+      ? { skin: color, uniform: dark, hair: dark, pants: dark, hairStyle: 'long', skirt: !!cfg.robe, ribbon: 0, iris: shape === 'skeleton' ? 0x9fe8ff : shape === 'mummy' ? 0x1a1a22 : 0xffffff }
       : null;
     const hg = makeHumanoid3D(THREE, {
       avatar: av, skin: color, uniform: dark, hair: dark, accent: color,
@@ -609,24 +696,48 @@ export function makeMonster3D(THREE, def) {
         const ear = new THREE.Mesh(gCone(THREE, 0.09, 0.22, 4), hM);
         ear.position.set(0.32 * s, 0.12, 0); ear.rotation.z = s * -1.1; head.add(ear);
       }
+      const nose = new THREE.Mesh(gCone(THREE, 0.05, 0.12, 4), hM);
+      nose.position.set(0, -0.05, 0.32); nose.rotation.x = Math.PI / 2; head.add(nose);
+      const teeth = new THREE.Mesh(gBox(THREE, 0.14, 0.04, 0.02), mat(THREE, 0xffffff));
+      teeth.position.set(0, -0.2, 0.28); head.add(teeth);
     } else if (shape === 'orc') {
       for (const s of [-1, 1]) {
         const tusk = new THREE.Mesh(gCone(THREE, 0.035, 0.12, 4), mat(THREE, 0xf2ead0));
         tusk.position.set(0.09 * s, -0.22, 0.26); head.add(tusk);
       }
+      const brow = new THREE.Mesh(gBox(THREE, 0.34, 0.05, 0.04), hM);
+      brow.position.set(0, 0.1, 0.27); head.add(brow);
+      const jaw = new THREE.Mesh(gBox(THREE, 0.2, 0.05, 0.03), mat(THREE, 0xf2ead0));
+      jaw.position.set(0, -0.24, 0.27); head.add(jaw);
     } else if (shape === 'lizard') {
       const tail = new THREE.Mesh(gCone(THREE, 0.12, 0.7, 6), darkM);
       tail.position.set(0, 0.5, -0.4); tail.rotation.x = 1.9; hg.add(tail);
+      for (let i = 0; i < 3; i++) { // 등 가시
+        const sp = new THREE.Mesh(gCone(THREE, 0.06, 0.18, 4), darkM);
+        sp.position.set(0, 0.78 + i * 0.22, -0.2); sp.rotation.x = -0.5; hg.add(sp);
+      }
     } else if (shape === 'mummy') {
       for (const s of [-1, 1]) {
         const ge = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 5), bm(0xffc93c));
         ge.position.set(0.11 * s, 0.02, 0.27); head.add(ge);
       }
+      // 붕대 띠 (몸통 대각선 + 머리)
+      const bandM = mat(THREE, 0xf2ead0);
+      for (const [y, rz] of [[0.75, 0.5], [1.0, -0.4]]) {
+        const band = new THREE.Mesh(gBox(THREE, 0.56, 0.07, 0.34), bandM);
+        band.position.set(0, y, 0); band.rotation.z = rz; hg.userData.body.add(band);
+      }
+      const hband = new THREE.Mesh(gBox(THREE, 0.5, 0.07, 0.5), bandM);
+      hband.position.set(0, 0.18, 0); head.add(hband);
     } else if (shape === 'witch') {
       const hat = new THREE.Mesh(gCone(THREE, 0.3, 0.55, 8), hM);
       hat.position.set(0, 0.42, -0.02); head.add(hat);
       const brim = new THREE.Mesh(gCyl(THREE, 0.42, 0.42, 0.04, 12), hM);
       brim.position.set(0, 0.16, 0); head.add(brim);
+      const wart = new THREE.Mesh(gSphere(THREE, 0.04, 6, 5), mat(THREE, 0x6a8a3a));
+      wart.position.set(0.05, -0.05, 0.3); head.add(wart);
+      const bottle = new THREE.Mesh(gCyl(THREE, 0.05, 0.05, 0.14, 6), tm(0x7fd06a));
+      bottle.position.set(0.24, 0.62, 0.16); hg.userData.body.add(bottle);
     } else if (shape === 'anubis') {
       const snout = new THREE.Mesh(gBox(THREE, 0.22, 0.16, 0.3), hM);
       snout.position.set(0, -0.06, 0.3); head.add(snout);
@@ -634,10 +745,46 @@ export function makeMonster3D(THREE, def) {
         const ear = new THREE.Mesh(gCone(THREE, 0.09, 0.34, 4), hM);
         ear.position.set(0.14 * s, 0.36, 0); head.add(ear);
       }
+      const collar = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.035, 6, 14), mat(THREE, 0xd8a93c));
+      collar.rotation.x = Math.PI / 2; collar.position.set(0, 1.22, 0); hg.add(collar);
+      for (const s of [-1, 1]) { // 눈가 줄무늬
+        const stripe = new THREE.Mesh(gBox(THREE, 0.05, 0.14, 0.02), hM);
+        stripe.position.set(0.17 * s, 0.02, 0.26); stripe.rotation.z = s * 0.4; head.add(stripe);
+      }
     } else if (shape === 'barbarian') {
       for (const s of [-1, 1]) {
         const horn = new THREE.Mesh(gCone(THREE, 0.07, 0.26, 4), mat(THREE, 0xf2ead0));
         horn.position.set(0.3 * s, 0.22, 0); horn.rotation.z = s * -0.9; head.add(horn);
+      }
+      // 모피 허리띠 + 등 모피
+      const furM = mat(THREE, 0xd8c9a8);
+      const furBelt = new THREE.Mesh(gBox(THREE, 0.56, 0.1, 0.34), furM);
+      furBelt.position.set(0, 0.62, 0); hg.userData.body.add(furBelt);
+      const furBack = new THREE.Mesh(gBox(THREE, 0.4, 0.5, 0.05), furM);
+      furBack.position.set(0, 0.85, -0.22); hg.userData.body.add(furBack);
+    } else if (shape === 'siren') {
+      const pin = new THREE.Mesh(gSphere(THREE, 0.07, 6, 5), mat(THREE, 0xffffff));
+      pin.position.set(0.3, 0.14, 0.05); head.add(pin);
+      const shell = new THREE.Mesh(gSphere(THREE, 0.09, 6, 5), mat(THREE, 0xf2d8e8));
+      shell.position.set(0, 1.0, 0.18); hg.userData.body.add(shell);
+    } else if (shape === 'merfolk') {
+      for (let i = 0; i < 3; i++) { // 꼬리 지느러미 능선
+        const fin = new THREE.Mesh(gCone(THREE, 0.06, 0.2, 4), darkM);
+        fin.position.set(0, 0.55 - i * 0.18, -0.28); fin.rotation.x = -0.7; hg.add(fin);
+      }
+      const shell = new THREE.Mesh(gSphere(THREE, 0.09, 6, 5), mat(THREE, 0xf2d8e8));
+      shell.position.set(0, 1.0, 0.18); hg.userData.body.add(shell);
+    } else if (shape === 'naga') {
+      for (const s of [-1, 1]) { // 코브라 후드
+        const hood = new THREE.Mesh(gCone(THREE, 0.16, 0.4, 4), darkM);
+        hood.position.set(0.2 * s, 0.08, -0.18); hood.rotation.z = s * 0.5; head.add(hood);
+      }
+      const tongue = new THREE.Mesh(gBox(THREE, 0.04, 0.02, 0.14), mat(THREE, 0xd84a5a));
+      tongue.position.set(0, -0.18, 0.32); head.add(tongue);
+    } else if (shape === 'skeleton') {
+      for (let i = 0; i < 3; i++) { // 갈비뼈
+        const rib = new THREE.Mesh(gBox(THREE, 0.4, 0.05, 0.02), mat(THREE, 0xf2f2f2));
+        rib.position.set(0, 0.78 + i * 0.14, 0.17); hg.userData.body.add(rib);
       }
     }
     if (cfg.noLegs) {
@@ -674,6 +821,9 @@ export function makeMonster3D(THREE, def) {
     const blob = pSph(0.5, bodyM); blob.scale.set(1, 0.72, 1); put(blob, 0, 0.36, 0);
     put(pCon(0.26, 0.32, bodyM), 0, 0.8, 0);
     eyes(0.45, 0.18, 0.42, 0.06);
+    put(pBox(0.16, 0.03, 0.02, darkM), 0, 0.32, 0.48); // 입
+    const shine = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, depthWrite: false }));
+    shine.scale.set(1, 0.6, 0.6); put(shine, -0.2, 0.6, 0.32); // 광택
     top = 0.96; radius = 0.5;
   } else if (shape === 'frog') {
     const b = pSph(0.6, bodyM); b.scale.set(1, 0.62, 1.1); put(b, 0, 0.34, 0);
@@ -681,6 +831,10 @@ export function makeMonster3D(THREE, def) {
     put(pSph(0.2, bodyM), 0.22, 0.72, 0.3);
     put(pSph(0.08, eyeM, 6, 5), -0.22, 0.74, 0.46);
     put(pSph(0.08, eyeM, 6, 5), 0.22, 0.74, 0.46);
+    put(pSph(0.28, tm(0xd8f0a8)), 0, 0.22, 0.42); // 목주머니
+    for (const [sx, sz] of [[-0.25, -0.15], [0.2, -0.3], [0.05, 0.1]]) {
+      put(pSph(0.07, darkM, 6, 5), sx, 0.62, sz); // 등 반점
+    }
     put(pBox(0.3, 0.12, 0.42, darkM), -0.48, 0.08, 0.1);
     put(pBox(0.3, 0.12, 0.42, darkM), 0.48, 0.08, 0.1);
     top = 0.95; radius = 0.6;
@@ -691,6 +845,11 @@ export function makeMonster3D(THREE, def) {
     for (const s of [-1, 1]) for (let i = 0; i < 3; i++) {
       put(pBox(0.08, 0.08, 0.25, darkM), 0.5 * s, 0.1, -0.2 + i * 0.25);
     }
+    for (const s of [-1, 1]) { // 날개집 (등딱지)
+      const wing = pBox(0.34, 0.1, 0.7, darkM); put(wing, 0.2 * s, 0.52, -0.1);
+    }
+    put(pBox(0.03, 0.08, 0.7, tm(0x2a4a6a)), 0, 0.54, -0.1); // 날개집 가운데 선
+    put(pSph(0.07, tm(0xffd257), 6, 5), 0, 0.48, 0.6); // 머리 보석
     top = 0.7; radius = 0.55;
   } else if (shape === 'crab') {
     put(pBox(1.15, 0.32, 0.7, bodyM), 0, 0.32, 0);
@@ -701,6 +860,10 @@ export function makeMonster3D(THREE, def) {
       put(pSph(0.08, eyeM, 6, 5), 0.18 * s, 0.78, 0.25);
       for (let i = 0; i < 3; i++) put(pBox(0.06, 0.06, 0.3, darkM), 0.6 * s, 0.12, -0.15 + i * 0.2);
     }
+    for (let i = 0; i < 3; i++) { // 등껍질 가시
+      const sp = pCon(0.06, 0.16, darkM); sp.position.set(-0.3 + i * 0.3, 0.52, -0.05); body.add(sp);
+    }
+    put(pBox(0.2, 0.04, 0.03, darkM), 0, 0.28, 0.36); // 입
     top = 0.9; radius = 0.65;
   } else if (shape === 'scorpion') {
     put(pBox(0.55, 0.3, 0.5, bodyM), 0, 0.3, 0.25);
@@ -711,8 +874,12 @@ export function makeMonster3D(THREE, def) {
     const sting = pCon(0.09, 0.28, darkM); sting.position.set(0, 1.0, -1.0); sting.rotation.x = -0.5; body.add(sting);
     for (const s of [-1, 1]) {
       put(pSph(0.18, darkM), 0.45 * s, 0.3, 0.5);
+      // 집게발 (두 갈래)
+      const p1 = pCon(0.06, 0.22, darkM); p1.position.set(0.45 * s, 0.34, 0.68); p1.rotation.x = Math.PI / 2; p1.rotation.z = s * 0.3; body.add(p1);
+      const p2 = pCon(0.06, 0.22, darkM); p2.position.set(0.45 * s, 0.26, 0.68); p2.rotation.x = Math.PI / 2; p2.rotation.z = s * -0.3; body.add(p2);
       for (let i = 0; i < 3; i++) put(pBox(0.06, 0.06, 0.28, darkM), 0.32 * s, 0.12, -0.3 + i * 0.25);
     }
+    put(pBox(0.4, 0.08, 0.4, darkM), 0, 0.48, -0.1); // 등판
     eyes(0.38, 0.14, 0.5, 0.045);
     top = 1.05; radius = 0.6;
   } else if (shape === 'golem') {
@@ -729,15 +896,30 @@ export function makeMonster3D(THREE, def) {
     put(pSph(0.25, darkM), -0.6, 1.62, 0);
     put(pSph(0.25, darkM), 0.6, 1.62, 0);
     for (const s of [-1, 1]) put(pSph(0.06, bm(0xffc93c), 6, 5), 0.11 * s, 1.95, 0.21);
+    // 바위 금 + 이끼 + 가슴 속 빛나는 핵
+    for (const [cy, rz] of [[1.0, 0.6], [1.35, -0.5], [0.85, 1.2]]) {
+      const crack = pBox(0.03, 0.3, 0.02, darkM); crack.position.set(0.15, cy, 0.34); crack.rotation.z = rz; body.add(crack);
+    }
+    put(pSph(0.09, tm(0x5a8a3a), 6, 5), -0.55, 1.7, 0.1);
+    put(pSph(0.07, tm(0x5a8a3a), 6, 5), 0.5, 1.68, 0.12);
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.85 }));
+    core.position.set(0, 1.2, 0.32); body.add(core);
     top = 2.15; radius = 0.6;
   } else if (shape === 'ent') {
     put(pCyl(0.32, 0.42, 1.5, bodyM, 8), 0, 0.75, 0);
     const brL = pCyl(0.08, 0.12, 0.9, darkM, 6); brL.position.set(-0.5, 1.5, 0); brL.rotation.z = 0.6; body.add(brL);
     const brR = pCyl(0.08, 0.12, 0.9, darkM, 6); brR.position.set(0.5, 1.5, 0); brR.rotation.z = -0.6; body.add(brR);
+    for (const s of [-1, 1]) { // 가지 끝 잔가지 손가락
+      const twig = pCyl(0.03, 0.05, 0.35, darkM, 5);
+      twig.position.set(0.78 * s, 1.95, 0); twig.rotation.z = s * 0.9; body.add(twig);
+    }
     put(pSph(0.5, darkM), 0, 1.95, 0);
     put(pSph(0.42, darkM), -0.38, 1.75, 0.1);
     put(pSph(0.38, darkM), 0.38, 1.78, -0.05);
+    put(pSph(0.3, darkM), 0.1, 2.15, -0.15); // 잎 더미 추가
+    put(pSph(0.26, tm(0x7fc46a), 6, 5), -0.3, 2.05, 0.15);
     eyes(1.2, 0.12, 0.36, 0.05);
+    put(pBox(0.16, 0.04, 0.03, darkM), 0, 1.05, 0.36); // 입
     top = 2.45; radius = 0.55;
   } else if (shape === 'hydra') {
     const bd = pSph(0.85, bodyM); bd.scale.set(1, 0.75, 1.1); put(bd, 0, 0.65, 0);
@@ -748,9 +930,14 @@ export function makeMonster3D(THREE, def) {
       const hd = new THREE.Group(); hd.position.set(0, 0.8, 0); neck.add(hd);
       const skull = pSph(0.3, bodyM); hd.add(skull);
       const jaw = pCon(0.12, 0.3, darkM, 4); jaw.position.set(0, -0.12, 0.28); jaw.rotation.x = Math.PI / 2; hd.add(jaw);
+      const horn = pCon(0.06, 0.2, darkM, 4); horn.position.set(0, 0.3, -0.05); horn.rotation.x = -0.4; hd.add(horn);
+      const teeth = pBox(0.16, 0.04, 0.02, tm(0xffffff)); teeth.position.set(0, -0.06, 0.32); hd.add(teeth);
       const e1 = pSph(0.05, eyeM, 6, 5); e1.position.set(-0.11, 0.05, 0.26); hd.add(e1);
       const e2 = pSph(0.05, eyeM, 6, 5); e2.position.set(0.11, 0.05, 0.26); hd.add(e2);
       heads.push(hd);
+    }
+    for (let i = 0; i < 3; i++) { // 등 지느러미 능선
+      const fin = pCon(0.08, 0.22, darkM, 4); fin.position.set(0, 1.25, -0.3 - i * 0.3); body.add(fin);
     }
     const tail = pCon(0.2, 0.9, darkM); tail.position.set(0, 0.5, -0.95); tail.rotation.x = -1.9; body.add(tail);
     top = 2.15; radius = 0.9;
@@ -760,10 +947,12 @@ export function makeMonster3D(THREE, def) {
       const a = (i / 6) * Math.PI * 2;
       const tent = pCon(0.16, 1.0, darkM); tent.position.set(Math.cos(a) * 0.7, 0.55, Math.sin(a) * 0.7);
       tent.rotation.z = Math.cos(a) * 0.35; tent.rotation.x = -Math.sin(a) * 0.35; body.add(tent);
+      put(pSph(0.05, tm(0xf2f2f2), 6, 5), Math.cos(a) * 0.78, 0.3, Math.sin(a) * 0.78); // 빨판
     }
     for (const s of [-1, 1]) {
       const up = pCon(0.18, 1.1, darkM); up.position.set(0.85 * s, 1.6, 0); up.rotation.z = s * -0.7; body.add(up);
     }
+    const beak = pCon(0.14, 0.3, darkM, 4); beak.position.set(0, 0.72, 0.92); beak.rotation.x = Math.PI / 2; body.add(beak);
     put(pSph(0.14, eyeM, 6, 5), -0.3, 1.3, 0.82);
     put(pSph(0.14, eyeM, 6, 5), 0.3, 1.3, 0.82);
     top = 2.1; radius = 1.0;
@@ -776,12 +965,19 @@ export function makeMonster3D(THREE, def) {
       const horn = pCon(0.07, 0.3, tm(0xf2ead0)); horn.position.set(0.14 * s, 2.2, 0.7); horn.rotation.x = -0.5; body.add(horn);
       const e = pSph(0.05, eyeM, 6, 5); e.position.set(0.12 * s, 2.04, 1.08); body.add(e);
     }
+    for (let i = 0; i < 4; i++) { // 등 가시
+      const sp = pCon(0.07, 0.24, darkM, 4); sp.position.set(0, 1.72 - i * 0.06, 0.2 - i * 0.32); sp.rotation.x = -0.3; body.add(sp);
+    }
+    for (let i = 0; i < 3; i++) { // 배 비늘
+      put(pBox(0.5, 0.12, 0.3, tm(0xd8c9a8)), 0, 0.62, 0.5 - i * 0.32);
+    }
     wingL = new THREE.Group(); wingL.position.set(-0.35, 1.55, -0.1); body.add(wingL);
     const wl = pBox(1.25, 0.05, 0.65, darkM); wl.position.set(-0.65, 0, 0); wingL.add(wl);
     wingR = new THREE.Group(); wingR.position.set(0.35, 1.55, -0.1); body.add(wingR);
     const wr = pBox(1.25, 0.05, 0.65, darkM); wr.position.set(0.65, 0, 0); wingR.add(wr);
     const tl1 = pCon(0.2, 0.7, darkM); tl1.position.set(0, 1.0, -0.8); tl1.rotation.x = -1.9; body.add(tl1);
     const tl2 = pCon(0.12, 0.6, darkM); tl2.position.set(0, 1.0, -1.3); tl2.rotation.x = -1.9; body.add(tl2);
+    const tsp = pCon(0.06, 0.2, darkM, 4); tsp.position.set(0, 1.15, -1.55); tsp.rotation.x = -0.6; body.add(tsp);
     put(pBox(0.22, 0.4, 0.25, darkM), -0.3, 0.5, 0.1);
     put(pBox(0.22, 0.4, 0.25, darkM), 0.3, 0.5, 0.1);
     top = 2.35; radius = 0.9;
@@ -792,14 +988,22 @@ export function makeMonster3D(THREE, def) {
     for (const [sx, sy, sz] of [[-0.4, 1.5, 0.5], [0.35, 1.55, 0.45], [0, 1.62, -0.3], [0.5, 1.35, -0.4]]) {
       put(pSph(0.12, tm(0xffffff)), sx, sy, sz);
     }
+    put(pSph(0.09, tm(0xffffff)), -0.55, 1.3, 0.3);
+    put(pSph(0.09, tm(0xffffff)), 0.15, 1.66, 0.35);
+    const sprout = pCon(0.06, 0.22, tm(0x7fc46a), 4); sprout.position.set(0.2, 1.78, -0.1); body.add(sprout);
     eyes(0.45, 0.12, 0.3, 0.05);
+    put(pBox(0.14, 0.03, 0.02, darkM), 0, 0.32, 0.32); // 입
     top = 1.7; radius = 0.7;
   } else if (shape === 'wraith') {
     put(pCon(0.55, 1.35, bodyM, 8), 0, 0.68, 0);
     put(pSph(0.3, darkM), 0, 1.45, 0);
+    const hoodPt = pCon(0.16, 0.3, darkM, 6); hoodPt.position.set(0, 1.78, 0); body.add(hoodPt);
     for (const s of [-1, 1]) {
       const ge = pSph(0.05, bm(0x9fd8ff), 6, 5); put(ge, 0.1 * s, 1.45, 0.26);
       const sleeve = pCon(0.09, 0.5, darkM); sleeve.position.set(0.5 * s, 0.9, 0.1); sleeve.rotation.z = s * 0.5; body.add(sleeve);
+    }
+    for (let i = -1; i <= 1; i++) { // 찢어진 자락
+      const tear = pCon(0.08, 0.3, darkM, 4); tear.position.set(0.3 * i, 0.12, 0.05); tear.rotation.x = Math.PI; body.add(tear);
     }
     top = 1.75; radius = 0.5;
   } else {
@@ -849,6 +1053,9 @@ export function makeMonster3D(THREE, def) {
         body.scale.set(sx, sy, sx);
       } else {
         body.position.y = y + (moving ? Math.abs(Math.sin(time * 9 + ph)) * 0.05 : 0);
+        // 숨쉬기: 가만히 있을 때 몸통이 살짝 부풀었다 줄어든다
+        const br = 1 + Math.sin(time * 1.6 + ph) * 0.02;
+        body.scale.set(1, br, 1);
       }
       if (legL && legR) {
         const sw = moving ? Math.sin(time * 10 + ph) * 0.55 : 0;
@@ -907,9 +1114,11 @@ export function makeCompanion(THREE, cls, gradeColor = 0xffffff) {
   const metalM = mat(THREE, 0xdfe7f2);
   const uniM = mat(THREE, c.color);
   if (c.id === 'tank') {
-    // 투구 (돔 + 코받이)
+    // 투구 (돔 + 코받이) + 깃털 장식
     const helm = new THREE.Mesh(new THREE.SphereGeometry(0.32, 10, 8), metalM);
     helm.scale.set(1, 0.62, 1); helm.position.set(0, 0.2, 0); u.head.add(helm);
+    const plume = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.26, 6), mat(THREE, 0xc0392b));
+    plume.position.set(0, 0.44, 0); u.head.add(plume);
     const guard = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.2, 0.04), metalM);
     guard.position.set(0, -0.02, 0.3); u.head.add(guard);
     // 왼팔 방패 (원반 + 직업색 테두리)
@@ -921,16 +1130,22 @@ export function makeCompanion(THREE, cls, gradeColor = 0xffffff) {
     shield.position.set(0, -0.35, 0.14);
     u.armL.add(shield);
   } else if (c.id === 'healer') {
-    // 후드 (얼굴을 감싸는 구) + 지팡이 끝 빛
+    // 후드 (얼굴을 감싸는 구) + 지팡이 끝 빛 + 허리 약주머니
     const hood = new THREE.Mesh(new THREE.SphereGeometry(0.34, 10, 8), uniM);
     hood.scale.set(1, 1.05, 1); hood.position.set(0, 0.06, -0.12); u.head.add(hood);
+    const pouch = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.14, 0.1), mat(THREE, 0x8a6a3a));
+    pouch.position.set(0.26, 0.62, 0.14); u.body.add(pouch);
     const glow = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 6),
       new THREE.MeshBasicMaterial({ color: 0x9ff0ff, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
     glow.position.set(0, 0.48, 0); u.weaponGroup.add(glow);
   } else if (c.id === 'melee') {
-    // 머리띠 + 왼손 단검 (쌍단검)
+    // 머리띠 + 왼손 단검 (쌍단검) + 목 스카프
     const band = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.07, 0.06), mat(THREE, 0xffffff));
     band.position.set(0, 0.14, 0.24); u.head.add(band);
+    const scarf = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.1, 0.06), mat(THREE, 0xc0392b));
+    scarf.position.set(0, 1.18, -0.12); u.body.add(scarf);
+    const scarfTail = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.34, 0.03), mat(THREE, 0xc0392b));
+    scarfTail.position.set(0.08, 1.0, -0.26); scarfTail.rotation.x = 0.25; u.body.add(scarfTail);
     const tail = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.22, 0.02), mat(THREE, 0xffffff));
     tail.position.set(0.08, -0.06, -0.3); tail.rotation.z = 0.2; u.head.add(tail);
     const off = new THREE.Group();
@@ -938,9 +1153,11 @@ export function makeCompanion(THREE, cls, gradeColor = 0xffffff) {
     off.add(buildWeaponMesh(THREE, 'dagger', { grade: mat(THREE, gradeColor), metal: metalM }));
     u.armL.add(off);
   } else if (c.id === 'mage') {
-    // 뾰족모자 (원뿔 + 챙) + 왼손 마법책 + 지팡이 끝 빛
+    // 뾰족모자 (원뿔 + 챙) + 왼손 마법책 + 지팡이 끝 빛 + 가슴 별 문양
     const hat = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.62, 8), uniM);
     hat.position.set(0, 0.44, -0.02); u.head.add(hat);
+    const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.09, 0), mat(THREE, 0xffd257));
+    star.position.set(0, 0.95, 0.18); u.body.add(star);
     const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.44, 0.04, 12), uniM);
     brim.position.set(0, 0.14, 0); u.head.add(brim);
     const off = new THREE.Group();
@@ -1143,9 +1360,34 @@ export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = fals
     gpos.setZ(i, groundHeight(gpos.getX(i), -gpos.getY(i)));
   }
   groundGeo.computeVertexNormals();
+  // 높이·경사별 음영 (버텍스 컬러 × 텍스처): 높은 곳은 햇빛 받은 밝은 톤,
+  // 웅덩이는 어둡고 차가운 톤, 가파른 경사는 바위빛 — 언덕·구덩이가 눈에 띄게.
+  // 경사는 메시 이웃 정점 높이로 잰다 (groundHeight 추가 호출 없이).
+  {
+    const SEG = 144, COLS = SEG + 1;
+    const colors = new Float32Array(gpos.count * 3);
+    for (let i = 0; i < gpos.count; i++) {
+      const ix = i % COLS, iz = Math.floor(i / COLS);
+      const h = gpos.getZ(i);
+      const hx0 = gpos.getZ(iz * COLS + Math.max(0, ix - 1));
+      const hx1 = gpos.getZ(iz * COLS + Math.min(SEG, ix + 1));
+      const hz0 = gpos.getZ(Math.max(0, iz - 1) * COLS + ix);
+      const hz1 = gpos.getZ(Math.min(SEG, iz + 1) * COLS + ix);
+      const slope = Math.hypot(hx1 - hx0, hz1 - hz0) / 4; // 4m 구간 기울기
+      let r = 1, g = 1, b = 1;
+      const hi = smooth(clamp01((h - 1.6) / 2.2)); // 높은 곳 — 밝게
+      r *= 1 + 0.07 * hi; g *= 1 + 0.05 * hi; b *= 1 + 0.02 * hi;
+      const lo = smooth(clamp01((-1.1 - h) / 1.6)); // 낮은 웅덩이 — 어둡게
+      r *= 1 - 0.22 * lo; g *= 1 - 0.16 * lo; b *= 1 - 0.12 * lo;
+      const st = smooth(clamp01((slope - 0.17) / 0.16)); // 가파른 경사 — 바위빛
+      r = r * (1 - st) + 0.68 * st; g = g * (1 - st) + 0.64 * st; b = b * (1 - st) + 0.58 * st;
+      colors[i * 3] = r; colors[i * 3 + 1] = g; colors[i * 3 + 2] = b;
+    }
+    groundGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  }
   const ground = new THREE.Mesh(
     groundGeo,
-    new THREE.MeshLambertMaterial({ map: gtex })
+    new THREE.MeshLambertMaterial({ map: gtex, vertexColors: true })
   );
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
@@ -1320,8 +1562,8 @@ export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = fals
       color: 0x9f7bff, transparent: true, opacity: 0.4,
       side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending,
     });
-    const barrier = new THREE.Mesh(new THREE.PlaneGeometry(10, 4.2), barrierMat);
-    barrier.position.set(zn.gate.x, gy + 2.1, zn.gate.z);
+    const barrier = new THREE.Mesh(new THREE.PlaneGeometry(10, 6.4), barrierMat);
+    barrier.position.set(zn.gate.x, gy + 2.2, zn.gate.z); // 아래로 1m 더 내려 지형 기복에도 바닥이 뜨지 않게
     barrier.rotation.y = alongX ? 0 : Math.PI / 2;
     g.add(barrier);
     const glowRing = new THREE.Mesh(
