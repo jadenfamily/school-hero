@@ -126,6 +126,15 @@ export function createGame(THREE) {
     s.stats = Object.assign({ str: 5, dex: 5, vit: 5, int: 5 }, saved.stats || {});
     s.souls = Object.assign({ gray: 0, green: 0, blue: 0, purple: 0, gold: 0 }, saved.souls || {});
     s.equip = Object.assign({ weapon: null, armor: null, necklace: null, ring: null, earring: null, charm: null }, saved.equip || {});
+    // 저장본의 장착 무기가 현재 WEAPONS에 없는 fam이면 derived()가 터져서
+    // 부팅/게임 루프가 멈춘다. 레벨·골드 등은 그대로 두고 무기만 기본 검으로 복구한다.
+    if (s.equip.weapon && !WEAPONS[s.equip.weapon.fam]) {
+      s.equip.weapon = { kind: 'weapon', fam: 'sword', grade: Math.min(5, Math.max(0, Number(s.equip.weapon.grade) || 0)) };
+    }
+    if (s.equip.armor && !ARMOR_KINDS[s.equip.armor.fam]) s.equip.armor = null;
+    for (const slot of ['necklace', 'ring', 'earring']) {
+      if (s.equip[slot] && !ACCESSORY_KINDS[s.equip[slot].fam]) s.equip[slot] = null;
+    }
     s.bag = saved.bag || {};
     s.talents = saved.talents || [];
     s.companions = saved.companions || [];
@@ -328,7 +337,7 @@ export function createGame(THREE) {
     const ad = game.itemStats(eq.armor).def;
     const opt = game.optionTotals();
     const cos = game.costumeBonus();
-    const cls = eq.weapon ? WEAPONS[eq.weapon.fam].cls : 'melee';
+    const cls = eq.weapon ? (WEAPONS[eq.weapon.fam] || WEAPONS.sword).cls : 'melee';
     let baseAtk;
     if (cls === 'magic') baseAtk = 9 + s.stats.int * 2.0;
     else if (cls === 'ranged') baseAtk = 8 + s.stats.dex * 1.7 + s.stats.str * 0.5;
