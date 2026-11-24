@@ -1196,17 +1196,30 @@ export function createUI(game, THREE) {
   };
 
   // ---------- 영혼 특성 ----------
-  ui.openSouls = function () {
+  // ---------- 영혼 특성 (10페이지) ----------
+  // 한 페이지를 모두 해금하면 다음 페이지가 열린다. ui._soulPage가 현재 보고 있는 페이지.
+  ui.openSouls = function (page) {
     const s = game.state;
+    const cur = page || ui._soulPage || 1;
+    ui._soulPage = cur;
+    const list = TALENTS.filter((t) => (t.page || 1) === cur);
     const soulRow = Object.entries(SOUL_KINDS).map(([k, v]) =>
       `<div class="zi-box" style="border-color:${v.color}55"><div class="big" style="color:${v.color};font-size:18px">${s.souls[k] || 0}</div><div class="lbl">${v.name}</div></div>`).join('');
-    const svgLines = TALENTS.filter((t) => t.req.length).map((t) => t.req.map((r) => {
-      const a = TALENTS.find((x) => x.id === r);
+    const tabs = [];
+    for (let p = 1; p <= game.talentPageCount(); p++) {
+      const open = game.isTalentPageUnlocked(p);
+      const done = game.isTalentPageComplete(p);
+      const tot = game.talentPageTalents(p).length;
+      const got = game.talentPageTalents(p).filter((t) => s.talents.includes(t.id)).length;
+      tabs.push(`<button class="tab ${p === cur ? 'on' : ''}" data-soul-page="${p}" style="${open ? '' : 'opacity:.45'}">${open ? `${p}페이지` : `🔒 ${p}페이지`} ${done ? '✓' : `(${got}/${tot})`}</button>`);
+    }
+    const svgLines = list.filter((t) => t.req.length).map((t) => t.req.map((r) => {
+      const a = list.find((x) => x.id === r);
       if (!a) return '';
       const on = s.talents.includes(r);
       return `<line x1="${a.x}" y1="${a.y}" x2="${t.x}" y2="${t.y}" stroke="${on ? '#7fd8ff' : 'rgba(255,255,255,.14)'}" stroke-width="0.7" />`;
     }).join('')).join('');
-    const nodes = TALENTS.map((t) => {
+    const nodes = list.map((t) => {
       const on = s.talents.includes(t.id);
       return `<div class="node ${on ? 'on' : ''}" data-talent="${t.id}" style="left:${t.x}%;top:${t.y}%">
         <div class="orb">${t.icon}</div>
@@ -1214,18 +1227,34 @@ export function createUI(game, THREE) {
         <div class="cost">${on ? '완료' : `${SOUL_KINDS[t.cost.kind].name.split(' ')[0]} ${t.cost.n}`}</div>
       </div>`;
     }).join('');
-    const html = `${head('🌳 영혼 특성', '영혼으로 능력을 해금하세요', 'souls')}
+    const html = `${head('🌳 영혼 특성', `영혼으로 능력을 해금하세요 · ${cur}페이지`, 'souls')}
       <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">${soulRow}</div>
+      <div class="tab-row">${tabs.join('')}</div>
       <div class="board"><svg viewBox="0 0 100 100" preserveAspectRatio="none">${svgLines}</svg>${nodes}</div>
-      <div class="hint" id="talentHint">노드를 누르면 영혼을 사용해 해금합니다. 앞의 노드를 먼저 열어야 다음 노드가 열려요.</div>`;
+      <div class="hint" id="talentHint">노드를 누르면 영혼을 사용해 해금합니다. 앞의 노드를 먼저 열어야 다음 노드가 열려요. 한 페이지를 모두 해금하면 다음 페이지가 열려요.</div>`;
     const sheet = openSheet(html, 'hub-sheet');
+    sheet.querySelectorAll('[data-soul-page]').forEach((el) => el.addEventListener('click', () => {
+      const p = Number(el.dataset.soulPage);
+      if (!game.isTalentPageUnlocked(p)) { ui.toast(`${p - 1}페이지를 모두 해금하면 열려요.`, 'bad'); return; }
+      ui.openSouls(p);
+    }));
     sheet.querySelectorAll('[data-talent]').forEach((el) => el.addEventListener('click', () => {
       const id = el.dataset.talent;
       const t = TALENTS.find((x) => x.id === id);
       if (game.state.talents.includes(id)) return;
+      if (!game.isTalentPageUnlocked(t.page || 1)) { ui.toast('이 페이지는 아직 잠겨 있어요.', 'bad'); return; }
       if (t.req.some((r) => !game.state.talents.includes(r))) { ui.toast('앞의 특성을 먼저 해금해 주세요.', 'bad'); return; }
       if ((game.state.souls[t.cost.kind] || 0) < t.cost.n) { ui.toast('영혼이 부족해요.', 'bad'); return; }
-      if (game.learnTalent(id)) { ui.toast(`${t.name} 해금!`, 'good'); ui.openSouls(); }
+      if (game.learnTalent(id)) {
+        ui.toast(`${t.name} 해금!`, 'good');
+        const pg = t.page || 1;
+        if (pg < game.talentPageCount() && game.isTalentPageComplete(pg)) {
+          ui.toast('다음 페이지가 열렸어요!', 'gold');
+          ui.openSouls(pg + 1);
+        } else {
+          ui.openSouls(pg);
+        }
+      }
     }));
   };
 
