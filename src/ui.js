@@ -233,7 +233,7 @@ export function createUI(game, THREE) {
   // ---------- 미니맵 (실제 지형 축소) ----------
   let mapBase = null, mapBaseZone = 0, mapBaseChests = -1;
   function buildMapBase(zone) {
-    const S = 640;
+    const S = 900;
     const { c, g } = (() => {
       const cv = document.createElement('canvas'); cv.width = cv.height = S;
       return { c: cv, g: cv.getContext('2d') };
