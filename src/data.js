@@ -65,22 +65,22 @@ export const AVATARS = [
   {
     id: 'boyA', name: '남학생 A', short: '네이비 교복 · 장검', defaultName: '시우', icon: '👦',
     skin: 0xf2c9a0, uniform: 0x2b3a66, accent: 0x4a6bd6, pants: 0x2c3242,
-    hair: 0x1e2130, hairStyle: 'short', ribbon: 0, skirt: false, iris: 0x3d6fd6,
+    hair: 0x1e2130, hairStyle: 'short', hair3d: 'fringe', ribbon: 0, skirt: false, iris: 0x3d6fd6,
   },
   {
     id: 'girlA', name: '여학생 A', short: '금발 · 마법 지팡이', defaultName: '하늘', icon: '👧',
     skin: 0xf7d8bd, uniform: 0x3a3350, accent: 0xb03a5a, pants: 0x3b3652,
-    hair: 0xf0d089, hairStyle: 'long', ribbon: 0xc03050, skirt: true, iris: 0x8a5ad0,
+    hair: 0xf0d089, hairStyle: 'long', hair3d: 'twin', ribbon: 0xc03050, skirt: true, iris: 0x8a5ad0,
   },
   {
     id: 'boyB', name: '남학생 B', short: '갈색 머리 · 수호 방패', defaultName: '도윤', icon: '🧑',
     skin: 0xefc49b, uniform: 0x2f4a34, accent: 0x6f9a4a, pants: 0x39422f,
-    hair: 0x8a4a24, hairStyle: 'messy', ribbon: 0, skirt: false, iris: 0x4a8a3a, hood: false,
+    hair: 0x8a4a24, hairStyle: 'messy', hair3d: 'spiky', ribbon: 0, skirt: false, iris: 0x4a8a3a, hood: false,
   },
   {
     id: 'girlB', name: '여학생 B', short: '은발 · 마법책', defaultName: '서연', icon: '👩',
     skin: 0xf6ddc8, uniform: 0x3a2f56, accent: 0x7a5ac0, pants: 0x352c4a,
-    hair: 0xe6e2f4, hairStyle: 'long', ribbon: 0x8a6ad0, skirt: true, iris: 0x5a8ad0,
+    hair: 0xe6e2f4, hairStyle: 'long', hair3d: 'bun', ribbon: 0x8a6ad0, skirt: true, iris: 0x5a8ad0,
   },
 ];
 export const AVATAR_MAP = Object.fromEntries(AVATARS.map((a) => [a.id, a]));
