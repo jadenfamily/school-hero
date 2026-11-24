@@ -417,7 +417,9 @@ export function createUI(game, THREE) {
         const name = el.querySelector('.et-name');
         if (name) name.innerHTML = `Lv.${e.level} ${e.def.name}` + (stateKey === 'return' ? ' <b style="color:#8fd8ff">복귀 중</b>' : stateKey === 'tank' ? ' <b style="color:#ffd479">탱커</b>' : '');
       }
-      const far = Math.hypot(e.x - game.player.x, e.z - game.player.z) > 17;
+      const dist = Math.hypot(e.x - game.player.x, e.z - game.player.z);
+      // 잡몹 이름표는 가까울 때만 (여러 마리가 겹쳐 보이지 않게)
+      const far = dist > (e.isBoss || e.isField || e.isMid || e.elite ? 17 : 9.5);
       const p = project(e.x, e.headY + 0.3, e.z);
       if (far || !p.visible || p.x < -80 || p.x > window.innerWidth + 80 || p.y < -40 || p.y > window.innerHeight + 60) {
         el.style.display = 'none';
@@ -886,6 +888,7 @@ export function createUI(game, THREE) {
       <div class="account-row"><span>캐릭터 이름</span><b>${game.heroName()}</b></div>
       <div class="hint" style="margin-top:10px">다른 기기와 이어서 하려면 가족 연결 코드를 넣어 주세요.</div>
       <div class="connect-row"><input id="connectCode" placeholder="연결 코드"><button class="btn" data-connect>연결</button></div>
+      ${game.isAdmin() ? '<div class="hint" style="margin-top:10px;color:#8dffc0">관리자 인증됨 · 가방 탭에 ⚙️ 설정이 열려 있어요.</div>' : '<div class="hint" style="margin-top:12px">보호자라면 관리자 코드로 밸런스 설정을 열 수 있어요.</div><div class="connect-row"><input id="adminCode" placeholder="관리자 코드"><button class="btn" data-admin-on>확인</button></div>'}
       <button class="btn ghost" data-logout style="width:100%;margin-top:12px">로그아웃</button>`;
     const sheet = openSheet(html);
     sheet.querySelector('[data-connect]').addEventListener('click', async () => {
@@ -895,6 +898,12 @@ export function createUI(game, THREE) {
       if (game.store) { game.store.cloud = new CloudAdapter(code); await game.flushSave(); }
       ui.toast('연결했어요. 이제 계정에 저장됩니다.', 'good');
       ui.openAccount();
+    });
+    const adminOn = sheet.querySelector('[data-admin-on]');
+    if (adminOn) adminOn.addEventListener('click', () => {
+      const code = (sheet.querySelector('#adminCode') || {}).value || '';
+      if (game.enableAdmin(code)) { ui.toast('관리자 인증 완료 · 가방 탭에 설정이 열렸어요.', 'good'); ui.openBag(); }
+      else ui.toast('관리자 코드가 맞지 않아요.', 'bad');
     });
     sheet.querySelector('[data-logout]').addEventListener('click', async () => {
       try {
