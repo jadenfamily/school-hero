@@ -479,6 +479,9 @@ input,textarea,select{font-family:inherit}
 /* 보유 부적 교체 */
 .charm-box{margin:2px 0 8px;padding:8px 10px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.03)}
 .charm-box b{font-size:11px}
+.skillbook-box{margin:2px 0 8px;padding:8px 10px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.03)}
+.skillbook-box b{font-size:11px}
+.skillbook-box .row-line{margin-top:6px}
 .charm-row{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 4px}
 .slot-picks{display:flex;gap:3px}
 .slot-pick{width:20px;height:20px;border-radius:6px;border:1px solid var(--line);background:rgba(255,255,255,.05);color:#cfdcf2;font-size:9px;font-weight:800;cursor:pointer;font-family:inherit}
