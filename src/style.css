@@ -294,6 +294,7 @@ input,textarea,select{font-family:inherit}
 .skill-slot:active{transform:scale(.94)}
 .skill-slot.empty{opacity:.6;font-size:15px}
 .skill-slot .cd{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(4,8,16,.74);border-radius:12px;font-size:15px;font-weight:900;color:#ffd257;font-style:normal}
+.skill-slot .sk-lv{position:absolute;right:2px;bottom:2px;font-size:8px;font-weight:900;color:#ffd257;background:rgba(4,8,16,.85);border-radius:5px;padding:1px 3px;font-style:normal;line-height:1.2;pointer-events:none}
 .bag-btn{
   flex:0 0 auto;height:calc(var(--bar-h) - 12px);width:clamp(52px,14vw,76px);
   border-radius:15px;border:1px solid rgba(255,220,120,.55);
