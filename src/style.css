@@ -704,3 +704,8 @@ input.num{width:58px;padding:5px 6px;border-radius:8px;border:1px solid rgba(255
 
 /* ===== 2차: 특수 타격 문구 (말풍선 없이 글자만 — 치명타!/이중타격!/스턴!) ===== */
 .dmg.special{background:none;border:none;border-radius:0;padding:0;box-shadow:none}
+.dmg.skill{font-size:21px;font-weight:900;color:#fff;text-shadow:0 2px 6px rgba(0,0,0,.9),0 0 14px rgba(255,255,255,.5)}
+.dmg.skill-tank{color:#9fc4ff}
+.dmg.skill-melee{color:#bfe6ff}
+.dmg.skill-mage{color:#ffb060}
+.dmg.skill-heal{color:#7dffb0}
