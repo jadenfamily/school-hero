@@ -213,6 +213,11 @@ const SCALE = {
   2: { xp: 2.25, gold: 2.60, lvl: 8 },
   3: { xp: 4.70, gold: 5.20, lvl: 14 },
   4: { xp: 9.10, gold: 9.60, lvl: 21 },
+  5: { xp: 14.0, gold: 15.0, lvl: 27 },
+  6: { xp: 20.0, gold: 21.0, lvl: 33 },
+  7: { xp: 28.0, gold: 30.0, lvl: 39 },
+  8: { xp: 38.0, gold: 40.0, lvl: 45 },
+  9: { xp: 50.0, gold: 53.0, lvl: 52 },
 };
 
 const DROP_W = {
@@ -220,6 +225,11 @@ const DROP_W = {
   2: [40, 32, 20, 7, 1, 0],
   3: [24, 30, 27, 14, 4.4, 0.6],
   4: [14, 24, 30, 21, 9.6, 1.4],
+  5: [8, 20, 32, 26, 12, 2],
+  6: [6, 16, 30, 28, 16, 4],
+  7: [4, 12, 28, 30, 20, 6],
+  8: [3, 10, 24, 32, 24, 7],
+  9: [2, 8, 20, 32, 28, 10],
 };
 
 const E = (o) => o;
@@ -234,6 +244,8 @@ export const ZONES = [
       prop: ['tree', 'rock', 'bush', 'grass', 'flower'], ambient: 'firefly', ambientColor: 0xfff3a0,
     },
     threat: 'slash',
+    // 하나의 연결된 서울 지도에서의 위치 (월드 좌표 중심) — 로컬 좌표는 그대로 두고 중심만 더한다
+    map: { cx: -96, cz: 96 },
     npc: { name: '숲지기 노인', x: 4, z: 22, icon: '🧙‍♂️' },
     spawn: { x: 0, z: 23 }, boss: { x: 0, z: -32 }, mid: { x: -19, z: -6 }, field: { x: 30, z: -24 },
     scale: SCALE[1], dropW: DROP_W[1],
@@ -268,6 +280,9 @@ export const ZONES = [
       prop: ['deadTree', 'rock', 'reed', 'grass'], ambient: 'spore', ambientColor: 0xb9ff9a,
     },
     threat: 'magic',
+    map: { cx: -96, cz: 0 },
+    // 이 구역으로 들어오는 방벽(게이트) 위치 — 이전 구역 보스를 처치하면 열린다
+    gate: { x: -96, z: 48, along: 'x' },
     npc: { name: '늪지 약초꾼', x: -5, z: 22, icon: '🧝‍♀️' },
     spawn: { x: 0, z: 23 }, boss: { x: 2, z: -32 }, mid: { x: 20, z: -8 }, field: { x: -30, z: -26 },
     scale: SCALE[2], dropW: DROP_W[2],
@@ -318,6 +333,8 @@ export const ZONES = [
       prop: ['cactus', 'sandRock', 'pillar', 'sandRock'], ambient: 'sand', ambientColor: 0xfff0c0,
     },
     threat: 'ranged',
+    map: { cx: -96, cz: -96 },
+    gate: { x: -96, z: -48, along: 'x' },
     npc: { name: '사막 대상인', x: 5, z: 22, icon: '🧕' },
     spawn: { x: 0, z: 23 }, boss: { x: -2, z: -32 }, mid: { x: 18, z: -4 }, field: { x: 30, z: 24 },
     scale: SCALE[3], dropW: DROP_W[3],
@@ -364,6 +381,8 @@ export const ZONES = [
       prop: ['coral', 'ruinPillar', 'bubbleRock', 'coral'], ambient: 'bubble', ambientColor: 0x9fe8ff,
     },
     threat: 'blunt',
+    map: { cx: 0, cz: -96 },
+    gate: { x: -48, z: -96, along: 'z' },
     npc: { name: '심해의 기록관', x: 6, z: 22, icon: '🧜' },
     spawn: { x: 0, z: 23 }, boss: { x: 0, z: -33 }, mid: { x: -20, z: -5 }, field: { x: 30, z: 22 },
     scale: SCALE[4], dropW: DROP_W[4],
@@ -397,11 +416,186 @@ export const ZONES = [
       ],
     },
   },
-  { id: 5, key: 'namsan', name: '남산 하늘 유적', short: '남산', icon: '🏯', comingSoon: true, sub: '2단계 업데이트 예정' },
-  { id: 6, key: 'gwanak', name: '관악 용암 화산', short: '관악', icon: '🌋', comingSoon: true, sub: '2단계 업데이트 예정' },
-  { id: 7, key: 'gangnam', name: '강남 달표면 황무지', short: '강남', icon: '🌑', comingSoon: true, sub: '2단계 업데이트 예정' },
-  { id: 8, key: 'dobong', name: '도봉 수정 빙하', short: '도봉', icon: '🧊', comingSoon: true, sub: '2단계 업데이트 예정' },
-  { id: 9, key: 'bukhansan', name: '북한산 설산 정상', short: '북한산', icon: '🏔️', comingSoon: true, sub: '지구 귀환 게이트 · 2단계' },
+  {
+    id: 5, key: 'namsan', name: '남산 하늘 유적', short: '남산', icon: '🏯',
+    sub: '구름 위의 고대 유적 · 하늘의 파수꾼',
+    theme: {
+      ground: 0x8fa3b8, ground2: '#46566a', grass: '#b8c8dc', accent: 0xd0e0f0,
+      sky: 0xbfdcff, fog: 0xa8c8e8, fogDensity: 0.014,
+      prop: ['pillar', 'tree', 'rock', 'grass'], ambient: 'firefly', ambientColor: 0xfff3a0,
+    },
+    threat: 'magic',
+    map: { cx: 0, cz: 0 },
+    gate: { x: 0, z: -48, along: 'x' },
+    npc: { name: '하늘의 파수꾼', x: 5, z: 22, icon: '🧝' },
+    spawn: { x: 0, z: 23 }, boss: { x: 0, z: -32 }, mid: { x: -19, z: -6 }, field: { x: 30, z: -24 },
+    scale: SCALE[5], dropW: DROP_W[5],
+    mobs: {
+      normal: [
+        E({ key: 'skySpirit', name: '하늘 정령', shape: 'wraith', color: 0x9fc8e8, dark: 0x3a5a7a, hp: 520, atk: 58, speed: 1.8, atkRange: 7.0, atkCd: 2.2, aggro: 9, style: 'ranged', soul: 'gray' }),
+        E({ key: 'ruinGuard', name: '유적 수호병', shape: 'goblin', color: 0xb8a888, dark: 0x6a5a3a, hp: 570, atk: 64, speed: 2.1, atkRange: 1.8, atkCd: 1.3, aggro: 8, style: 'melee', soul: 'gray' }),
+      ],
+      elite: [
+        E({ key: 'skyKnight', name: '하늘 기사', shape: 'anubis', color: 0x7fb0d0, dark: 0x2a4a6a, hp: 1350, atk: 80, speed: 2.0, atkRange: 2.6, atkCd: 1.4, aggro: 10, style: 'melee', elite: true, soul: 'green' }),
+      ],
+      mid: E({ key: 'skyGuardian', name: '하늘 수호자', shape: 'anubis', color: 0x9fc8e8, dark: 0x2a4a6a, hp: 5200, atk: 100, speed: 1.9, atkRange: 2.8, atkCd: 1.5, aggro: 11, style: 'melee', elite: true, boss: 'mid', soul: 'blue' }),
+      boss: E({ key: 'skyPriest', name: '하늘 대제사장', shape: 'witch', color: 0xc0a0e8, dark: 0x4a2a6a, hp: 9500, atk: 122, speed: 1.45, atkRange: 7.5, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
+      field: E({ key: 'goldSkyGuardian', name: '황금 하늘 수호자', shape: 'anubis', color: 0xc9a13a, dark: 0x5a4a1a, hp: 20000, atk: 150, speed: 1.9, atkRange: 3.0, atkCd: 1.7, aggro: 13, style: 'melee', boss: 'field', soul: 'gold' }),
+    },
+    chests: [{ x: -14, z: 10, hide: 'pillar' }, { x: 16, z: -12, hide: 'rock' }, { x: 8, z: -24, hide: 'tree' }],
+    quests: {
+      title: '하늘 유적의 부름', npc: '하늘의 파수꾼',
+      steps: [
+        { text: '하늘 유적 몬스터 처치', type: 'kill', n: 14, reward: { gold: 900, pt: 2, xp: 1500 } },
+        { text: '하늘 수호자 처치', type: 'mid', n: 1, reward: { gold: 1200, item: 4, xp: 2000 } },
+        { text: '하늘 대제사장 처치', type: 'boss', n: 1, reward: { gold: 1800, soul: 'purple', soulN: 6, xp: 2600, unlock: 6 } },
+      ],
+    },
+  },
+  {
+    id: 6, key: 'gwanak', name: '관악 용암 화산', short: '관악', icon: '🌋',
+    sub: '끓어오르는 용암과 잿빛 하늘',
+    theme: {
+      ground: 0x8a3a28, ground2: '#3a1a12', grass: '#c05a3a', accent: 0xffa060,
+      sky: 0xff9a6a, fog: 0xd86a4a, fogDensity: 0.02,
+      prop: ['sandRock', 'pillar', 'rock', 'cactus'], ambient: 'sand', ambientColor: 0xffc080,
+    },
+    threat: 'blunt',
+    map: { cx: 0, cz: 96 },
+    gate: { x: 0, z: 48, along: 'x' },
+    npc: { name: '화산의 대장장이', x: -5, z: 22, icon: '🧑‍🏭' },
+    spawn: { x: 0, z: 23 }, boss: { x: 2, z: -32 }, mid: { x: 18, z: -4 }, field: { x: -30, z: 24 },
+    scale: SCALE[6], dropW: DROP_W[6],
+    mobs: {
+      normal: [
+        E({ key: 'lavaSlime', name: '용암 슬라임', shape: 'slime', color: 0xe86a3a, dark: 0x7a2a1a, hp: 700, atk: 72, speed: 1.6, atkRange: 1.5, atkCd: 1.3, aggro: 8, style: 'melee', soul: 'gray' }),
+        E({ key: 'volcanoImp', name: '화산 임프', shape: 'goblin', color: 0xd05a4a, dark: 0x6a2418, hp: 760, atk: 78, speed: 2.3, atkRange: 1.9, atkCd: 1.2, aggro: 9, style: 'melee', soul: 'gray' }),
+      ],
+      elite: [
+        E({ key: 'lavaGolem', name: '용암 골렘', shape: 'golem', color: 0xc05a2a, dark: 0x5a2410, hp: 1800, atk: 96, speed: 1.4, atkRange: 3.4, atkCd: 1.8, aggro: 10, style: 'aoe', elite: true, soul: 'green' }),
+      ],
+      mid: E({ key: 'magmaGolem', name: '마그마 골렘', shape: 'golem', color: 0xd06a2a, dark: 0x6a2a10, hp: 7000, atk: 122, speed: 1.35, atkRange: 3.6, atkCd: 1.9, aggro: 11, style: 'aoe', elite: true, boss: 'mid', soul: 'blue' }),
+      boss: E({ key: 'volcanoLord', name: '화산의 군주', shape: 'ogre', color: 0xb03a24, dark: 0x4a1810, hp: 12800, atk: 148, speed: 1.6, atkRange: 3.0, atkCd: 1.8, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
+      field: E({ key: 'goldMagmaGolem', name: '황금 마그마 골렘', shape: 'golem', color: 0xc9a13a, dark: 0x5a3a10, hp: 27000, atk: 180, speed: 1.35, atkRange: 3.8, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold' }),
+    },
+    chests: [{ x: -16, z: 6, hide: 'sandRock' }, { x: 14, z: 14, hide: 'pillar' }, { x: -8, z: -22, hide: 'rock' }],
+    quests: {
+      title: '타오르는 심장', npc: '화산의 대장장이',
+      steps: [
+        { text: '화산 몬스터 처치', type: 'kill', n: 16, reward: { gold: 1300, pt: 2, xp: 2200 } },
+        { text: '마그마 골렘 처치', type: 'mid', n: 1, reward: { gold: 1700, item: 4, xp: 3000 } },
+        { text: '화산의 군주 처치', type: 'boss', n: 1, reward: { gold: 2400, soul: 'purple', soulN: 7, xp: 3800, unlock: 7 } },
+      ],
+    },
+  },
+  {
+    id: 7, key: 'gangnam', name: '강남 달표면 황무지', short: '강남', icon: '🌑',
+    sub: '회색 달빛 아래 고요한 황무지',
+    theme: {
+      ground: 0x8a8f96, ground2: '#4a4d55', grass: '#b9bec8', accent: 0xd0d8e8,
+      sky: 0x2a2a3a, fog: 0x6a6a7a, fogDensity: 0.016,
+      prop: ['rock', 'pillar', 'sandRock'], ambient: 'spore', ambientColor: 0xc0c8ff,
+    },
+    threat: 'ranged',
+    map: { cx: 96, cz: 96 },
+    gate: { x: 48, z: 96, along: 'z' },
+    npc: { name: '달의 점쟁이', x: 6, z: 22, icon: '🧙‍♀️' },
+    spawn: { x: 0, z: 23 }, boss: { x: -2, z: -32 }, mid: { x: -18, z: 6 }, field: { x: 28, z: 22 },
+    scale: SCALE[7], dropW: DROP_W[7],
+    mobs: {
+      normal: [
+        E({ key: 'moonShadow', name: '달그림자', shape: 'wraith', color: 0x8f8fb8, dark: 0x3a3a55, hp: 950, atk: 88, speed: 1.7, atkRange: 7.0, atkCd: 2.3, aggro: 9, style: 'ranged', soul: 'gray' }),
+        E({ key: 'moonRabbit', name: '달토끼', shape: 'frog', color: 0xd8d8e8, dark: 0x6a6a8a, hp: 1020, atk: 95, speed: 1.9, atkRange: 2.0, atkCd: 1.3, aggro: 8, style: 'melee', soul: 'gray' }),
+      ],
+      elite: [
+        E({ key: 'moonKnight', name: '달의 기사', shape: 'anubis', color: 0x7a7ab0, dark: 0x2a2a4a, hp: 2400, atk: 115, speed: 2.0, atkRange: 2.6, atkCd: 1.4, aggro: 10, style: 'melee', elite: true, soul: 'green' }),
+      ],
+      mid: E({ key: 'moonGuardian', name: '달의 수호자', shape: 'anubis', color: 0x9a9ad0, dark: 0x3a3a5a, hp: 9500, atk: 148, speed: 2.0, atkRange: 2.8, atkCd: 1.5, aggro: 11, style: 'melee', elite: true, boss: 'mid', soul: 'blue' }),
+      boss: E({ key: 'moonQueen', name: '달의 여왕', shape: 'siren', color: 0xc8b8e8, dark: 0x4a3a6a, hp: 17000, atk: 178, speed: 1.7, atkRange: 7.8, atkCd: 1.9, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
+      field: E({ key: 'goldMoonQueen', name: '황금 달의 여왕', shape: 'siren', color: 0xc9a13a, dark: 0x5a4a1a, hp: 36000, atk: 215, speed: 1.65, atkRange: 8.0, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold' }),
+    },
+    chests: [{ x: 12, z: 12, hide: 'rock' }, { x: -18, z: -8, hide: 'pillar' }, { x: 6, z: -20, hide: 'sandRock' }],
+    quests: {
+      title: '달빛 황무지', npc: '달의 점쟁이',
+      steps: [
+        { text: '달표면 몬스터 처치', type: 'kill', n: 18, reward: { gold: 1900, pt: 2, xp: 3200 } },
+        { text: '달의 수호자 처치', type: 'mid', n: 1, reward: { gold: 2400, item: 5, xp: 4400 } },
+        { text: '달의 여왕 처치', type: 'boss', n: 1, reward: { gold: 3400, soul: 'purple', soulN: 8, xp: 5600, unlock: 8 } },
+      ],
+    },
+  },
+  {
+    id: 8, key: 'dobong', name: '도봉 수정 빙하', short: '도봉', icon: '🧊',
+    sub: '수정이 빛나는 얼어붙은 빙하',
+    theme: {
+      ground: 0x9fd4e8, ground2: '#3a6a8a', grass: '#d0f0ff', accent: 0x7fe0f0,
+      sky: 0xcfe8ff, fog: 0xa8d0e8, fogDensity: 0.018,
+      prop: ['rock', 'bubbleRock', 'pillar'], ambient: 'bubble', ambientColor: 0x9fe8ff,
+    },
+    threat: 'slash',
+    map: { cx: 96, cz: 0 },
+    gate: { x: 96, z: 48, along: 'x' },
+    npc: { name: '빙하의 탐험가', x: -6, z: 22, icon: '🧑‍🚀' },
+    spawn: { x: 0, z: 23 }, boss: { x: 0, z: -32 }, mid: { x: 20, z: -8 }, field: { x: -30, z: -24 },
+    scale: SCALE[8], dropW: DROP_W[8],
+    mobs: {
+      normal: [
+        E({ key: 'iceSlime', name: '얼음 슬라임', shape: 'slime', color: 0x9fd8f0, dark: 0x3a6a8a, hp: 1280, atk: 106, speed: 1.6, atkRange: 1.5, atkCd: 1.3, aggro: 8, style: 'melee', soul: 'gray' }),
+        E({ key: 'glacierSpirit', name: '빙하 정령', shape: 'wraith', color: 0xb8e0f0, dark: 0x4a7a8a, hp: 1360, atk: 114, speed: 1.8, atkRange: 7.0, atkCd: 2.2, aggro: 9, style: 'ranged', soul: 'gray' }),
+      ],
+      elite: [
+        E({ key: 'crystalGolem', name: '수정 골렘', shape: 'golem', color: 0x7fc8d8, dark: 0x2a5a6a, hp: 3200, atk: 138, speed: 1.5, atkRange: 3.4, atkCd: 1.7, aggro: 10, style: 'aoe', elite: true, soul: 'green' }),
+      ],
+      mid: E({ key: 'glacierHydra', name: '빙하 히드라', shape: 'hydra', color: 0x6fb0d0, dark: 0x2a4a6a, hp: 12800, atk: 178, speed: 1.5, atkRange: 3.4, atkCd: 1.8, aggro: 11, style: 'poison', elite: true, boss: 'mid', soul: 'blue' }),
+      boss: E({ key: 'glacierQueen', name: '빙하의 여왕', shape: 'witch', color: 0xa8d0e8, dark: 0x3a5a7a, hp: 23000, atk: 212, speed: 1.45, atkRange: 7.5, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
+      field: E({ key: 'goldGlacierHydra', name: '황금 빙하 히드라', shape: 'hydra', color: 0xc9a13a, dark: 0x5a5a1a, hp: 48000, atk: 255, speed: 1.45, atkRange: 3.6, atkCd: 2.1, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold' }),
+    },
+    chests: [{ x: -12, z: 14, hide: 'bubbleRock' }, { x: 18, z: -6, hide: 'rock' }, { x: -6, z: -24, hide: 'pillar' }],
+    quests: {
+      title: '얼어붙은 수정', npc: '빙하의 탐험가',
+      steps: [
+        { text: '빙하 몬스터 처치', type: 'kill', n: 20, reward: { gold: 2600, pt: 3, xp: 4800 } },
+        { text: '빙하 히드라 처치', type: 'mid', n: 1, reward: { gold: 3300, item: 5, xp: 6400 } },
+        { text: '빙하의 여왕 처치', type: 'boss', n: 1, reward: { gold: 4600, soul: 'purple', soulN: 9, xp: 8200, unlock: 9 } },
+      ],
+    },
+  },
+  {
+    id: 9, key: 'bukhansan', name: '북한산 설산 정상', short: '북한산', icon: '🏔️',
+    sub: '눈 덮인 정상 · 지구 귀환 게이트',
+    theme: {
+      ground: 0xe8eef2, ground2: '#8a97a8', grass: '#ffffff', accent: 0xffffff,
+      sky: 0xd8ecff, fog: 0xc8d8e8, fogDensity: 0.014,
+      prop: ['tree', 'rock', 'pillar'], ambient: 'firefly', ambientColor: 0xffffff,
+    },
+    threat: 'blunt',
+    map: { cx: 96, cz: -96 },
+    gate: { x: 96, z: -48, along: 'x' },
+    npc: { name: '설산의 은둔자', x: 4, z: 22, icon: '🧓' },
+    spawn: { x: 0, z: 23 }, boss: { x: 0, z: -32 }, mid: { x: -20, z: -5 }, field: { x: 30, z: 22 },
+    scale: SCALE[9], dropW: DROP_W[9],
+    mobs: {
+      normal: [
+        E({ key: 'snowSpirit', name: '눈보라 정령', shape: 'wraith', color: 0xd8e8f0, dark: 0x6a7a8a, hp: 1720, atk: 128, speed: 1.8, atkRange: 7.0, atkCd: 2.2, aggro: 9, style: 'ranged', soul: 'gray' }),
+        E({ key: 'snowYeti', name: '설산 예티', shape: 'ogre', color: 0xe8e8e8, dark: 0x8a8a8a, hp: 1820, atk: 136, speed: 1.7, atkRange: 2.6, atkCd: 1.6, aggro: 9, style: 'melee', soul: 'gray' }),
+      ],
+      elite: [
+        E({ key: 'snowGiant', name: '설산 거인', shape: 'ogre', color: 0xd0d8e0, dark: 0x5a6a7a, hp: 4300, atk: 165, speed: 1.7, atkRange: 2.8, atkCd: 1.6, aggro: 10, style: 'melee', elite: true, soul: 'green' }),
+      ],
+      mid: E({ key: 'snowGuardian', name: '설산의 수호자', shape: 'ogre', color: 0xe0e8f0, dark: 0x6a7a8a, hp: 17200, atk: 212, speed: 1.7, atkRange: 3.0, atkCd: 1.7, aggro: 11, style: 'aoe', elite: true, boss: 'mid', soul: 'blue' }),
+      boss: E({ key: 'snowKing', name: '설산의 왕', shape: 'ent', color: 0xf0f4f8, dark: 0x5a6a7a, hp: 31000, atk: 252, speed: 1.35, atkRange: 3.4, atkCd: 1.9, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
+      field: E({ key: 'goldSnowKing', name: '황금 설산의 왕', shape: 'ent', color: 0xc9a13a, dark: 0x5a4a1a, hp: 65000, atk: 300, speed: 1.3, atkRange: 3.6, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold' }),
+    },
+    chests: [{ x: 14, z: 8, hide: 'tree' }, { x: -16, z: -14, hide: 'rock' }, { x: 10, z: -26, hide: 'pillar' }],
+    quests: {
+      title: '설산 정상의 문', npc: '설산의 은둔자',
+      steps: [
+        { text: '설산 몬스터 처치', type: 'kill', n: 22, reward: { gold: 3600, pt: 3, xp: 7000 } },
+        { text: '설산의 수호자 처치', type: 'mid', n: 1, reward: { gold: 4600, item: 5, xp: 9200 } },
+        { text: '설산의 왕 처치', type: 'boss', n: 1, reward: { gold: 6400, soul: 'gold', soulN: 4, xp: 12000 } },
+      ],
+    },
+  },
 ];
 
 export const PLAYABLE = ZONES.filter((z) => !z.comingSoon);
@@ -477,7 +671,10 @@ export const CHARMS = {
   aqua: { id: 'aqua', name: '수중호흡 아티팩트', icon: '🫧', desc: '한강 심해 유적에 들어갈 수 있습니다' },
 };
 
-export const SECRET_TOTAL = 13;
+export const SECRET_TOTAL = 28;
+
+// 지구 귀환 게이트 — 9구역(북한산) 북쪽 끝. 9구역 보스를 처치하면 열린다 (보이는 것만, 엔딩 연출은 아직 없음)
+export const EARTH_GATE = { x: 96, z: -138 };
 
 // 몬스터 역할별 기본 보상 (구역 배율을 곱한다)
 export const MOB_REWARD = {
