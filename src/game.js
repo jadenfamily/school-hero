@@ -468,7 +468,8 @@ export function createGame(THREE) {
   // ---------- 3D 준비 ----------
   function disposeGroup(g) {
     g.traverse((o) => {
-      if (o.geometry) o.geometry.dispose();
+      // 공유 지오메트리(몬스터 3D 캐시)는 해제하지 않는다 — 다른 인형이 쓰고 있다
+      if (o.geometry && !o.geometry.userData.shared) o.geometry.dispose();
       if (o.material) {
         if (Array.isArray(o.material)) o.material.forEach((m) => m.dispose());
         else o.material.dispose();
@@ -573,6 +574,7 @@ export function createGame(THREE) {
       const sp = worldPos(zone, zone.spawn.x, zone.spawn.z);
       game.player.x = sp.x; game.player.z = sp.z; game.player.facing = Math.PI;
       game.playerMesh.position.set(sp.x, groundY(sp.x, sp.z), sp.z);
+      snapCompanions();
     }
     applyDistrictAtmosphere(zone);
     spawnDistrictMobs(zone);
@@ -602,6 +604,7 @@ export function createGame(THREE) {
     const sp = worldPos(z1, z1.spawn.x, z1.spawn.z);
     game.player.x = sp.x; game.player.z = sp.z; game.player.facing = Math.PI;
     game.setDistrict(1, { spawn: true });
+    snapCompanions();
     if (game.ui) game.ui.toast('처음 소환 지점으로 돌아왔어요. 체력이 모두 회복되었습니다.', 'good');
     return true;
   };
@@ -835,6 +838,9 @@ export function createGame(THREE) {
   game.itemName = itemName;
 
   game.addItem = function (kind, fam, grade, n = 1) {
+    // 방어: 종류에 없는 fam이면 가방에 절대 넣지 않는다 (잘못된 드롭이 생겨도 무효 처리)
+    const table = kind === 'weapon' ? WEAPONS : kind === 'armor' ? ARMOR_KINDS : kind === 'accessory' ? ACCESSORY_KINDS : null;
+    if (!table || !table[fam]) return null;
     const key = `${kind}:${fam}:${grade}`;
     game.state.bag[key] = (game.state.bag[key] || 0) + n;
     return key;
@@ -913,19 +919,22 @@ export function createGame(THREE) {
       return;
     }
     addPickup('gold', e.x, e.z, Math.max(1, Math.round(game.mobStats(zone.id, e.def).gold * (0.85 + Math.random() * 0.3))));
+    // 종류는 한 번만 뽑아서 fam도 같은 종류에서 뽑는다 (두 번 뽑으면 종류·fam이 어긋나 무효 아이템이 된다)
+    const kind = pickKind();
+    const fam = pickFam(kind);
     if (e.isField) {
       addPickup('soul', e.x, e.z, 'gold');
-      addPickup('item', e.x, e.z, { kind: pickKind(), fam: pickFam(pickKind()), grade: 4 });
+      addPickup('item', e.x, e.z, { kind, fam, grade: 4 });
     } else if (e.isBoss) {
       addPickup('soul', e.x, e.z, 'purple');
-      addPickup('item', e.x, e.z, { kind: pickKind(), fam: pickFam(pickKind()), grade: 3 });
+      addPickup('item', e.x, e.z, { kind, fam, grade: 3 });
     } else if (e.isMid) {
       addPickup('soul', e.x, e.z, 'blue');
-      addPickup('item', e.x, e.z, { kind: pickKind(), fam: pickFam(pickKind()), grade: 2 });
+      addPickup('item', e.x, e.z, { kind, fam, grade: 2 });
     } else if (e.elite) {
       addPickup('soul', e.x, e.z, 'green');
       // 반복 처치해도 항상 녹색(고급) 등급 장비 1개
-      addPickup('item', e.x, e.z, { kind: pickKind(), fam: pickFam(pickKind()), grade: 1 });
+      addPickup('item', e.x, e.z, { kind, fam, grade: 1 });
     }
     // 스킬북: 구역 보스는 확정, 중간보스는 확률
     const bookChance = e.isBoss ? 1 : e.isMid ? 0.45 : 0;
@@ -1668,6 +1677,8 @@ export function createGame(THREE) {
       if (e.tag) e.tag.style.opacity = '1';
     } else {
       e.mesh.rotation.y = e.facing;
+      // 3D 몬스터 애니메이션 (걷기 바운스·슬라임 통통 튐·날개 등)
+      if (e.mesh.userData.update) e.mesh.userData.update(game.time, e);
     }
   }
 
@@ -2400,6 +2411,35 @@ export function createGame(THREE) {
   }
   game.healTarget = healTarget;
 
+  // 소품 충돌 밀어내기 (플레이어·적과 같은 방식). 이미 소품 안에 있으면 가장 가까운 밖으로 밀어낸다.
+  function pushOutOfProps(x, z, pad = 0.35) {
+    if (!game.world) return { x, z };
+    for (const pr of game.world.propsNear(x, z, 5)) {
+      let dx = x - pr.x, dz = z - pr.z;
+      let dd = Math.hypot(dx, dz);
+      const min = pr.r + pad;
+      if (dd < min) {
+        if (dd < 0.0001) { dx = 1; dz = 0; dd = 1; }
+        x = pr.x + (dx / dd) * min;
+        z = pr.z + (dz / dd) * min;
+      }
+    }
+    return { x, z };
+  }
+
+  // 동료 순간이동 (귀환·부활·스폰 이동 시 플레이어와 함께 자리로 붙인다)
+  function snapCompanions() {
+    if (!game.player || !game.compObjects) return;
+    game.compObjects.forEach((c, i) => {
+      const fixed = pushOutOfProps(game.player.x - 1.6 + i * 1.6, game.player.z + 1.8, 0.35);
+      c.x = fixed.x; c.z = fixed.z;
+      if (c.mesh) {
+        c.mesh.position.set(c.x, groundY(c.x, c.z), c.z);
+        c.mesh.rotation.y = Math.PI;
+      }
+    });
+  }
+
   function updateCompanions(dt) {
     const p = game.player;
     if (!p) return;
@@ -2425,6 +2465,9 @@ export function createGame(THREE) {
         c.z += (dz / dd) * sp * dt;
         c.mesh.rotation.y = Math.atan2(dx, dz);
       }
+      // 소품 충돌 (플레이어와 같은 방식 — 바위·나무를 뚫지 않고 돌아간다)
+      const fixed = pushOutOfProps(c.x, c.z, 0.35);
+      c.x = fixed.x; c.z = fixed.z;
       c.mesh.position.set(c.x, groundY(c.x, c.z) + Math.abs(Math.sin(game.time * 7 + i)) * 0.05, c.z);
       // 3D 동료 걷기 모션
       if (c.mesh.userData.legL) {
@@ -3583,7 +3626,7 @@ export function createGame(THREE) {
   if (new URLSearchParams(location.search).has('debug')) {
     window.__SH__ = game;
     game.debug = {
-      teleport(x, z) { game.player.x = x; game.player.z = z; },
+      teleport(x, z) { game.player.x = x; game.player.z = z; snapCompanions(); },
       give(kind, fam, grade, n = 1) { game.addItem(kind, fam, grade, n); game.ui.markDirty(true); },
       giveAll(grade, n = 3) { for (const f of Object.keys(WEAPONS)) game.addItem('weapon', f, grade, n); for (const f of Object.keys(ARMOR_KINDS)) game.addItem('armor', f, grade, n); for (const f of Object.keys(ACCESSORY_KINDS)) game.addItem('accessory', f, grade, n); game.ui.markDirty(true); },
       equip(kind, fam, grade) { game.addItem(kind, fam, grade, 1); return game.equipItem(kind, fam, grade); },
@@ -3622,12 +3665,12 @@ export function createGame(THREE) {
       projectiles() { return game.projectiles.map((p) => ({ style: p.style, skill: p.skill, from: p.from })); },
       admin(on) { if (on === false) return game.disableAdmin(); if (on === true) return game.enableAdmin(game.adminCode); return game.isAdmin(); },
       giveMp(n = 999) { game.player.mp = Math.min(game.derived().maxMp, n); return game.player.mp; },
-      chest(i = 0) { const c = game.world.chests[i]; if (c) { game.player.x = c.x; game.player.z = c.z + 0.6; } },
+      chest(i = 0) { const c = game.world.chests[i]; if (c) { game.player.x = c.x; game.player.z = c.z + 0.6; snapCompanions(); } },
       advance(sec, dt = 1 / 60) { const n = Math.min(3600, Math.round(sec / dt)); for (let i = 0; i < n; i++) step(dt); return game.time; },
       unlockAll() { game.state.unlocked = [1, 2, 3, 4, 5, 6, 7, 8, 9]; game.state.equip.charm = { kind: 'charm', fam: 'aqua', grade: 0 }; if (game.world) for (let i = 2; i <= 9; i++) game.world.openGate(i); game.ui.markDirty(true); },
       enter(id) { return game.enterZone(id); },
       killZone(n = 1) { const list = game.enemies.filter((e) => e.alive && !e.isBoss && !e.isMid); for (let i = 0; i < Math.min(n, list.length); i++) game.dealDamage(list[i], 999999, { canCrit: false }); },
-      nearNpc() { const n = game.world.npcs[game.zone.id].position; game.player.x = n.x + 1.5; game.player.z = n.z + 0.5; },
+      nearNpc() { const n = game.world.npcs[game.zone.id].position; game.player.x = n.x + 1.5; game.player.z = n.z + 0.5; snapCompanions(); },
       hitOnce() { return playerAttack(); },
       options(kind, fam, grade) { return itemOptions(kind, fam, grade); },
       bossReset(zoneId = game.zone.id, type) {
@@ -3641,7 +3684,7 @@ export function createGame(THREE) {
       },
       bossStatus(zoneId = game.zone.id) { return game.bossStatus(zoneId); },
       chestNear() { return game.nearChest ? { id: game.nearChest.id, x: game.nearChest.x, z: game.nearChest.z } : null; },
-      chestGoto(i = 0) { const c = game.world.chests[i]; if (c) { game.player.x = c.x; game.player.z = c.z + 1.2; return c.id; } return null; },
+      chestGoto(i = 0) { const c = game.world.chests[i]; if (c) { game.player.x = c.x; game.player.z = c.z + 1.2; snapCompanions(); return c.id; } return null; },
       openChest() { return game.openChest(game.nearChest); },
       evolve(kind, fam, grade) { return game.evolve(kind, fam, grade); },
       evolveReady() { return game.evolveReady(); },
