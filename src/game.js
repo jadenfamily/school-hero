@@ -703,7 +703,8 @@ export function createGame(THREE) {
     glow.rotation.x = -Math.PI / 2; glow.position.y = 0.04; grp.add(glow);
     grp.position.set(spot.x, groundY(spot.x, spot.z), spot.z);
     scene.add(grp);
-    const g = { type, x: spot.x, z: spot.z, mesh: grp, art, glow, el: null, until: (game.state.bossTimers || {})[bossTimerKey(type)] || 0 };
+    const defHit = allBossDefs(game.zone).find((b) => b.type === type);
+    const g = { type, name: defHit ? defHit.name : type, x: spot.x, z: spot.z, mesh: grp, art, glow, el: null, until: (game.state.bossTimers || {})[bossTimerKey(type)] || 0 };
     game.graves.push(g);
     if (game.ui) game.ui.attachGrave(g);
   };
