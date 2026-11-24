@@ -1053,6 +1053,9 @@ function heroAtlas(THREE, av, eq) {
 // 주인공 2.5D 도트 빌보드 (생성 PNG 그대로 · 카메라 정면 · 입체감)
 // =======================================================================
 const HERO_H = 2.2;
+// 코스튬은 정적 PNG 위에 색조·오라로 표현한다
+const COSTUME_TINT = { knight: 0xbfd4ff, mage: 0xc9a0ff, dark: 0x8a7fa8, royal: 0xffcf5e };
+const COSTUME_AURA = { knight: 0xb9c8dc, mage: 0x9ff0ff, dark: 0xb46cff, royal: 0xffd257 };
 export function makeHeroSprite(THREE, av, eq) {
   const id = av && HERO_IDS.includes(av.id) ? av.id : 'boyA';
   const url = ASSET_URL.hero(id);
@@ -1061,6 +1064,8 @@ export function makeHeroSprite(THREE, av, eq) {
   const g = new THREE.Group();
 
   const mat = new THREE.MeshBasicMaterial({ map: getTexture(THREE, url), transparent: true, alphaTest: 0.4, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
+  const cid = eq && eq.mode === 'costume' ? eq.costumeId : null;
+  if (cid && COSTUME_TINT[cid]) mat.color.setHex(COSTUME_TINT[cid]);
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
   mesh.renderOrder = 16;
   mesh.scale.set(w, h, 1);
@@ -1081,7 +1086,7 @@ export function makeHeroSprite(THREE, av, eq) {
 
   // 장비 등급 오라 (바닥 링)
   const grade = eq && eq.weapon ? eq.weapon.grade : 0;
-  const auraCol = grade >= 2 ? GRADES[Math.min(5, grade)].color : '#8fd8ff';
+  const auraCol = cid && COSTUME_AURA[cid] ? '#' + COSTUME_AURA[cid].toString(16).padStart(6, '0') : grade >= 2 ? GRADES[Math.min(5, grade)].color : '#8fd8ff';
   const aura = new THREE.Mesh(
     new THREE.RingGeometry(w * 0.34, w * 0.42, 26),
     new THREE.MeshBasicMaterial({ color: auraCol, transparent: true, opacity: grade >= 2 ? 0.3 : 0.12, side: THREE.DoubleSide, depthWrite: false }),

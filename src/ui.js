@@ -831,7 +831,7 @@ export function createUI(game, THREE) {
         </div>
       </div>
       <div class="look-box">
-        <div class="look-head"><b>👗 외형</b><span class="hint">능력치는 그대로, 보이는 모습만 바뀝니다</span>
+        <div class="look-head"><b>👗 외형</b><span class="hint">능력치는 그대로, 캐릭터 색조·오라로 표현됩니다</span>
           <button class="mini-btn gold" data-gacha>🎲 외형 뽑기 ${COSTUME_PULL_COST}G</button></div>
         <div class="look-opts">${lookOpts}</div>
         <div class="codex-head"><b>📖 외형 도감</b><span class="codex-total">${totalBonusText}</span></div>
