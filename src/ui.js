@@ -1684,7 +1684,7 @@ export function createUI(game, THREE) {
         ${claimable ? `<button class="btn gold ach-claim" data-ach="${a.id}">받기</button>` : a.claimed ? '<span class="ach-ok">완료</span>' : ''}
       </div>`;
     }).join('');
-    const sheet = openSheet(`${head('🏆 업적', `${done}/${list.length} 달성`)}
+    const sheet = openSheet(`${head('🏆 업적', `${done}/${list.length} 달성`, 'ach')}
       <div class="hint" style="margin-bottom:10px">모험 기록이 자동으로 쌓입니다. 달성한 업적마다 골드와 스탯 포인트 +1을 받을 수 있어요.</div>
       <div class="ach-list">${cards}</div>`, 'hub-sheet');
     sheet.querySelectorAll('[data-ach]').forEach((el) => el.addEventListener('click', () => {
@@ -1703,7 +1703,7 @@ export function createUI(game, THREE) {
       for (const ex of (z.extraBosses || [])) list.push([ex.label || '추가 보스', ex.defs || [ex.def]]);
       const rows = list.map(([label, arr]) => arr.map((m) => {
         const st = game.mobStats(z.id, m);
-        const lv = z.scale.lvl + (m.boss === 'field' ? 5 : m.boss === 'boss' ? 3 : m.boss === 'mid' ? 1 : m.elite ? 1 : 0);
+        const lv = game.scaledMobLevel ? game.scaledMobLevel(m, z) : z.scale.lvl + (m.boss === 'field' ? 5 : m.boss === 'boss' ? 3 : m.boss === 'mid' ? 1 : m.elite ? 1 : 0);
         const drop = m.boss === 'field' ? '지역 보스 영혼 · 노란 장비' : m.boss === 'boss' ? '에픽 영혼 · 보라 장비' : m.boss === 'mid' ? '중간보스 영혼 · 파란 장비' : m.elite ? '정예 영혼 · 녹색 장비' : '일반 영혼';
         const el = ELEMENTS[m.elem] || null;
         const weak = el ? Object.entries(ELEM_BEATS).filter(([, arr]) => arr.includes(m.elem)).map(([k]) => (ELEMENTS[k] || {}).icon || k).join(' ') : '';
