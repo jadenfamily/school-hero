@@ -284,6 +284,22 @@ export const ZONES = [
       field: E({ key: 'goldHydra', name: '황금 히드라', shape: 'hydra', color: 0xb99a3a, dark: 0x5b6b22, hp: 5200, atk: 62, speed: 1.45, atkRange: 3.6, atkCd: 2.1, aggro: 12, style: 'aoe', boss: 'field', soul: 'gold' }),
     },
     chests: [{ x: 14, z: 14, hide: 'deadTree' }, { x: -20, z: -2, hide: 'rock' }, { x: 8, z: -24, hide: 'wall' }],
+    // 추가 보스 (2차 보스 패턴) — 각자 타이머가 지난 경우에만 등장
+    extraBosses: [
+      {
+        type: 'shroom', label: '독버섯 보스',
+        def: E({ key: 'shroom', name: '독버섯 군주', shape: 'mushroom', color: 0xb06ab0, dark: 0x5a2a6a, hp: 1500, atk: 40, speed: 1.4, atkRange: 3.0, atkCd: 1.9, aggro: 10, style: 'poison', elite: true, boss: 'mid', soul: 'blue', elem: 'nature', timerType: 'shroom', pattern: 'poison' }),
+        x: -20, z: 10,
+      },
+      {
+        type: 'twins', label: '쌍둥이 마녀',
+        defs: [
+          E({ key: 'twinA', name: '쌍둥이 마녀 루나', shape: 'witch', color: 0x7fb0e0, dark: 0x2a4a6a, hp: 1700, atk: 42, speed: 1.5, atkRange: 7.0, atkCd: 2.0, aggro: 12, style: 'aoe', boss: 'boss', soul: 'purple', elem: 'shadow', timerType: 'twins', pattern: 'twins', group: 'twins', enrage: true }),
+          E({ key: 'twinB', name: '쌍둥이 마녀 솔라', shape: 'witch', color: 0xe0a0c0, dark: 0x6a2a4a, hp: 1700, atk: 42, speed: 1.5, atkRange: 7.0, atkCd: 2.0, aggro: 12, style: 'aoe', boss: 'boss', soul: 'purple', elem: 'shadow', timerType: 'twins', pattern: 'twins', group: 'twins', enrage: true }),
+        ],
+        x: 18, z: -18,
+      },
+    ],
     quests: {
       title: '안개 속의 약초', npc: '늪지 약초꾼',
       steps: [
@@ -318,6 +334,18 @@ export const ZONES = [
       field: E({ key: 'goldAnubis', name: '황금 아누비스', shape: 'anubis', color: 0xcaa03a, dark: 0x3a3020, hp: 8800, atk: 78, speed: 2.0, atkRange: 2.8, atkCd: 1.6, aggro: 12, style: 'melee', boss: 'field', soul: 'gold' }),
     },
     chests: [{ x: -16, z: 8, hide: 'sandRock' }, { x: 18, z: 12, hide: 'pillar' }, { x: -9, z: -20, hide: 'sandRock' }],
+    // 추가 보스 (2차 보스 패턴) — 각자 타이머가 지난 경우에만 등장
+    extraBosses: [
+      {
+        type: 'brothers', label: '바바리안 3형제',
+        defs: [
+          E({ key: 'barbAxe', name: '바바리안 맏형', shape: 'barbarian', weapon: 'axe', color: 0xc05a3a, dark: 0x5a2418, hp: 2600, atk: 58, speed: 1.9, atkRange: 2.6, atkCd: 1.4, aggro: 11, style: 'melee', boss: 'boss', soul: 'purple', elem: 'blade', timerType: 'brothers', pattern: 'brothers', group: 'brothers', statue: true, enrage: true }),
+          E({ key: 'barbBow', name: '바바리안 둘째', shape: 'barbarian', weapon: 'bow', color: 0x6a9a4a, dark: 0x2a4a1e, hp: 2100, atk: 52, speed: 2.0, atkRange: 8.0, atkCd: 1.8, aggro: 11, style: 'ranged', boss: 'boss', soul: 'purple', elem: 'blade', timerType: 'brothers', pattern: 'brothers', group: 'brothers', statue: true, enrage: true }),
+          E({ key: 'barbMace', name: '바바리안 막내', shape: 'barbarian', weapon: 'mace', color: 0x5a7ac0, dark: 0x243a6a, hp: 2900, atk: 55, speed: 1.7, atkRange: 2.6, atkCd: 1.6, aggro: 11, style: 'melee', boss: 'boss', soul: 'purple', elem: 'holy', timerType: 'brothers', pattern: 'brothers', group: 'brothers', statue: true, enrage: true }),
+        ],
+        x: -18, z: 12,
+      },
+    ],
     quests: {
       title: '모래 아래 유산', npc: '사막 대상인',
       steps: [
@@ -352,6 +380,14 @@ export const ZONES = [
       field: E({ key: 'goldKraken', name: '황금 크라켄', shape: 'kraken', color: 0xc9a13a, dark: 0x5a3a1a, hp: 15000, atk: 118, speed: 1.35, atkRange: 4.4, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold' }),
     },
     chests: [{ x: 16, z: 10, hide: 'coral' }, { x: -14, z: -14, hide: 'ruinPillar' }, { x: 12, z: -26, hide: 'bubbleRock' }],
+    // 추가 보스 (2차 보스 패턴) — 각자 타이머가 지난 경우에만 등장
+    extraBosses: [
+      {
+        type: 'dragon', label: '심해룡',
+        def: E({ key: 'dragon', name: '심해룡', shape: 'dragon', color: 0x3f8fd0, dark: 0x1c4a6a, hp: 6800, atk: 92, speed: 1.6, atkRange: 4.0, atkCd: 1.9, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple', elem: 'water', timerType: 'dragon', pattern: 'dragon', enrage: true }),
+        x: -28, z: -10,
+      },
+    ],
     quests: {
       title: '가라앉은 기록', npc: '심해의 기록관',
       steps: [
@@ -395,12 +431,17 @@ export const SOUL_KINDS = {
 };
 
 // 보스 리스폰 간격 (중간보스 4시간 · 에픽보스 6시간 · 지역 필드보스 24시간)
+// 추가 보스(독버섯 4시간 · 쌍둥이/3형제/드래곤 6시간)도 같은 규칙을 따른다
 export const BOSS_TIMER = {
   mid: 4 * 60 * 60 * 1000,
   boss: 6 * 60 * 60 * 1000,
   field: 24 * 60 * 60 * 1000,
+  shroom: 4 * 60 * 60 * 1000,
+  twins: 6 * 60 * 60 * 1000,
+  brothers: 6 * 60 * 60 * 1000,
+  dragon: 6 * 60 * 60 * 1000,
 };
-export const BOSS_LABEL = { mid: '중간보스', boss: '에픽보스', field: '지역 필드보스' };
+export const BOSS_LABEL = { mid: '중간보스', boss: '에픽보스', field: '지역 필드보스', shroom: '중간보스', twins: '에픽보스', brothers: '에픽보스', dragon: '에픽보스' };
 
 // 같은 등급·같은 아이템을 모으면 빨강(신화) 등급으로 진화한다
 export const EVOLVE_NEED = [300, 200, 100, 70, 30];
@@ -501,6 +542,7 @@ export const ELEM_OF_SHAPE = {
   frog: 'water', lizard: 'nature', wraith: 'shadow', hydra: 'water', witch: 'shadow',
   scorpion: 'fire', mummy: 'shadow', scarab: 'fire', anubis: 'shadow', golem: 'fire',
   merfolk: 'water', naga: 'water', crab: 'water', siren: 'water', kraken: 'water',
+  dragon: 'fire', mushroom: 'nature', barbarian: 'blade', skeleton: 'shadow',
 };
 export const ELEM_OF_WEAPON = {
   sword: 'blade', dagger: 'shadow', axe: 'blade', mace: 'holy',
