@@ -1,5 +1,5 @@
 // 3D 월드 · 캐릭터 생성 (2.5D 도트 스프라이트 + 로우폴리 지형)
-import { AVATAR_MAP, GRADES, ARMOR_KINDS } from './data.js';
+import { AVATAR_MAP, GRADES, ARMOR_KINDS, ZONES, EARTH_GATE } from './data.js';
 import { makeMonsterSprite, visualEquip } from './sprites.js';
 import { ASSET_URL, getTexture, aspectOf } from './assets.js';
 const rand = (seed) => {
@@ -13,39 +13,70 @@ const rand = (seed) => {
   };
 };
 
+// ---------- 하나의 연결된 서울 지도 ----------
+// 288×288 월드, 96×96 구역 9개를 3×3으로 배치. 해금 순서대로 뱀처럼 이어진다.
+//   북(z=-144):  강북 사막(3)  한강 심해(4)  북한산 설산(9)
+//   중:          마곡 늪지(2)  남산 유적(5)  도봉 빙하(8)
+//   남(z=+144):  여의도 숲(1)  관악 화산(6)  강남 달표면(7)
+export const WORLD_SIZE = 288;
+export const WORLD_HALF = 144;
+const GRID = [[3, 4, 9], [2, 5, 8], [1, 6, 7]];
+export function districtAt(x, z) {
+  const col = Math.max(0, Math.min(2, Math.floor((x + WORLD_HALF) / 96)));
+  const row = Math.max(0, Math.min(2, Math.floor((z + WORLD_HALF) / 96)));
+  return ZONES.find((zn) => zn.id === GRID[row][col]) || ZONES[0];
+}
+export function worldPos(zone, lx, lz) {
+  return { x: zone.map.cx + lx, z: zone.map.cz + lz };
+}
+// 해금 순서대로 구역 중심을 잇는 메인 길 (뱀 모양)
+export const PATH_CENTERS = ZONES.filter((z) => z.map).map((z) => ({ x: z.map.cx, z: z.map.cz }));
+const PATH_SEGS = [];
+for (let i = 0; i < PATH_CENTERS.length - 1; i++) PATH_SEGS.push([PATH_CENTERS[i], PATH_CENTERS[i + 1]]);
+// 평탄화 지점: 각 구역의 스폰·NPC·보스·미드·필드·추가보스·게이트 (월드 좌표)
+const FLAT_POINTS = [];
+for (const zn of ZONES) {
+  if (!zn.map) continue;
+  const pts = [zn.spawn, zn.npc, zn.boss, zn.mid, zn.field];
+  for (const p of pts) if (p) FLAT_POINTS.push(worldPos(zn, p.x, p.z));
+  for (const ex of (zn.extraBosses || [])) FLAT_POINTS.push({ x: zn.map.cx + ex.x, z: zn.map.cz + ex.z });
+  if (zn.gate) FLAT_POINTS.push({ x: zn.gate.x, z: zn.gate.z });
+}
+// 한강: 지도 가로를 흐르는 강 (구역 4 중심선 z=-96 부근, 얕은 수로)
+const RIVER_Z = -96;
+
 // ---------- 지형 높이 ----------
-// 결정적 지형 높이: 구역마다 다른 완만한 언덕/웅덩이. 진폭 약 1.2~2.0, 경사는 완만하게.
-// 스폰·NPC·포털·보스/필드·메인 길목은 평탄하게 만든다.
+// 결정적 지형 높이: 월드 좌표 기준, 서 있는 구역마다 다른 완만한 언덕/웅덩이. 진폭 약 1.2~2.0.
+// 스폰·NPC·보스/필드·메인 길목·게이트는 평탄하게 만든다. 한강 라인(z=-96)은 얕은 수로.
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 const smooth = (t) => t * t * (3 - 2 * t);
-export function groundHeight(zoneId, x, z) {
-  const zId = zoneId | 0;
+function distToSeg(px, pz, ax, az, bx, bz) {
+  const dx = bx - ax, dz = bz - az;
+  const len2 = dx * dx + dz * dz || 1;
+  let t = ((px - ax) * dx + (pz - az) * dz) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (ax + dx * t), pz - (az + dz * t));
+}
+export function groundHeight(x, z) {
+  const zId = districtAt(x, z).id;
   const a = zId * 1.7 + 0.6;
   const b = zId * 2.3 + 1.9;
   const h1 = Math.sin(x * 0.09 + a) * Math.cos(z * 0.075 + b);
   const h2 = Math.sin(x * 0.045 - b * 0.7 + z * 0.06 + a * 0.5) * Math.cos(z * 0.05 - a);
   let h = h1 * 0.9 + h2 * 0.7;
-  // 스폰 지점(0, 23) 근처 평탄화
-  const dSpawn = Math.hypot(x - 0, z - 23);
-  h *= smooth(clamp01((dSpawn - 4) / 5));
-  // NPC 근처(4~6, 22) 평탄화
-  const dNpc = Math.hypot(x - 5, z - 22);
-  h *= smooth(clamp01((dNpc - 3) / 4));
-  // 포털 근처(-6, 28) 평탄화
-  const dPortal = Math.hypot(x + 6, z - 28);
-  h *= smooth(clamp01((dPortal - 3) / 4));
-  // 보스(-2, -32) / 미드(0, -33) 근처 평탄화
-  const dBoss = Math.hypot(x + 1, z + 32);
-  h *= smooth(clamp01((dBoss - 4) / 5));
-  // 필드/미드 지점 평탄화 (구역 1~4의 field/mid 위치)
-  const flatPts = [[30, -24], [-30, -26], [30, 24], [30, 22], [-19, -6], [20, -8], [18, -4], [-20, -5]];
-  for (const [fx, fz] of flatPts) {
-    const d = Math.hypot(x - fx, z - fz);
+  // 평탄화 지점 (스폰·NPC·보스·게이트 등)
+  for (const fp of FLAT_POINTS) {
+    const d = Math.hypot(x - fp.x, z - fp.z);
     h *= smooth(clamp01((d - 3.5) / 4.5));
   }
-  // 메인 길목: freeSpot과 같은 판정 |x + sin(z*0.08)*2.5| < 3.2 인 띠를 평탄하게
-  const dPath = Math.abs(x + Math.sin(z * 0.08) * 2.5);
+  // 메인 길목: 구역 중심을 잇는 길에서 3.2 이내를 평탄하게
+  let dPath = Infinity;
+  for (const [p0, p1] of PATH_SEGS) dPath = Math.min(dPath, distToSeg(x, z, p0.x, p0.z, p1.x, p1.z));
   h *= smooth(clamp01((dPath - 3.2) / 3.5));
+  // 한강 수로: 강 라인을 따라 얕게 팬다
+  const dRiver = Math.abs(z - RIVER_Z);
+  const rk = 1 - smooth(clamp01((dRiver - 4) / 6));
+  h = h * (1 - rk) + (-0.7) * rk;
   return h;
 }
 
@@ -110,103 +141,136 @@ function labelSprite(THREE, text, color = '#ffd257') {
   return s;
 }
 
-// ---------- 지면 텍스처 ----------
-function groundTexture(THREE, theme, zoneId, rnd) {
-  const S = 1024;
+// ---------- 지면 텍스처 (하나의 서울 지도 전체, 2048) ----------
+// 구역마다 다른 바탕색, 구역 중심을 잇는 뱀 모양 돌길, 한강 물줄기, 구역별 장식을 한 장에 그린다.
+function groundTexture(THREE, zones, rnd) {
+  const S = 2048;
   const c = document.createElement('canvas');
   c.width = c.height = S;
   const g = c.getContext('2d');
-  g.fillStyle = theme.ground2;
+  const X = (wx) => (wx + WORLD_HALF) / WORLD_SIZE * S;
+  const Y = (wz) => (wz + WORLD_HALF) / WORLD_SIZE * S;
+  const hexOf = (n) => '#' + (n >>> 0).toString(16).padStart(6, '0');
+  g.fillStyle = '#101825';
   g.fillRect(0, 0, S, S);
-  const col = '#' + theme.ground.toString(16).padStart(6, '0');
-  // 바탕 얼룩
-  for (let i = 0; i < 2600; i++) {
-    const x = rnd() * S, y = rnd() * S, r = 2 + rnd() * 16;
+  // 구역별 바탕 (중심 잔디색 → 가장자리 ground2)
+  for (const zn of zones) {
+    if (!zn.map) continue;
+    const cx = X(zn.map.cx), cy = Y(zn.map.cz);
+    const R = S / 3 * 0.72;
+    const grd = g.createRadialGradient(cx, cy, R * 0.05, cx, cy, R);
+    grd.addColorStop(0, zn.theme.grass || hexOf(zn.theme.ground));
+    grd.addColorStop(0.55, hexOf(zn.theme.ground));
+    grd.addColorStop(1, zn.theme.ground2);
+    g.fillStyle = grd;
+    g.fillRect(cx - S / 6, cy - S / 6, S / 3, S / 3);
+  }
+  // 바탕 얼룩 (서 있는 구역 색으로)
+  for (let i = 0; i < 4200; i++) {
+    const x = rnd() * S, y = rnd() * S, r = 3 + rnd() * 26;
+    const wx = x / S * WORLD_SIZE - WORLD_HALF, wz = y / S * WORLD_SIZE - WORLD_HALF;
+    const zn = districtAt(wx, wz);
     g.globalAlpha = 0.06 + rnd() * 0.14;
-    g.fillStyle = rnd() > 0.45 ? col : theme.grass;
+    g.fillStyle = rnd() > 0.45 ? hexOf(zn.theme.ground) : (zn.theme.grass || hexOf(zn.theme.ground));
     g.beginPath();
     g.ellipse(x, y, r, r * (0.5 + rnd() * 0.6), rnd() * 3.14, 0, 6.283);
     g.fill();
   }
   // 잔풀 결
-  for (let i = 0; i < 5200; i++) {
+  for (let i = 0; i < 8000; i++) {
     const x = rnd() * S, y = rnd() * S;
+    const wx = x / S * WORLD_SIZE - WORLD_HALF, wz = y / S * WORLD_SIZE - WORLD_HALF;
+    const zn = districtAt(wx, wz);
     g.globalAlpha = 0.12 + rnd() * 0.22;
-    g.strokeStyle = rnd() > 0.5 ? theme.grass : theme.ground2;
+    g.strokeStyle = rnd() > 0.5 ? (zn.theme.grass || hexOf(zn.theme.ground)) : zn.theme.ground2;
     g.lineWidth = 1 + rnd();
     g.beginPath();
     g.moveTo(x, y);
-    g.lineTo(x + (rnd() - 0.5) * 5, y - 2 - rnd() * 5);
+    g.lineTo(x + (rnd() - 0.5) * 6, y - 2 - rnd() * 6);
     g.stroke();
   }
   g.globalAlpha = 1;
-  // 길
-  const pathW = 34;
+  // 한강 물줄기 (z=-96 라인, 가로 전체)
+  const ry0 = Y(RIVER_Z - 8), ry1 = Y(RIVER_Z + 8);
+  g.fillStyle = '#2a7a96';
+  g.fillRect(0, ry0, S, ry1 - ry0);
+  g.globalAlpha = 0.35; g.strokeStyle = '#a8e8ee'; g.lineWidth = 3;
+  for (let i = 0; i < 40; i++) {
+    const y = ry0 + rnd() * (ry1 - ry0);
+    g.beginPath(); g.moveTo(rnd() * S * 0.4, y);
+    g.bezierCurveTo(S * 0.35, y + (rnd() - 0.5) * 14, S * 0.65, y + (rnd() - 0.5) * 14, S * (0.6 + rnd() * 0.4), y);
+    g.stroke();
+  }
+  g.globalAlpha = 1;
+  // 구역별 장식: 늪 웅덩이(2) · 심해 고리(4) · 용암 빛(6) · 달 크레이터(7) · 빙하 반짝임(8)
+  const z2 = zones.find((z) => z.id === 2), z4 = zones.find((z) => z.id === 4);
+  const z6 = zones.find((z) => z.id === 6), z7 = zones.find((z) => z.id === 7);
+  const z8 = zones.find((z) => z.id === 8);
+  if (z2) for (let i = 0; i < 16; i++) {
+    const x = X(z2.map.cx) + (rnd() - 0.5) * S / 3.4, y = Y(z2.map.cz) + (rnd() - 0.5) * S / 3.4, r = 26 + rnd() * 60;
+    g.globalAlpha = 0.5; g.fillStyle = '#2b4a45';
+    g.beginPath(); g.ellipse(x, y, r, r * 0.6, rnd() * 3, 0, 6.283); g.fill();
+    g.globalAlpha = 0.25; g.strokeStyle = '#9bd6bf'; g.lineWidth = 2; g.stroke();
+  }
+  if (z4) {
+    g.globalAlpha = 0.22; g.strokeStyle = '#a8e8ee'; g.lineWidth = 3;
+    for (let i = 0; i < 26; i++) {
+      const x = X(z4.map.cx) + (rnd() - 0.5) * S / 3.4, y = Y(z4.map.cz) + (rnd() - 0.5) * S / 3.4, r = 30 + rnd() * 90;
+      g.beginPath(); g.arc(x, y, r, 0, 6.283); g.stroke();
+    }
+  }
+  if (z6) for (let i = 0; i < 22; i++) {
+    const x = X(z6.map.cx) + (rnd() - 0.5) * S / 3.4, y = Y(z6.map.cz) + (rnd() - 0.5) * S / 3.4, r = 8 + rnd() * 26;
+    g.globalAlpha = 0.35 + rnd() * 0.3; g.fillStyle = rnd() > 0.5 ? '#ff7a3a' : '#ffb03a';
+    g.beginPath(); g.ellipse(x, y, r, r * 0.7, rnd() * 3, 0, 6.283); g.fill();
+  }
+  if (z7) for (let i = 0; i < 18; i++) {
+    const x = X(z7.map.cx) + (rnd() - 0.5) * S / 3.4, y = Y(z7.map.cz) + (rnd() - 0.5) * S / 3.4, r = 14 + rnd() * 34;
+    g.globalAlpha = 0.3; g.fillStyle = '#5a5e68';
+    g.beginPath(); g.arc(x, y, r, 0, 6.283); g.fill();
+    g.globalAlpha = 0.4; g.strokeStyle = '#c9ced8'; g.lineWidth = 2; g.stroke();
+  }
+  if (z8) for (let i = 0; i < 60; i++) {
+    const x = X(z8.map.cx) + (rnd() - 0.5) * S / 3.4, y = Y(z8.map.cz) + (rnd() - 0.5) * S / 3.4;
+    g.globalAlpha = 0.5 + rnd() * 0.4; g.fillStyle = '#ffffff';
+    g.beginPath(); g.arc(x, y, 1.5 + rnd() * 3, 0, 6.283); g.fill();
+  }
+  g.globalAlpha = 1;
+  // 구역 경계선 (은은하게)
+  g.strokeStyle = 'rgba(0,0,0,.16)'; g.lineWidth = 3;
+  for (const b of [-48, 48]) {
+    g.beginPath(); g.moveTo(X(b), 0); g.lineTo(X(b), S); g.stroke();
+    g.beginPath(); g.moveTo(0, Y(b)); g.lineTo(S, Y(b)); g.stroke();
+  }
+  // 메인 길: 구역 중심을 잇는 뱀 모양 돌길
+  const pathW = 30;
+  const trace = () => {
+    g.beginPath();
+    PATH_CENTERS.forEach((p, i) => {
+      const px = X(p.x), py = Y(p.z);
+      if (i === 0) g.moveTo(px, py);
+      else {
+        const prev = PATH_CENTERS[i - 1];
+        g.quadraticCurveTo(X(prev.x), Y(p.z), px, py);
+      }
+    });
+  };
   g.lineCap = 'round';
-  g.strokeStyle = 'rgba(0,0,0,.10)';
-  g.lineWidth = pathW + 12;
-  g.beginPath();
-  g.moveTo(S * 0.5, S * 1.02);
-  g.bezierCurveTo(S * 0.46, S * 0.78, S * 0.58, S * 0.62, S * 0.5, S * 0.45);
-  g.bezierCurveTo(S * 0.42, S * 0.3, S * 0.52, S * 0.16, S * 0.5, S * -0.02);
-  g.stroke();
-  g.strokeStyle = zoneId === 3 ? '#e6cd93' : zoneId === 4 ? '#5b93a0' : zoneId === 2 ? '#5c6b52' : '#9c8a63';
-  g.lineWidth = pathW;
-  g.stroke();
+  g.strokeStyle = 'rgba(0,0,0,.10)'; g.lineWidth = pathW + 12; trace(); g.stroke();
+  g.strokeStyle = '#9c8a63'; g.lineWidth = pathW; trace(); g.stroke();
   // 길 위 돌 / 자갈
-  for (let i = 0; i < 900; i++) {
+  for (let i = 0; i < 1600; i++) {
     const t = rnd();
-    const x = S * 0.5 + Math.sin(t * 9) * 26 + (rnd() - 0.5) * pathW * 0.85;
-    const y = S * (1 - t);
+    const seg = Math.min(PATH_SEGS.length - 1, Math.floor(t * PATH_SEGS.length));
+    const [a, b] = PATH_SEGS[seg];
+    const lt = t * PATH_SEGS.length - seg;
+    const wx = a.x + (b.x - a.x) * lt + (rnd() - 0.5) * pathW * 0.9 / (S / WORLD_SIZE);
+    const wz = a.z + (b.z - a.z) * lt + (rnd() - 0.5) * pathW * 0.9 / (S / WORLD_SIZE);
     g.globalAlpha = 0.10 + rnd() * 0.18;
     g.fillStyle = rnd() > 0.5 ? '#f2e6c8' : '#5a4a2e';
     g.beginPath();
-    g.ellipse(x, y, 1 + rnd() * 4, 1 + rnd() * 3, rnd() * 3, 0, 6.283);
+    g.ellipse(X(wx), Y(wz), 1 + rnd() * 4, 1 + rnd() * 3, rnd() * 3, 0, 6.283);
     g.fill();
-  }
-  // 길 돌 테두리
-  g.globalAlpha = 0.5;
-  for (let i = 0; i < 80; i++) {
-    const t = i / 80;
-    const y = S * (1 - t);
-    for (const side of [-1, 1]) {
-      const x = S * 0.5 + Math.sin(t * 9) * 26 + side * pathW * 0.52;
-      g.fillStyle = rnd() > 0.5 ? '#9c8f74' : '#7a6f58';
-      g.beginPath();
-      g.ellipse(x, y, 3 + rnd() * 3, 2 + rnd() * 3, rnd() * 3, 0, 6.283);
-      g.fill();
-    }
-  }
-  // 길 가장자리
-  g.globalAlpha = 0.18; g.strokeStyle = '#000'; g.lineWidth = 6;
-  g.beginPath();
-  g.moveTo(S * 0.5, S * 1.02);
-  g.bezierCurveTo(S * 0.46, S * 0.78, S * 0.58, S * 0.62, S * 0.5, S * 0.45);
-  g.bezierCurveTo(S * 0.42, S * 0.3, S * 0.52, S * 0.16, S * 0.5, S * -0.02);
-  g.stroke();
-  g.globalAlpha = 1;
-  if (zoneId === 2) {
-    for (let i = 0; i < 16; i++) {
-      const x = rnd() * S, y = rnd() * S, r = 26 + rnd() * 60;
-      g.globalAlpha = 0.5;
-      g.fillStyle = '#2b4a45';
-      g.beginPath();
-      g.ellipse(x, y, r, r * 0.6, rnd() * 3, 0, 6.283);
-      g.fill();
-      g.globalAlpha = 0.25;
-      g.strokeStyle = '#9bd6bf';
-      g.lineWidth = 2;
-      g.stroke();
-    }
-  }
-  if (zoneId === 4) {
-    g.globalAlpha = 0.22;
-    g.strokeStyle = '#a8e8ee';
-    g.lineWidth = 3;
-    for (let i = 0; i < 26; i++) {
-      const x = rnd() * S, y = rnd() * S, r = 30 + rnd() * 90;
-      g.beginPath(); g.arc(x, y, r, 0, 6.283); g.stroke();
-    }
   }
   g.globalAlpha = 1;
   const tex = new THREE.CanvasTexture(c);
@@ -603,19 +667,23 @@ function mergeGeometryParts(THREE, meshes) {
   return geo;
 }
 
-export function buildZone(THREE, zone, openedChests = []) {
-  const rnd = rand(zone.id * 7919 + 13);
+// ---------- 하나의 서울 지도 전체를 짓는다 ----------
+// 288×288 지면 1장 + 구역별 소품(인스턴싱) + 상자 28개 + NPC 9명 + 방벽 게이트 8개 + 지구 귀환 게이트.
+// 포탈은 없다 — 이동은 걸어서, 구역 이동은 게이트를 통해서만.
+export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = false) {
+  const rnd = rand(987654321);
   const group = new THREE.Group();
   const props = [];
   const chests = [];
+  const npcs = {};
+  const gates = [];
 
-  // 지면 (3D 지형: 48x48 분할 후 groundHeight로 높이 적용)
-  const gtex = groundTexture(THREE, zone.theme, zone.id, rnd);
-  const groundGeo = new THREE.PlaneGeometry(96, 96, 48, 48);
+  // 지면 (3D 지형: 144x144 분할 후 groundHeight로 높이 적용)
+  const gtex = groundTexture(THREE, zones, rnd);
+  const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 144, 144);
   const gpos = groundGeo.attributes.position;
   for (let i = 0; i < gpos.count; i++) {
-    // PlaneGeometry는 XY 평면이라 z가 높이 (회전 후 월드 z = -로컬 y)
-    gpos.setZ(i, groundHeight(zone.id, gpos.getX(i), -gpos.getY(i)));
+    gpos.setZ(i, groundHeight(gpos.getX(i), -gpos.getY(i)));
   }
   groundGeo.computeVertexNormals();
   const ground = new THREE.Mesh(
@@ -626,14 +694,12 @@ export function buildZone(THREE, zone, openedChests = []) {
   ground.receiveShadow = true;
   group.add(ground);
 
-  // 보스 영역은 바닥 그림 없이 내부 좌표/반경으로만 인식한다 (지형이 그대로 보이게)
-
   // ---------- 소품 배치 (인스턴싱) ----------
   const scatter = [];
   const protoCache = {};
   function protoFor(kind) {
     if (!protoCache[kind]) {
-      const r2 = rand(zone.id * 31 + kind.length * 17 + 5);
+      const r2 = rand(kind.length * 17 + 5);
       const g = propMesh(THREE, kind, r2);
       const meshes = g.children.filter((m) => m.isMesh);
       protoCache[kind] = { geo: mergeGeometryParts(THREE, meshes), r: g.userData.r || 0.5 };
@@ -645,51 +711,59 @@ export function buildZone(THREE, zone, openedChests = []) {
     const p = protoFor(kind);
     props.push({ x, z, r: p.r * scl * 0.92, kind });
   }
-
-  // 테두리
-  for (let i = 0; i < 72; i++) {
-    const a = (i / 72) * Math.PI * 2;
-    const rad = 43 + rnd() * 3;
-    const kind = zone.theme.prop[Math.floor(rnd() * zone.theme.prop.length)];
-    addProp(rnd() > 0.55 ? kind : 'rock', Math.cos(a) * rad, Math.sin(a) * rad, 2.4 + rnd() * 1.4, rnd() * 6.28);
+  function distToPath(x, z) {
+    let best = Infinity;
+    for (const [a, b] of PATH_SEGS) best = Math.min(best, distToSeg(x, z, a.x, a.z, b.x, b.z));
+    return best;
   }
-  // 내부 (길·시작점·제단·NPC 주변은 비움)
+  function nearFlatPoint(x, z, r) {
+    for (const fp of FLAT_POINTS) if (Math.hypot(x - fp.x, z - fp.z) < r) return true;
+    return false;
+  }
+
   const WEIGHT = { tree: 4, deadTree: 4, rock: 3, bush: 3, grass: 4, flower: 1.4, reed: 3, cactus: 3, sandRock: 3.4, pillar: 2.4, ruinPillar: 2.6, coral: 3, bubbleRock: 2.4, wall: 1.4 };
-  function pickKind() {
-    const pool = zone.theme.prop;
+  function pickKind(zn) {
+    const pool = zn.theme.prop;
     let total = 0; for (const k of pool) total += WEIGHT[k] || 1;
     let r = rnd() * total;
     for (const k of pool) { r -= WEIGHT[k] || 1; if (r <= 0) return k; }
     return pool[0];
   }
-  function freeSpot(minR, maxR) {
-    for (let t = 0; t < 10; t++) {
-      const a = rnd() * Math.PI * 2;
-      const r = minR + Math.sqrt(rnd()) * (maxR - minR);
-      const x = Math.cos(a) * r, z = Math.sin(a) * r;
-      if (Math.abs(x + Math.sin(z * 0.08) * 2.5) < 3.2) continue;
-      if (Math.hypot(x - zone.spawn.x, z - zone.spawn.z) < 3.6) continue;
-      if (Math.hypot(x - zone.boss.x, z - zone.boss.z) < 9) continue;
-      if (zone.field && Math.hypot(x - zone.field.x, z - zone.field.z) < 10.5) continue;
-      if (Math.hypot(x - zone.npc.x, z - zone.npc.z) < 3.6) continue;
-      if (Math.hypot(x - (zone.spawn.x - 6), z - (zone.spawn.z + 5)) < 3.2) continue;
-      return { x, z };
+  // 구역별 내부 소품
+  for (const zn of zones) {
+    if (!zn.map) continue;
+    const { cx, cz } = zn.map;
+    let placed = 0;
+    for (let i = 0; i < 900 && placed < 210; i++) {
+      const x = cx - 45 + rnd() * 90, z = cz - 45 + rnd() * 90;
+      if (distToPath(x, z) < 3.4) continue;
+      if (nearFlatPoint(x, z, 4.2)) continue;
+      if (Math.abs(z - RIVER_Z) < 9) continue;
+      const kind = pickKind(zn);
+      const small = kind === 'grass' || kind === 'flower';
+      const big = kind === 'tree' || kind === 'deadTree' || kind === 'pillar' || kind === 'ruinPillar' || kind === 'cactus';
+      const scl = small ? 1.7 + rnd() * 1.1 : big ? 1.05 + rnd() * 0.8 : 1.0 + rnd() * 0.9;
+      addProp(kind, x, z, scl, rnd() * 6.28);
+      placed++;
+      if (rnd() < 0.3) {
+        const k2 = small ? kind : pickKind(zn);
+        addProp(k2, x + (rnd() - 0.5) * 2.2, z + (rnd() - 0.5) * 2.2, scl * (0.75 + rnd() * 0.3), rnd() * 6.28);
+      }
     }
-    return null;
   }
-  for (let i = 0; i < 430; i++) {
-    const spot = freeSpot(8, 42);
-    if (!spot) continue;
-    const kind = pickKind();
-    const small = kind === 'grass' || kind === 'flower';
-    const big = kind === 'tree' || kind === 'deadTree' || kind === 'pillar' || kind === 'ruinPillar' || kind === 'cactus';
-    const scl = small ? 1.7 + rnd() * 1.1 : big ? 1.05 + rnd() * 0.8 : 1.0 + rnd() * 0.9;
-    addProp(kind, spot.x, spot.z, scl, rnd() * 6.28);
-    // 가끔 무리지어 자라기
-    if (rnd() < 0.3) {
-      const k2 = small ? kind : pickKind();
-      addProp(k2, spot.x + (rnd() - 0.5) * 2.2, spot.z + (rnd() - 0.5) * 2.2, scl * (0.75 + rnd() * 0.3), rnd() * 6.28);
-    }
+  // 바깥 테두리 (사각 경계선을 따라)
+  for (let i = 0; i < 200; i++) {
+    const t = (i / 200) * WORLD_SIZE * 4;
+    const side = Math.floor(t / WORLD_SIZE);
+    const along = (t % WORLD_SIZE) - WORLD_HALF;
+    let x, z;
+    if (side === 0) { x = along; z = -WORLD_HALF + 1 + rnd() * 2; }
+    else if (side === 1) { x = WORLD_HALF - 1 - rnd() * 2; z = along; }
+    else if (side === 2) { x = along; z = WORLD_HALF - 1 - rnd() * 2; }
+    else { x = -WORLD_HALF + 1 + rnd() * 2; z = along; }
+    const zn = districtAt(x, z);
+    const kind = rnd() > 0.55 ? zn.theme.prop[Math.floor(rnd() * zn.theme.prop.length)] : 'rock';
+    addProp(kind, x, z, 2.4 + rnd() * 1.4, rnd() * 6.28);
   }
 
   // 인스턴스 메시 생성
@@ -701,7 +775,7 @@ export function buildZone(THREE, zone, openedChests = []) {
     const pr = protoFor(kind);
     const inst = new THREE.InstancedMesh(pr.geo, instMat, arr.length);
     arr.forEach((t, i) => {
-      dummy.position.set(t.x, groundHeight(zone.id, t.x, t.z), t.z);
+      dummy.position.set(t.x, groundHeight(t.x, t.z), t.z);
       dummy.rotation.set(0, t.r, 0);
       dummy.scale.setScalar(t.s);
       dummy.updateMatrix();
@@ -714,94 +788,202 @@ export function buildZone(THREE, zone, openedChests = []) {
     group.add(inst);
   }
 
+  // 소품 충돌용 공간 그리드 (매 프레임 전체 순회 대신 근처 셀만 본다)
+  const CELL = 6;
+  const grid = new Map();
+  for (const pr of props) {
+    const key = `${Math.floor(pr.x / CELL)},${Math.floor(pr.z / CELL)}`;
+    if (!grid.has(key)) grid.set(key, []);
+    grid.get(key).push(pr);
+  }
+  function propsNear(x, z, r = 3) {
+    const out = [];
+    const x0 = Math.floor((x - r) / CELL), x1 = Math.floor((x + r) / CELL);
+    const z0 = Math.floor((z - r) / CELL), z1 = Math.floor((z + r) / CELL);
+    for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) {
+      const arr = grid.get(`${cx},${cz}`);
+      if (arr) for (const pr of arr) out.push(pr);
+    }
+    return out;
+  }
+
   // 숨겨진 보관함 (소품 뒤 그늘에 배치)
-  zone.chests.forEach((spec, idx) => {
-    const chest = makeChest(THREE);
-    chest.position.set(spec.x, groundHeight(zone.id, spec.x, spec.z), spec.z);
-    chest.rotation.y = -0.4 + rnd() * 0.8;
-    group.add(chest);
-    // 가리는 소품: 카메라(+z, 위) 쪽에 크게
-    const hide = propMesh(THREE, spec.hide, rnd);
-    const hd = 1.15 + rnd() * 0.5;
-    const hx = spec.x + (rnd() - 0.5) * 0.5, hz = spec.z + hd;
-    hide.position.set(hx, groundHeight(zone.id, hx, hz), hz);
-    hide.scale.setScalar(spec.hide === 'rock' || spec.hide === 'sandRock' || spec.hide === 'bubbleRock' ? 1.9 : spec.hide === 'wall' ? 1.25 : 1.5);
-    hide.rotation.y = rnd() * 6.28;
-    group.add(hide);
-    props.push({ x: hide.position.x, z: hide.position.z, r: hide.userData.r * 1.2 || 1, kind: spec.hide });
-    const opened = openedChests.includes(`${zone.id}:${idx}`);
-    if (opened) { chest.userData.lid.rotation.x = -1.9; chest.userData.lid.position.z = -0.3; }
-    chests.push({ id: `${zone.id}:${idx}`, mesh: chest, x: spec.x, z: spec.z, opened });
-  });
+  for (const zn of zones) {
+    if (!zn.map) continue;
+    (zn.chests || []).forEach((spec, idx) => {
+      const wp = worldPos(zn, spec.x, spec.z);
+      const chest = makeChest(THREE);
+      chest.position.set(wp.x, groundHeight(wp.x, wp.z), wp.z);
+      chest.rotation.y = -0.4 + rnd() * 0.8;
+      group.add(chest);
+      const hide = propMesh(THREE, spec.hide, rnd);
+      const hd = 1.15 + rnd() * 0.5;
+      const hx = wp.x + (rnd() - 0.5) * 0.5, hz = wp.z + hd;
+      hide.position.set(hx, groundHeight(hx, hz), hz);
+      hide.scale.setScalar(spec.hide === 'rock' || spec.hide === 'sandRock' || spec.hide === 'bubbleRock' ? 1.9 : spec.hide === 'wall' ? 1.25 : 1.5);
+      hide.rotation.y = rnd() * 6.28;
+      group.add(hide);
+      props.push({ x: hide.position.x, z: hide.position.z, r: hide.userData.r * 1.2 || 1, kind: spec.hide });
+      const gkey = `${Math.floor(hide.position.x / CELL)},${Math.floor(hide.position.z / CELL)}`;
+      if (!grid.has(gkey)) grid.set(gkey, []);
+      grid.get(gkey).push(props[props.length - 1]);
+      const opened = openedChests.includes(`${zn.id}:${idx}`);
+      if (opened) { chest.userData.lid.rotation.x = -1.9; chest.userData.lid.position.z = -0.3; }
+      chests.push({ id: `${zn.id}:${idx}`, mesh: chest, x: wp.x, z: wp.z, opened });
+    });
+  }
 
-  // NPC
-  const npc = makeNpc(THREE, zone.npc.icon);
-  npc.position.set(zone.npc.x, groundHeight(zone.id, zone.npc.x, zone.npc.z), zone.npc.z);
-  npc.rotation.y = Math.PI;
-  group.add(npc);
+  // NPC (구역마다 1명)
+  for (const zn of zones) {
+    if (!zn.map) continue;
+    const wp = worldPos(zn, zn.npc.x, zn.npc.z);
+    const npc = makeNpc(THREE, zn.npc.icon);
+    npc.position.set(wp.x, groundHeight(wp.x, wp.z), wp.z);
+    npc.rotation.y = Math.PI;
+    group.add(npc);
+    npcs[zn.id] = npc;
+  }
 
-  // 귀환 포탈
-  const portal = new THREE.Group();
-  const pr = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.12, 8, 24), new THREE.MeshBasicMaterial({ color: 0x7fe0ff, transparent: true, opacity: 0.85 }));
-  pr.rotation.x = -Math.PI / 2; pr.position.y = 0.16; portal.add(pr);
-  const pd = new THREE.Mesh(new THREE.CircleGeometry(1.05, 24), new THREE.MeshBasicMaterial({ color: 0x4ab0ff, transparent: true, opacity: 0.35 }));
-  pd.rotation.x = -Math.PI / 2; pd.position.y = 0.1; portal.add(pd);
-  portal.position.set(zone.spawn.x - 6, groundHeight(zone.id, zone.spawn.x - 6, zone.spawn.z + 5), zone.spawn.z + 5);
-  group.add(portal);
+  // 방벽 게이트 (구역 2~9 입구) — 기둥 2개 + 빛나는 결계벽
+  for (const zn of zones) {
+    if (!zn.gate) continue;
+    const g = new THREE.Group();
+    const gy = groundHeight(zn.gate.x, zn.gate.z);
+    const alongX = zn.gate.along === 'x';
+    const off = 5.2;
+    const px = alongX ? 0 : off, pz = alongX ? off : 0;
+    for (const sgn of [-1, 1]) {
+      const pil = propMesh(THREE, 'pillar', rnd);
+      pil.position.set(zn.gate.x + px * sgn, groundHeight(zn.gate.x + px * sgn, zn.gate.z + pz * sgn), zn.gate.z + pz * sgn);
+      pil.scale.setScalar(1.5);
+      g.add(pil);
+      props.push({ x: pil.position.x, z: pil.position.z, r: 0.7, kind: 'pillar' });
+    }
+    const barrierMat = new THREE.MeshBasicMaterial({
+      color: 0x9f7bff, transparent: true, opacity: 0.4,
+      side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending,
+    });
+    const barrier = new THREE.Mesh(new THREE.PlaneGeometry(10, 4.2), barrierMat);
+    barrier.position.set(zn.gate.x, gy + 2.1, zn.gate.z);
+    barrier.rotation.y = alongX ? 0 : Math.PI / 2;
+    g.add(barrier);
+    const glowRing = new THREE.Mesh(
+      new THREE.TorusGeometry(1.6, 0.08, 8, 24),
+      new THREE.MeshBasicMaterial({ color: 0xc9a8ff, transparent: true, opacity: 0.8 })
+    );
+    glowRing.position.set(zn.gate.x, gy + 1.6, zn.gate.z);
+    glowRing.rotation.y = alongX ? 0 : Math.PI / 2;
+    g.add(glowRing);
+    group.add(g);
+    gates.push({ districtId: zn.id, x: zn.gate.x, z: zn.gate.z, group: g, barrier, barrierMat, glowRing, open: false, openT: 0 });
+  }
 
-  // 보스 문
-  const gateL = propMesh(THREE, 'pillar', rnd); gateL.position.set(zone.boss.x - 4.2, groundHeight(zone.id, zone.boss.x - 4.2, zone.boss.z + 5.5), zone.boss.z + 5.5); gateL.scale.setScalar(1.3);
-  const gateR = propMesh(THREE, 'pillar', rnd); gateR.position.set(zone.boss.x + 4.2, groundHeight(zone.id, zone.boss.x + 4.2, zone.boss.z + 5.5), zone.boss.z + 5.5); gateR.scale.setScalar(1.3);
-  group.add(gateL, gateR);
-  props.push({ x: gateL.position.x, z: gateL.position.z, r: 0.7, kind: 'pillar' }, { x: gateR.position.x, z: gateR.position.z, r: 0.7, kind: 'pillar' });
+  // 지구 귀환 게이트 (9구역 북쪽 끝) — 열리면 황금빛으로 빛난다
+  const earthGate = { open: !!earthGateOpen, group: null, disc: null, ring: null };
+  {
+    const eg = new THREE.Group();
+    const gy = groundHeight(EARTH_GATE.x, EARTH_GATE.z);
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(2.4, 0.22, 10, 28),
+      new THREE.MeshBasicMaterial({ color: earthGateOpen ? 0xffd257 : 0x8a97a8, transparent: true, opacity: 0.95 })
+    );
+    ring.position.set(EARTH_GATE.x, gy + 2.6, EARTH_GATE.z);
+    eg.add(ring);
+    const disc = new THREE.Mesh(
+      new THREE.CircleGeometry(2.2, 28),
+      new THREE.MeshBasicMaterial({ color: 0xffd257, transparent: true, opacity: earthGateOpen ? 0.5 : 0.1, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending })
+    );
+    disc.position.set(EARTH_GATE.x, gy + 2.6, EARTH_GATE.z);
+    eg.add(disc);
+    const base = new THREE.Mesh(new THREE.BoxGeometry(6.4, 0.5, 1.6), new THREE.MeshLambertMaterial({ color: 0x6a6f7a, flatShading: true }));
+    base.position.set(EARTH_GATE.x, gy + 0.25, EARTH_GATE.z);
+    eg.add(base);
+    group.add(eg);
+    earthGate.group = eg;
+    earthGate.disc = disc;
+    earthGate.ring = ring;
+  }
 
-  // 대기 입자
-  const pc = zone.theme.ambient === 'bubble' ? 90 : 70;
+  // 대기 입자 (지도 전체)
+  const pc = 220;
   const pos = new Float32Array(pc * 3);
   const seeds = [];
   for (let i = 0; i < pc; i++) {
-    pos[i * 3] = (rnd() - 0.5) * 80;
+    pos[i * 3] = (rnd() - 0.5) * 270;
     pos[i * 3 + 1] = 0.4 + rnd() * 5;
-    pos[i * 3 + 2] = (rnd() - 0.5) * 80;
+    pos[i * 3 + 2] = (rnd() - 0.5) * 270;
     seeds.push(0.2 + rnd() * 0.8);
   }
   const pgeo = new THREE.BufferGeometry();
   pgeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   const pmat = new THREE.PointsMaterial({
-    color: zone.theme.ambientColor, size: zone.theme.ambient === 'bubble' ? 0.22 : 0.16,
+    color: 0xfff3a0, size: 0.18,
     map: dotTexture(THREE), transparent: true, opacity: 0.75, depthWrite: false,
     blending: THREE.AdditiveBlending, sizeAttenuation: true,
   });
   const points = new THREE.Points(pgeo, pmat);
   group.add(points);
 
-  const npcPos = { x: zone.npc.x, z: zone.npc.z };
+  // 몬스터 스폰 지점 (구역별)
+  const spawnPointsByDistrict = {};
   const spawnPoints = [];
-  for (let i = 0; i < 26; i++) {
-    const x = (rnd() - 0.5) * 74, z = (rnd() - 0.5) * 74;
-    if (Math.hypot(x - zone.spawn.x, z - zone.spawn.z) < 10) continue;
-    if (Math.hypot(x - zone.boss.x, z - zone.boss.z) < 10) continue;
-    if (zone.field && Math.hypot(x - zone.field.x, z - zone.field.z) < 11) continue;
-    if (Math.hypot(x - npcPos.x, z - npcPos.z) < 4) continue;
-    spawnPoints.push({ x, z });
+  for (const zn of zones) {
+    if (!zn.map) continue;
+    const list = [];
+    const sp = worldPos(zn, zn.spawn.x, zn.spawn.z);
+    const bo = worldPos(zn, zn.boss.x, zn.boss.z);
+    const fi = zn.field ? worldPos(zn, zn.field.x, zn.field.z) : null;
+    const np = worldPos(zn, zn.npc.x, zn.npc.z);
+    for (let i = 0; i < 26; i++) {
+      const x = zn.map.cx + (rnd() - 0.5) * 74, z = zn.map.cz + (rnd() - 0.5) * 74;
+      if (Math.hypot(x - sp.x, z - sp.z) < 10) continue;
+      if (Math.hypot(x - bo.x, z - bo.z) < 10) continue;
+      if (fi && Math.hypot(x - fi.x, z - fi.z) < 11) continue;
+      if (Math.hypot(x - np.x, z - np.z) < 4) continue;
+      list.push({ x, z });
+    }
+    spawnPointsByDistrict[zn.id] = list;
+    spawnPoints.push(...list);
+  }
+
+  function openGate(districtId) {
+    const gt = gates.find((x) => x.districtId === districtId);
+    if (!gt || gt.open) return false;
+    gt.open = true;
+    gt.openT = 0;
+    return true;
+  }
+  function setEarthGate(open) {
+    earthGate.open = !!open;
+    if (earthGate.disc) earthGate.disc.material.opacity = open ? 0.5 : 0.1;
+    if (earthGate.ring) earthGate.ring.material.color.setHex(open ? 0xffd257 : 0x8a97a8);
   }
 
   return {
-    group, props, chests, npc, portal, spawnPoints, particles: points, fieldRing: null, groundHeight,
+    group, props, propsNear, chests, npcs, npc: npcs[1] || null, gates, earthGate,
+    spawnPoints, spawnPointsByDistrict, particles: points, fieldRing: null, groundHeight,
+    openGate, setEarthGate,
     update(dt, t) {
       const arr = pgeo.attributes.position.array;
       for (let i = 0; i < pc; i++) {
-        if (zone.theme.ambient === 'bubble') {
-          arr[i * 3 + 1] += dt * seeds[i] * 1.2;
-          if (arr[i * 3 + 1] > 6) arr[i * 3 + 1] = 0.3;
-        } else {
-          arr[i * 3 + 1] += Math.sin(t * seeds[i] + i) * dt * 0.25;
-          arr[i * 3] += Math.cos(t * 0.4 + i) * dt * 0.15;
-        }
+        arr[i * 3 + 1] += Math.sin(t * seeds[i] + i) * dt * 0.25;
+        arr[i * 3] += Math.cos(t * 0.4 + i) * dt * 0.15;
       }
       pgeo.attributes.position.needsUpdate = true;
-      npc.userData.marker.position.y = 2.3 + Math.sin(t * 2.2) * 0.12;
-      portal.rotation.y = t * 0.8;
+      for (const npc of Object.values(npcs)) {
+        npc.userData.marker.position.y = 2.3 + Math.sin(t * 2.2) * 0.12;
+      }
+      // 열리는 게이트의 결계벽은 서서히 사라진다
+      for (const gt of gates) {
+        if (gt.open && gt.barrier.visible) {
+          gt.openT += dt;
+          gt.barrierMat.opacity = Math.max(0, 0.4 - gt.openT * 0.5);
+          gt.glowRing.material.opacity = Math.max(0, 0.8 - gt.openT * 0.6);
+          if (gt.openT > 0.9) { gt.barrier.visible = false; gt.glowRing.visible = false; }
+        } else if (!gt.open) {
+          gt.barrierMat.opacity = 0.34 + Math.sin(t * 2 + gt.districtId) * 0.1;
+        }
+      }
     },
   };
 }
