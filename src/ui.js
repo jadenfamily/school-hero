@@ -158,8 +158,17 @@ export function createUI(game, THREE) {
     const bar = $('bossBar');
     if (!e) { bar.classList.add('hidden'); return; }
     bar.classList.remove('hidden');
-    $('bossName').textContent = `Lv.${e.level} ${e.def.name}`;
-    $('bossHpFill').style.width = pct(e.hp, e.maxHp);
+    // 쌍둥이·3형제는 살아남은 멤버 전원의 체력바를 쌓아서 보여준다
+    let rows = [e];
+    if (e.group) {
+      const grp = (game.bossGroups && game.bossGroups[e.group]) || [];
+      const alive = grp.filter((m) => m.alive);
+      if (alive.length) rows = alive;
+    }
+    bar.innerHTML = rows.map((m) => {
+      const tag = m.shielded ? ' 🛡️' : m.statue ? ' 🗿' : '';
+      return `<div class="boss-row"><div class="boss-name">Lv.${m.level} ${m.def.name}${tag}</div><div class="boss-hp"><div class="fill" style="width:${pct(m.hp, m.maxHp)}"></div></div></div>`;
+    }).join('');
   };
 
   // ---------- 보관함 말풍선 · 열기 버튼 ----------
@@ -1646,6 +1655,7 @@ export function createUI(game, THREE) {
         ['일반', z.mobs.normal], ['정예', z.mobs.elite], ['중간보스', [z.mobs.mid]], ['에픽보스', [z.mobs.boss]],
       ];
       if (z.mobs.field) list.push(['지역 필드보스', [z.mobs.field]]);
+      for (const ex of (z.extraBosses || [])) list.push([ex.label || '추가 보스', ex.defs || [ex.def]]);
       const rows = list.map(([label, arr]) => arr.map((m) => {
         const st = game.mobStats(z.id, m);
         const lv = z.scale.lvl + (m.boss === 'field' ? 5 : m.boss === 'boss' ? 3 : m.boss === 'mid' ? 1 : m.elite ? 1 : 0);
