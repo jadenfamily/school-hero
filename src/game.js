@@ -99,6 +99,7 @@ export function createGame(THREE) {
     heroName: '',
     bag: {},      // "kind:fam:grade": count
     equip: { weapon: null, armor: null, necklace: null, ring: null, earring: null, charm: null },
+    charms: [], // 보유한 부적 fam 목록 ('antidote' | 'aqua') — 장착 슬롯은 1개지만 얻은 부적은 전부 보관하고 교체할 수 있다
     balance: defaultBalance(),
     souls: { gray: 0, green: 0, blue: 0, purple: 0, gold: 0 },
     talents: [],
@@ -179,6 +180,19 @@ export function createGame(THREE) {
     if (achOwed > 0) s.statPts = (Number(s.statPts) || 0) + achOwed;
     s.achBonusGranted = s.achClaimed.length;
     s.quests = saved.quests || {};
+    // 부적 소유 목록 + 분실 복구 (UI 묶음): 예전에는 퀘스트 보상으로 새 부적을
+    // 받으면 장착 슬롯이 덮어씌워져 이전 부적이 사라졌다. 이제 얻은 부적은 전부
+    // charms 목록에 보관하고, 이미 받아서 잃어버린 부적은 퀘스트 진행도를 보고
+    // 되찾아준다. (멱등: 이미 보유 중이면 아무 일도 안 한다)
+    s.charms = Array.isArray(saved.charms) ? saved.charms.filter((f) => CHARMS[f]) : [];
+    if (s.equip.charm && CHARMS[s.equip.charm.fam] && !s.charms.includes(s.equip.charm.fam)) s.charms.push(s.equip.charm.fam);
+    const recovered = [];
+    const q2 = s.quests[2];
+    if (q2 && (q2.done || (q2.step || 0) >= 1) && !s.charms.includes('antidote')) { s.charms.push('antidote'); recovered.push('antidote'); }
+    const q3 = s.quests[3];
+    if (q3 && (q3.done || (q3.step || 0) >= 3) && !s.charms.includes('aqua')) { s.charms.push('aqua'); recovered.push('aqua'); }
+    // 저장되지 않는 임시 표시 (serialize에 안 들어간다). game.start()에서 토스트로 알려준다.
+    if (recovered.length) s._charmRecovered = recovered;
     s.balance = mergeBalance(defaultBalance(), saved.balance || {});
     s.avatar = AVATAR_MAP[saved.avatar] ? saved.avatar : 'boyA';
     s.avatarPicked = !!saved.avatarPicked;
@@ -338,7 +352,7 @@ export function createGame(THREE) {
       v: 2, level: s.level, xp: s.xp, statPts: s.statPts, gold: s.gold, stats: s.stats,
       hp: Math.round(game.player ? game.player.hp : 0),
       avatar: s.avatar, avatarPicked: s.avatarPicked, heroName: s.heroName,
-      bag: s.bag, equip: s.equip, souls: s.souls, talents: s.talents,
+      bag: s.bag, equip: s.equip, charms: s.charms || [], souls: s.souls, talents: s.talents,
       companions: s.companions, party: s.party, unlocked: s.unlocked,
       zoneKills: s.zoneKills, chestOpened: s.chestOpened, chestsFound: s.chestsFound,
       quests: s.quests, zone: s.zone, kills: s.kills, pulls: s.pulls, balance: s.balance,
@@ -663,15 +677,21 @@ export function createGame(THREE) {
     return true;
   };
 
-  // 처음 소환 지점(1구역 스폰)으로 귀환
-  game.returnToStart = function () {
-    const z1 = PLAYABLE[0];
-    const sp = worldPos(z1, z1.spawn.x, z1.spawn.z);
+  // 귀환 (zoneId를 안 주면 1구역 — 사망 부활은 이 기본값을 쓴다)
+  game.returnToStart = function (zoneId) {
+    const target = PLAYABLE.find((z) => z.id === zoneId) || PLAYABLE[0];
+    const sp = worldPos(target, target.spawn.x, target.spawn.z);
     game.player.x = sp.x; game.player.z = sp.z; game.player.facing = Math.PI;
-    game.setDistrict(1, { spawn: true });
+    game.setDistrict(target.id, { spawn: true });
     snapCompanions();
-    if (game.ui) game.ui.toast('처음 소환 지점으로 돌아왔어요. 체력이 모두 회복되었습니다.', 'good');
+    if (game.ui) game.ui.toast(`${target.name}(으)로 돌아왔어요. 체력이 모두 회복되었습니다.`, 'good');
     return true;
+  };
+
+  // 귀환 버튼: 마지막으로 해금한 구역(가장 높은 번호) 스폰으로 돌아간다
+  game.returnToLastDistrict = function () {
+    const last = Math.max(...(game.state.unlocked || [1]));
+    return game.returnToStart(last);
   };
 
   // 예전 enterZone 호출 자리 (디버그·호환용) — 이제는 구역만 바꾼다
@@ -1281,7 +1301,7 @@ export function createGame(THREE) {
       const canEnter = (dx, dz) => {
         const d = districtAt(dx, dz);
         if (!game.state.unlocked.includes(d.id)) return false;
-        if (d.id === 4 && !game.state.equip.charm) return false;
+        if (d.id === 4 && !(game.state.equip.charm && game.state.equip.charm.fam === 'aqua')) return false;
         return true;
       };
       if (!canEnter(nx, nz)) {
@@ -2914,14 +2934,16 @@ export function createGame(THREE) {
 
   // ---------- 보관함 ----------
   // 가까이 가면 [열기] 버튼이 뜨고, 눌러야 열린다.
+  // 반경 3.5m: 상자는 소품 뒤에 숨겨져 있어서, 소품 충돌 때문에 가장 가까이
+  // 다가가도 2.6m 밖에 머무는 경우가 있다 (기둥 뒤 상자는 최악 2.6m).
   function updateChests(dt) {
     const p = game.player;
     if (!p) return;
-    let near = null, best = 3.0;
+    let near = null, best = 3.5;
     for (const c of game.world.chests) {
       if (c.opened) continue;
       const dd = Math.hypot(p.x - c.x, p.z - c.z);
-      if (dd < 2.6 && dd < best) { best = dd; near = c; }
+      if (dd < 3.5 && dd < best) { best = dd; near = c; }
     }
     if (near !== game.nearChest) {
       game.nearChest = near;
@@ -3165,7 +3187,7 @@ export function createGame(THREE) {
       }
       // 늪지 독
       if (game.state.cleanseT > 0) game.state.cleanseT = Math.max(0, game.state.cleanseT - dt);
-      if (game.zone.id === 2 && !game.state.equip.charm && !(game.state.cleanseT > 0)) {
+      if (game.zone.id === 2 && !(game.state.equip.charm && game.state.equip.charm.fam === 'antidote') && !(game.state.cleanseT > 0)) {
         p.poisonT = (p.poisonT || 0) + dt;
         p.poisonStacks = Math.min(3, 1 + Math.floor(p.poisonT / 3));
         if (p.poisonT > 1) { p.poisonT = 0; game.damagePlayer(4 + game.state.level * 0.8, null); }
@@ -3228,6 +3250,12 @@ export function createGame(THREE) {
     if (game.ui && game.state._dedupMerged > 0) {
       game.ui.toast(`중복 동료 ${game.state._dedupMerged}명을 정리했어요`, 'gold');
       game.state._dedupMerged = 0;
+    }
+    // 잃어버린 부적 되찾기 알림 (로드 시 1회): mergeState가 _charmRecovered에 되찾은 부적을 남겨둔다
+    if (game.ui && game.state._charmRecovered && game.state._charmRecovered.length) {
+      const names = game.state._charmRecovered.map((f) => (CHARMS[f] || {}).name || f).join(' · ');
+      game.ui.toast(`${names}을(를) 되찾았어요. 가방 캐릭터 화면에서 부적을 교체할 수 있어요.`, 'gold');
+      game.state._charmRecovered = [];
     }
     requestAnimationFrame((t) => { last = t / 1000; frame(t); });
   };
@@ -3506,6 +3534,31 @@ export function createGame(THREE) {
     return { ok: true, name: c.name };
   };
 
+  // ---------- 부적 (소유 목록 + 교체) ----------
+  // 장착 슬롯은 1개지만, 얻은 부적은 전부 state.charms에 보관한다.
+  // 새 부적을 받아도 이미 장착 중인 부적은 사라지지 않고, 캐릭터 화면에서 교체할 수 있다.
+  game.grantCharm = function (fam, force) {
+    if (!CHARMS[fam]) return { owned: false, equipped: false };
+    const s = game.state;
+    if (!Array.isArray(s.charms)) s.charms = [];
+    if (!s.charms.includes(fam)) s.charms.push(fam);
+    if (s.equip.charm && s.equip.charm.fam === fam) return { owned: true, equipped: true };
+    if (!s.equip.charm || force) {
+      s.equip.charm = { kind: 'charm', fam, grade: 0 };
+      return { owned: true, equipped: true };
+    }
+    return { owned: true, equipped: false };
+  };
+  // 보유한 부적을 장착한다 (가방 캐릭터 화면의 부적 교체 버튼에서 쓴다)
+  game.equipCharm = function (fam) {
+    const s = game.state;
+    if (!CHARMS[fam] || !(s.charms || []).includes(fam)) return false;
+    s.equip.charm = { kind: 'charm', fam, grade: 0 };
+    game.save();
+    if (game.ui) game.ui.markDirty(true);
+    return true;
+  };
+
   game.talkNpc = function () {
     const q = game.questInfo(game.zone.id);
     if (game.ui) game.ui.openQuestDialog(q);
@@ -3566,8 +3619,9 @@ export function createGame(THREE) {
       got.push(itemName(kind, fam, r.item));
     }
     if (r.charm) {
-      game.state.equip.charm = { kind: 'charm', fam: r.charm, grade: 0 };
-      got.push(CHARMS[r.charm].name);
+      const g = game.grantCharm(r.charm);
+      got.push(CHARMS[r.charm].name + (g.equipped ? '' : ' (보관)'));
+      if (!g.equipped && game.ui) game.ui.toast(`${CHARMS[r.charm].name}을(를) 얻었어요. 이미 장착 중인 부적이 있어 보관했어요. 가방 캐릭터 화면에서 교체할 수 있어요.`, 'good');
     }
     if (r.xp) { game.gainXp(r.xp); got.push(`경험치 +${r.xp}${game.state.level > beforeLv ? ` (Lv.${game.state.level} 달성!)` : ''}`); }
     if (r.unlock) {
@@ -3654,7 +3708,7 @@ export function createGame(THREE) {
       giveMp(n = 999) { game.player.mp = Math.min(game.derived().maxMp, n); return game.player.mp; },
       chest(i = 0) { const c = game.world.chests[i]; if (c) { game.player.x = c.x; game.player.z = c.z + 0.6; snapCompanions(); } },
       advance(sec, dt = 1 / 60) { const n = Math.min(3600, Math.round(sec / dt)); for (let i = 0; i < n; i++) step(dt); return game.time; },
-      unlockAll() { game.state.unlocked = [1, 2, 3, 4, 5, 6, 7, 8, 9]; game.state.equip.charm = { kind: 'charm', fam: 'aqua', grade: 0 }; if (game.world) for (let i = 2; i <= 9; i++) game.world.openGate(i); game.ui.markDirty(true); },
+      unlockAll() { game.state.unlocked = [1, 2, 3, 4, 5, 6, 7, 8, 9]; game.grantCharm('aqua', true); if (game.world) for (let i = 2; i <= 9; i++) game.world.openGate(i); game.ui.markDirty(true); },
       enter(id) { return game.enterZone(id); },
       killZone(n = 1) { const list = game.enemies.filter((e) => e.alive && !e.isBoss && !e.isMid); for (let i = 0; i < Math.min(n, list.length); i++) game.dealDamage(list[i], 999999, { canCrit: false }); },
       nearNpc() { const n = game.world.npcs[game.zone.id].position; game.player.x = n.x + 1.5; game.player.z = n.z + 0.5; snapCompanions(); },
