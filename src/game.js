@@ -888,7 +888,7 @@ export function createGame(THREE) {
     const e = {
       def, mesh, x, z, home: { x, z }, hp, maxHp: hp,
       atk: ov.atk, speed: def.speed, radius: mesh.userData.radius || 0.5,
-      stunT: 0, slowT: 0, reward: { xp: ov.xp, gold: ov.gold },
+      stunT: 0, slowT: 0, tauntT: 0, reward: { xp: ov.xp, gold: ov.gold },
       headY: mesh.userData.headY || 1, state: 'idle', wanderT: Math.random() * 2,
       wander: { x, z }, atkCd: 1 + Math.random(), hitFlash: 0, alive: true,
       isBoss: def.boss === 'boss', isMid: def.boss === 'mid', isField: def.boss === 'field',
@@ -906,7 +906,7 @@ export function createGame(THREE) {
       splitStage: 0, necroWave: 0, necroT: 9, portalAdds: null, portalT: 0, buffOn: false,
       twinSwapT: 8,
       deadT: 0, facing: Math.PI, fixed,
-      targetType: 'player', leashing: false, knockT: 0,
+      targetType: 'player', targetComp: null, leashing: false, knockT: 0,
     };
     mesh.userData.ref = e;
     // 쌍둥이는 보호막 구체를 달고 다닌다 (켜진 쪽만 보인다)
@@ -1123,6 +1123,16 @@ export function createGame(THREE) {
     if (e.mesh && e.mesh.userData.isSprite && e.mesh.userData.hit) e.mesh.userData.hit();
     e.state = 'chase';
     e.leashing = false;
+    // 동료가 때린 몹은 그 동료를 노린다 (도발 중이거나 보스급이면 제외 — 보스는 주인공/탱커를 본다)
+    if (!e.def.boss && e.tauntT <= 0) {
+      const at = opts.attacker;
+      if (at && at.hp > 0) {
+        if (at === game.tank) { e.targetType = 'tank'; e.targetComp = null; }
+        else { e.targetType = 'comp'; e.targetComp = at; }
+      } else if (!at) {
+        e.targetType = 'player'; e.targetComp = null;
+      }
+    }
     // 타격감: 짧은 넉백 + 흔들림 + 카메라 진동
     const pl = game.player;
     if (pl && !e.fixed) {
@@ -1721,11 +1731,11 @@ export function createGame(THREE) {
       mesh: m, x: o.x, z: o.z, y: h, vx: (dx / dd) * o.speed, vz: (dz / dd) * o.speed,
       life: 0, max: o.range / o.speed, from: o.from, dmg: o.dmg, color: o.color,
       style, skill: o.skill || null, pierce: o.pierce || 0, hits: new Set(), radius: o.radius || 0.4,
-      targetTank: !!o.targetTank,
+      targetTank: !!o.targetTank, targetComp: o.targetComp || null, source: o.source || null,
     });
   }
 
-  function explodeAt(x, z, radius, dmg) {
+  function explodeAt(x, z, radius, dmg, attacker) {
     const disk = new THREE.Mesh(
       new THREE.CircleGeometry(1, 26),
       new THREE.MeshBasicMaterial({ color: 0xff6a2a, transparent: true, opacity: 0.72, depthWrite: false, side: THREE.DoubleSide }),
@@ -1745,7 +1755,7 @@ export function createGame(THREE) {
     game.camShake = Math.max(game.camShake, 0.34);
     for (const e of [...game.enemies]) {
       if (!e.alive) continue;
-      if (Math.hypot(e.x - x, e.z - z) <= radius + e.radius) game.dealDamage(e, dmg, { heavy: true });
+      if (Math.hypot(e.x - x, e.z - z) <= radius + e.radius) game.dealDamage(e, dmg, { heavy: true, attacker });
     }
   }
 
@@ -1844,9 +1854,12 @@ export function createGame(THREE) {
       const tank = game.tank;
       const tankOk = tank && tank.hp > 0;
       if (e.targetType === 'tank' && !tankOk) e.targetType = 'player';
+      // 목표 동료가 쓰러지면 다시 플레이어를 노린다
+      if (e.targetType === 'comp' && (!e.targetComp || e.targetComp.hp <= 0)) { e.targetType = 'player'; e.targetComp = null; }
       const useTank = e.targetType === 'tank' && tankOk;
-      const txp = useTank ? tank.x : p.x;
-      const tzp = useTank ? tank.z : p.z;
+      const useComp = e.targetType === 'comp' && e.targetComp && e.targetComp.hp > 0;
+      const txp = useTank ? tank.x : useComp ? e.targetComp.x : p.x;
+      const tzp = useTank ? tank.z : useComp ? e.targetComp.z : p.z;
       const dx = txp - e.x, dz = tzp - e.z;
       const dd = Math.hypot(dx, dz);
       const homeD = Math.hypot(e.x - e.home.x, e.z - e.home.z);
@@ -1855,6 +1868,7 @@ export function createGame(THREE) {
       if (!e.def.boss && e.state !== 'return' && homeD > game.leashRange) {
         e.state = 'return';
         e.targetType = 'player';
+        e.targetComp = null;
       }
       if (e.state === 'return') {
         e.leashing = true;
@@ -1892,7 +1906,7 @@ export function createGame(THREE) {
         }
         if (dd < e.def.aggro && dd > 0.1) e.state = 'chase';
       } else if (e.state === 'chase') {
-        if (dd > e.def.aggro * 2.4) { e.state = 'idle'; continue; }
+        if (dd > e.def.aggro * 1.6) { e.state = 'idle'; continue; }
         const stop = e.def.atkRange * 0.85 + e.radius * 0.4;
         if (dd > stop) {
           moveEnemy(e, (dx / dd) * spd * dt, (dz / dd) * spd * dt);
@@ -1950,13 +1964,14 @@ export function createGame(THREE) {
     const style = e.def.style;
     const tank = game.tank;
     const useTank = e.targetType === 'tank' && tank && tank.hp > 0;
-    const tx = useTank ? tank.x : p.x;
-    const tz = useTank ? tank.z : p.z;
+    const useComp = e.targetType === 'comp' && e.targetComp && e.targetComp.hp > 0;
+    const tx = useTank ? tank.x : useComp ? e.targetComp.x : p.x;
+    const tz = useTank ? tank.z : useComp ? e.targetComp.z : p.z;
     if (style === 'ranged' || style === 'poison') {
       spawnProjectile({
         from: 'enemy', x: e.x, y: 1.0, z: e.z, targetX: tx, targetZ: tz,
         speed: style === 'poison' ? 8 : 9.5, color: style === 'poison' ? 0x9bff6a : 0xc58fff,
-        dmg: e.atk, range: Math.hypot(tx - e.x, tz - e.z) + 2, style, targetTank: useTank,
+        dmg: e.atk, range: Math.hypot(tx - e.x, tz - e.z) + 2, style, targetTank: useTank, targetComp: useComp ? e.targetComp : null,
       });
       return;
     }
@@ -1966,6 +1981,7 @@ export function createGame(THREE) {
         const ddm = Math.hypot(tx - e.x, tz - e.z);
         if (ddm < e.def.atkRange + e.radius + 0.6) {
           if (useTank) damageCompanion(tank, e.atk * 0.7);
+          else if (useComp) damageCompanion(e.targetComp, e.atk * 0.7);
           else game.damagePlayer(e.atk * 0.7, e);
         }
         return;
@@ -1975,6 +1991,7 @@ export function createGame(THREE) {
         const ddm = Math.hypot(tx - e.x, tz - e.z);
         if (ddm < e.def.atkRange + e.radius + 0.6) {
           if (useTank) damageCompanion(tank, e.atk * 0.7);
+          else if (useComp) damageCompanion(e.targetComp, e.atk * 0.7);
           else game.damagePlayer(e.atk * 0.7, e);
         }
         return;
@@ -1987,6 +2004,7 @@ export function createGame(THREE) {
     const dd = Math.hypot(tx - e.x, tz - e.z);
     if (dd < e.def.atkRange + e.radius + 0.5) {
       if (useTank) damageCompanion(tank, e.atk);
+      else if (useComp) damageCompanion(e.targetComp, e.atk);
       else game.damagePlayer(e.atk, e);
     }
     game.effects.push({ mesh: null, kind: 'lunge', e, life: 0.15, max: 0.15 });
@@ -2001,7 +2019,10 @@ export function createGame(THREE) {
     if (c.hp <= 0) {
       c.downT = 6;
       if (game.ui) game.ui.toast(`${c.data.name}이(가) 쓰러졌어요. 잠시 뒤 다시 일어납니다.`, 'bad');
-      for (const e of game.enemies) if (e.targetType === 'tank') e.targetType = 'player';
+      for (const e of game.enemies) {
+        if (e.targetType === 'tank') e.targetType = 'player';
+        if (e.targetType === 'comp' && e.targetComp === c) { e.targetType = 'player'; e.targetComp = null; }
+      }
     }
     return dmg;
   }
@@ -2575,7 +2596,7 @@ export function createGame(THREE) {
       let hit = 0;
       for (const e of [...game.enemies]) {
         if (!e.alive || Math.hypot(e.x - c.x, e.z - c.z) > def.radius + e.radius) continue;
-        game.dealDamage(e, dmg, { heavy: true, elem: def.elem, canCrit: false });
+        game.dealDamage(e, dmg, { heavy: true, elem: def.elem, canCrit: false, attacker: c });
         if (!e.def.boss) { e.targetType = 'tank'; e.state = 'chase'; e.tauntT = def.tauntT; }
         hit++;
       }
@@ -2592,7 +2613,7 @@ export function createGame(THREE) {
       let hit = 0;
       for (const e of [...game.enemies]) {
         if (!e.alive || Math.hypot(e.x - c.x, e.z - c.z) > def.radius + e.radius) continue;
-        game.dealDamage(e, dmg, { heavy: true, elem: def.elem, canCrit: false });
+        game.dealDamage(e, dmg, { heavy: true, elem: def.elem, canCrit: false, attacker: c });
         hit++;
       }
       if (!hit) return false;
@@ -2615,7 +2636,7 @@ export function createGame(THREE) {
       const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
       spawnProjectile({
         from: 'ally', x: c.x, y: 1.0, z: c.z, targetX: t.x, targetZ: t.z, speed: 14,
-        color: 0xff8a3c, dmg, range: def.range, style: 'fireball', skill: 'fireball', radius: 0.5,
+        color: 0xff8a3c, dmg, range: def.range, style: 'fireball', skill: 'fireball', radius: 0.5, source: c,
       });
       return true;
     }
@@ -2745,7 +2766,7 @@ export function createGame(THREE) {
         }
         if (c.atkCd <= 0) {
           const t = nearestEnemyFrom(c.x, c.z, 6.5);
-          if (t) { c.atkCd = c.cls.cd; game.dealDamage(t, atk); } }
+          if (t) { c.atkCd = c.cls.cd; game.dealDamage(t, atk, { attacker: c }); } }
         return;
       }
       if (c.atkCd <= 0) {
@@ -2754,9 +2775,9 @@ export function createGame(THREE) {
           c.atkCd = c.cls.cd;
           c.mesh.rotation.y = Math.atan2(t.x - c.x, t.z - c.z);
           if (c.cls.projectile) {
-            spawnProjectile({ from: 'ally', x: c.x, y: 1.0, z: c.z, targetX: t.x, targetZ: t.z, speed: 13, color: c.cls.color, dmg: atk, range: c.cls.range + 1.6 });
+            spawnProjectile({ from: 'ally', x: c.x, y: 1.0, z: c.z, targetX: t.x, targetZ: t.z, speed: 13, color: c.cls.color, dmg: atk, range: c.cls.range + 1.6, source: c });
           } else {
-            game.dealDamage(t, atk);
+            game.dealDamage(t, atk, { attacker: c });
           }
         }
       }
@@ -2866,18 +2887,18 @@ export function createGame(THREE) {
           if (Math.hypot(e.x - pr.x, e.z - pr.z) < e.radius + (pr.radius || 0.35)) {
             pr.hits.add(e);
             if (pr.skill === 'fireball') {
-              explodeAt(pr.x, pr.z, SKILLS.fireball.radius, pr.dmg);
+              explodeAt(pr.x, pr.z, SKILLS.fireball.radius, pr.dmg, pr.source);
               pr.dead = true;
               break;
             }
             if (pr.skill === 'icebolt') {
-              game.dealDamage(e, pr.dmg);
+              game.dealDamage(e, pr.dmg, { attacker: pr.source });
               e.slowT = SKILLS.icebolt.slowT;
               hitBurst(pr.x, pr.z, 0x9fe8ff);
               pr.dead = true;
               break;
             }
-            game.dealDamage(e, pr.dmg);
+            game.dealDamage(e, pr.dmg, { attacker: pr.source });
             hitBurst(pr.x, pr.z, pr.color || 0xffffff);
             if (!pr.pierce || pr.hits.size >= pr.pierce) { pr.dead = true; break; }
           }
@@ -2889,6 +2910,9 @@ export function createGame(THREE) {
             damageCompanion(tank, pr.dmg);
             pr.dead = true;
           }
+        } else if (pr.targetComp && pr.targetComp.hp > 0 && Math.hypot(pr.targetComp.x - pr.x, pr.targetComp.z - pr.z) < 0.9) {
+          damageCompanion(pr.targetComp, pr.dmg);
+          pr.dead = true;
         } else if (p.alive && Math.hypot(p.x - pr.x, p.z - pr.z) < 0.75) {
           game.damagePlayer(pr.dmg, null);
           pr.dead = true;
