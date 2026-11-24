@@ -4,8 +4,9 @@ import {
   COMPANION_CLASSES, CHARMS, SECRET_TOTAL, MEDAL_TIERS, MEDAL_STEP, OPT_LABEL, MOB_REWARD,
   AVATARS, avatarOf, SKILLS, SKILL_IDS, HEAL_SKILL_IDS, EVOLVE_NEED, BOSS_LABEL, BOSS_TIMER,
   COSTUMES, COSTUME_MAP, COSTUME_PULL_COST, COSTUME_REFUND, COSTUME_STAT_LABEL,
-  ELEMENTS, ELEM_BEATS,
+  ELEMENTS, ELEM_BEATS, EARTH_GATE,
 } from './data.js';
+import { districtAt, PATH_CENTERS } from './world.js';
 import { CloudAdapter } from './save.js';
 import { heroPortraitDataUrl, heroFullDataUrl, visualEquip } from './sprites.js';
 
@@ -146,7 +147,7 @@ export function createUI(game, THREE) {
 
   ui.attachGrave = function (g) {
     const zone = game.zone;
-    const nm = g.type === 'mid' ? zone.mobs.mid.name : g.type === 'field' ? (zone.mobs.field || {}).name : zone.mobs.boss.name;
+    const nm = g.name || (g.type === 'mid' ? zone.mobs.mid.name : g.type === 'field' ? (zone.mobs.field || {}).name : zone.mobs.boss.name);
     const el = document.createElement('div');
     el.className = 'grave-tag';
     el.innerHTML = `<div class="gt-title">⚰️ ${nm}</div><div class="gt-time">⏳ …</div>`;
@@ -239,59 +240,66 @@ export function createUI(game, THREE) {
       <div class="q-prog">${Math.min(q.progress, step.n)} / ${step.n}${q.progress >= step.n ? ' · NPC에게 보상 받기' : ''}</div>`;
   }
 
-  // ---------- 미니맵 (실제 지형 축소) ----------
-  let mapBase = null, mapBaseZone = 0, mapBaseChests = -1;
-  function buildMapBase(zone) {
+  // ---------- 미니맵 · 월드맵 바탕 (서울 지도 전체, 한 번만 그린다) ----------
+  let mapBase = null, mapBaseKey = '';
+  function buildMapBase() {
     const S = 900;
-    const { c, g } = (() => {
-      const cv = document.createElement('canvas'); cv.width = cv.height = S;
-      return { c: cv, g: cv.getContext('2d') };
-    })();
-    const W2 = (wx) => (wx + 48) / 96 * S;
-    const H2 = (wz) => (wz + 48) / 96 * S;
-    const theme = zone.theme;
-    // 땅
-    const grd = g.createRadialGradient(S * 0.5, S * 0.45, S * 0.05, S * 0.5, S * 0.5, S * 0.72);
-    grd.addColorStop(0, theme.grass || hexOf(theme.ground));
-    grd.addColorStop(0.55, hexOf(theme.ground));
-    grd.addColorStop(1, theme.ground2);
-    g.fillStyle = grd; g.fillRect(0, 0, S, S);
+    const cv = document.createElement('canvas'); cv.width = cv.height = S;
+    const g = cv.getContext('2d');
+    const W2 = (wx) => (wx + 144) / 288 * S;
+    const H2 = (wz) => (wz + 144) / 288 * S;
+    // 구역별 바탕
+    for (const zn of ZONES) {
+      if (!zn.map) continue;
+      const cx = W2(zn.map.cx), cy = H2(zn.map.cz);
+      const R = S / 3 * 0.72;
+      const grd = g.createRadialGradient(cx, cy, R * 0.05, cx, cy, R);
+      grd.addColorStop(0, zn.theme.grass || hexOf(zn.theme.ground));
+      grd.addColorStop(0.55, hexOf(zn.theme.ground));
+      grd.addColorStop(1, zn.theme.ground2);
+      g.fillStyle = grd;
+      g.fillRect(cx - S / 6, cy - S / 6, S / 3, S / 3);
+    }
     // 얼룩
-    let seed = zone.id * 7919 + 17;
+    let seed = 1234567;
     const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
-    for (let i = 0; i < 260; i++) {
+    for (let i = 0; i < 420; i++) {
       const x = rnd() * S, y = rnd() * S, r = 4 + rnd() * 26;
+      const zn = districtAt(x / S * 288 - 144, y / S * 288 - 144);
       g.globalAlpha = 0.05 + rnd() * 0.1;
-      g.fillStyle = rnd() > 0.5 ? theme.ground2 : (theme.grass || hexOf(theme.ground));
+      g.fillStyle = rnd() > 0.5 ? zn.theme.ground2 : (zn.theme.grass || hexOf(zn.theme.ground));
       g.beginPath(); g.ellipse(x, y, r, r * (0.5 + rnd()), rnd() * 3, 0, 6.283); g.fill();
     }
     g.globalAlpha = 1;
-    // 물 / 늪
-    if (zone.id === 4) {
-      g.globalAlpha = 0.3; g.strokeStyle = '#9fe8ff'; g.lineWidth = 2;
-      for (let i = 0; i < 22; i++) { g.beginPath(); g.arc(rnd() * S, rnd() * S, 20 + rnd() * 70, 0, 6.283); g.stroke(); }
-      g.globalAlpha = 0.18; g.fillStyle = '#0e4a60';
-      for (let i = 0; i < 9; i++) { g.beginPath(); g.ellipse(rnd() * S, rnd() * S, 40 + rnd() * 60, 26 + rnd() * 40, rnd() * 3, 0, 6.283); g.fill(); }
-      g.globalAlpha = 1;
+    // 한강 물줄기
+    const ry0 = H2(-104), ry1 = H2(-88);
+    g.fillStyle = 'rgba(42,122,150,.85)';
+    g.fillRect(0, ry0, S, ry1 - ry0);
+    g.strokeStyle = 'rgba(168,232,238,.6)'; g.lineWidth = 2;
+    for (let i = 0; i < 14; i++) {
+      const y = ry0 + rnd() * (ry1 - ry0);
+      g.beginPath();
+      g.moveTo(rnd() * S * 0.5, y);
+      g.bezierCurveTo(S * 0.4, y + (rnd() - 0.5) * 10, S * 0.6, y + (rnd() - 0.5) * 10, S * (0.5 + rnd() * 0.5), y);
+      g.stroke();
     }
-    if (zone.id === 2) {
-      g.globalAlpha = 0.28; g.fillStyle = '#2b4a45';
-      for (let i = 0; i < 14; i++) { g.beginPath(); g.ellipse(rnd() * S, rnd() * S, 26 + rnd() * 56, 16 + rnd() * 36, rnd() * 3, 0, 6.283); g.fill(); }
-      g.globalAlpha = 1;
-    }
-    // 길 (월드 좌표와 동일한 곡선)
-    const pathColor = zone.id === 3 ? '#e6cd93' : zone.id === 4 ? '#5b93a0' : zone.id === 2 ? '#5c6b52' : '#9c8a63';
-    g.strokeStyle = 'rgba(0,0,0,.18)'; g.lineWidth = S * 0.042; g.lineCap = 'round';
+    // 메인 길 (구역 중심 뱀 모양)
+    const pathColor = '#9c8a63';
+    g.strokeStyle = 'rgba(0,0,0,.18)'; g.lineWidth = S * 0.014; g.lineCap = 'round';
     g.beginPath();
-    for (let i = 0; i <= 60; i++) {
-      const t = i / 60;
-      const wz = 48 - t * 96;
-      const wx = Math.sin(t * 9) * 2.44;
-      if (i === 0) g.moveTo(W2(wx), H2(wz)); else g.lineTo(W2(wx), H2(wz));
+    PATH_CENTERS.forEach((p, i) => {
+      const px = W2(p.x), py = H2(p.z);
+      if (i === 0) g.moveTo(px, py);
+      else { const prev = PATH_CENTERS[i - 1]; g.quadraticCurveTo(W2(prev.x), H2(p.z), px, py); }
+    });
+    g.stroke();
+    g.strokeStyle = pathColor; g.lineWidth = S * 0.011; g.stroke();
+    // 구역 경계선
+    g.strokeStyle = 'rgba(0,0,0,.16)'; g.lineWidth = 2;
+    for (const b of [-48, 48]) {
+      g.beginPath(); g.moveTo(W2(b), 0); g.lineTo(W2(b), S); g.stroke();
+      g.beginPath(); g.moveTo(0, H2(b)); g.lineTo(S, H2(b)); g.stroke();
     }
-    g.stroke();
-    g.strokeStyle = pathColor; g.lineWidth = S * 0.032;
-    g.stroke();
     // 소품 실루엣
     for (const pr of game.world.props) {
       const x = W2(pr.x), y = H2(pr.z);
@@ -321,23 +329,31 @@ export function createUI(game, THREE) {
       g.fillStyle = color; g.beginPath(); g.arc(W2(ax), H2(az), rad, 0, 6.283); g.fill();
       g.strokeStyle = ringColor; g.lineWidth = 2; g.beginPath(); g.arc(W2(ax), H2(az), rad, 0, 6.283); g.stroke();
     };
-    arena(zone.mid.x, zone.mid.z, S * 0.038, 'rgba(80,160,255,.16)', 'rgba(120,190,255,.5)');
-    arena(zone.boss.x, zone.boss.z, S * 0.055, 'rgba(180,90,255,.18)', 'rgba(210,140,255,.55)');
-    if (zone.field) arena(zone.field.x, zone.field.z, S * 0.058, 'rgba(255,200,60,.16)', 'rgba(255,215,110,.6)');
-    // 시작 지점 문양
+    for (const zn of ZONES) {
+      if (!zn.map) continue;
+      arena(zn.map.cx + zn.mid.x, zn.map.cz + zn.mid.z, S * 0.013, 'rgba(80,160,255,.16)', 'rgba(120,190,255,.5)');
+      arena(zn.map.cx + zn.boss.x, zn.map.cz + zn.boss.z, S * 0.019, 'rgba(180,90,255,.18)', 'rgba(210,140,255,.55)');
+      if (zn.field) arena(zn.map.cx + zn.field.x, zn.map.cz + zn.field.z, S * 0.02, 'rgba(255,200,60,.16)', 'rgba(255,215,110,.6)');
+    }
+    // 시작 지점 문양 (1구역 스폰)
+    const z1 = ZONES[0];
     g.strokeStyle = 'rgba(140,220,255,.55)'; g.lineWidth = 2;
-    g.beginPath(); g.arc(W2(zone.spawn.x), H2(zone.spawn.z), S * 0.03, 0, 6.283); g.stroke();
+    g.beginPath(); g.arc(W2(z1.map.cx + z1.spawn.x), H2(z1.map.cz + z1.spawn.z), S * 0.01, 0, 6.283); g.stroke();
+    // 지구 귀환 게이트
+    g.fillStyle = game.state.earthGateOpen ? '#ffd257' : '#8a97a8';
+    g.beginPath(); g.arc(W2(EARTH_GATE.x), H2(EARTH_GATE.z), S * 0.012, 0, 6.283); g.fill();
+    g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke();
     // 테두리
     g.strokeStyle = 'rgba(255,255,255,.12)'; g.lineWidth = 8;
     g.strokeRect(4, 4, S - 8, S - 8);
-    mapBase = c;
-    mapBaseZone = zone.id;
-    mapBaseChests = game.state.chestOpened.length;
+    mapBase = cv;
+    mapBaseKey = game.state.chestOpened.length + '|' + (game.state.earthGateOpen ? '1' : '0');
   }
 
   function drawMinimap() {
     if (!game.zone || !game.player || !game.world) return;
-    if (!mapBase || mapBaseZone !== game.zone.id || mapBaseChests !== game.state.chestOpened.length) buildMapBase(game.zone);
+    const baseKey = game.state.chestOpened.length + '|' + (game.state.earthGateOpen ? '1' : '0');
+    if (!mapBase || mapBaseKey !== baseKey) buildMapBase();
     const c = $('minimap');
     const ctx = c.getContext('2d');
     const W = c.width, H = c.height, cx = W / 2, cy = H / 2, R = W / 2 - 5;
@@ -345,23 +361,19 @@ export function createUI(game, THREE) {
     ctx.clearRect(0, 0, W, H);
     ctx.save();
     ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.clip();
-    // 지형 레이어 (한 번 그려 둔 오프스크린 캔버스)
-    const size = 96 * scale;
-    const ox = cx - (game.player.x + 48) / 96 * size;
-    const oy = cy - (game.player.z + 48) / 96 * size;
+    // 지형 레이어 (한 번 그려 둔 오프스크린 캔버스 — 서울 지도 전체)
+    const size = 288 * scale;
+    const ox = cx - (game.player.x + 144) / 288 * size;
+    const oy = cy - (game.player.z + 144) / 288 * size;
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(mapBase, ox, oy, size, size);
     ctx.imageSmoothingEnabled = false;
     const px2 = (wx, wz) => [cx + (wx - game.player.x) * scale, cy + (wz - game.player.z) * scale];
 
-    // 포탈
-    let p = game.world.portal.position;
-    let d = px2(p.x, p.z);
-    ctx.beginPath(); ctx.arc(d[0], d[1], 3.4, 0, 6.283); ctx.fillStyle = '#6fe0ff'; ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 1; ctx.stroke();
-    // NPC
-    p = game.world.npc.position;
-    d = px2(p.x, p.z);
+    // NPC (현재 구역)
+    const npcMesh = game.world.npcs[game.zone.id];
+    let p = npcMesh ? npcMesh.position : null;
+    let d = p ? px2(p.x, p.z) : [cx, cy];
     const q = game.questInfo(game.zone.id);
     if (q && !q.done) {
       ctx.save(); ctx.translate(d[0], d[1]); ctx.rotate(Math.PI / 4);
@@ -489,7 +501,8 @@ export function createUI(game, THREE) {
   ui.updateTalkButtons = function () {
     const t = $('talkBtn'), l = $('leaveBtn');
     t.classList.toggle('hidden', !game.nearNpc);
-    l.classList.toggle('hidden', !game.nearPortal);
+    // 귀환 버튼은 항상 보인다 — 누르면 처음 소환 지점(1구역)으로 돌아간다
+    l.classList.remove('hidden');
     if (game.nearNpc) {
       const q = game.questInfo(game.zone.id);
       const step = q && !q.done ? q.def.steps[q.step] : null;
@@ -1476,108 +1489,120 @@ export function createUI(game, THREE) {
 
   // ---------- 월드맵 ----------
   // ---------- 전체 지도 (실제 맵 지형) ----------
+  // ---------- 월드맵 (서울 지도 전체 · 잠긴 구역은 구름) ----------
   ui.openWorldMap = function () {
     const s = game.state;
     const zone = game.zone;
-    buildMapBase(zone);
+    buildMapBase();
     const M = 920;
     const cv = document.createElement('canvas');
     cv.width = M; cv.height = M;
     const g = cv.getContext('2d');
     g.imageSmoothingEnabled = true;
     g.drawImage(mapBase, 0, 0, M, M);
-    const X = (wx) => (wx + 48) / 96 * M;
-    const Y = (wz) => (wz + 48) / 96 * M;
-    // 구역 테두리(방벽)
-    g.strokeStyle = 'rgba(140,190,255,.35)'; g.lineWidth = 6; g.strokeRect(3, 3, M - 6, M - 6);
-
-    // 상자(보물)
-    for (const ch of game.world.chests) {
-      if (ch.opened) continue;
-      g.fillStyle = '#ffd257'; g.strokeStyle = '#7a5a20'; g.lineWidth = 2;
-      g.fillRect(X(ch.x) - 7, Y(ch.z) - 6, 14, 12);
-      g.strokeRect(X(ch.x) - 7, Y(ch.z) - 6, 14, 12);
+    const X = (wx) => (wx + 144) / 288 * M;
+    const Y = (wz) => (wz + 144) / 288 * M;
+    // 잠긴 구역은 구름으로 가린다
+    for (const zn of ZONES) {
+      if (!zn.map) continue;
+      if (s.unlocked.includes(zn.id)) continue;
+      const x0 = X(zn.map.cx - 48), y0 = Y(zn.map.cz - 48), w = M / 3, h = M / 3;
+      g.fillStyle = 'rgba(220,228,240,.82)';
+      g.fillRect(x0, y0, w, h);
+      g.fillStyle = '#5a6a8a';
+      g.font = 'bold 44px sans-serif'; g.textAlign = 'center';
+      g.fillText('☁️', x0 + w / 2, y0 + h / 2 - 6);
+      g.font = 'bold 20px sans-serif';
+      g.fillText('방벽', x0 + w / 2, y0 + h / 2 + 26);
+      g.strokeStyle = 'rgba(90,106,138,.6)'; g.lineWidth = 3;
+      g.strokeRect(x0 + 2, y0 + 2, w - 4, h - 4);
     }
-    // NPC · 포탈
-    const np = game.world.npc.position, po = game.world.portal.position;
-    g.fillStyle = '#7fd0ff'; g.beginPath(); g.arc(X(np.x), Y(np.z), 7, 0, 6.283); g.fill();
-    g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke();
-    g.fillStyle = '#4ab0ff'; g.beginPath(); g.arc(X(po.x), Y(po.z), 9, 0, 6.283); g.fill();
-    g.strokeStyle = '#bff0ff'; g.lineWidth = 3; g.stroke();
-    // 몬스터
-    for (const e of game.enemies) {
-      if (!e.alive) continue;
-      const big = e.isField || e.isBoss || e.isMid;
-      g.beginPath(); g.arc(X(e.x), Y(e.z), big ? 10 : 5.5, 0, 6.283);
-      g.fillStyle = big ? '#ff2d2d' : '#ff6b6b'; g.fill();
-      if (big) { g.strokeStyle = '#fff'; g.lineWidth = 2.5; g.stroke(); }
-    }
-    // 보스 묘비(리스폰 대기)
-    for (const gr of game.graves) {
-      const remain = Math.max(0, gr.until - Date.now());
-      g.fillStyle = '#b9a6ff';
-      g.beginPath(); g.arc(X(gr.x), Y(gr.z), 9, 0, 6.283); g.fill();
+    // 방벽 게이트 표시 (잠긴 구역 입구)
+    for (const zn of ZONES) {
+      if (!zn.gate || s.unlocked.includes(zn.id)) continue;
+      g.fillStyle = '#b46cff';
+      g.beginPath(); g.arc(X(zn.gate.x), Y(zn.gate.z), 9, 0, 6.283); g.fill();
       g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke();
-      g.fillStyle = '#2a2440'; g.font = 'bold 11px sans-serif'; g.textAlign = 'center';
-      g.fillText('✝', X(gr.x), Y(gr.z) + 4);
     }
-    // 내 캐릭터 = 초록 점
-    const px = X(game.player.x), py = Y(game.player.z);
-    g.beginPath(); g.arc(px, py, 8, 0, 6.283); g.fillStyle = '#2dff7a'; g.fill();
-    g.strokeStyle = '#fff'; g.lineWidth = 3; g.stroke();
-    if (gr_range()) { /* noop */ }
-    g.beginPath();
-    g.moveTo(px, py);
-    g.lineTo(px + Math.sin(game.player.facing) * 20, py + Math.cos(game.player.facing) * 20);
-    g.strokeStyle = 'rgba(45,255,122,.75)'; g.lineWidth = 4; g.stroke();
-
-    function gr_range() { return false; }
+    // 상자(보물)
+    for (const c of game.world.chests) {
+      if (c.opened) continue;
+      g.beginPath(); g.arc(X(c.x), Y(c.z), 5.5, 0, 6.283); g.fillStyle = '#ffd257'; g.fill();
+      g.strokeStyle = '#7a5a12'; g.lineWidth = 1.5; g.stroke();
+    }
+    // NPC (구역마다)
+    for (const zn of ZONES) {
+      if (!zn.map) continue;
+      const np = game.world.npcs[zn.id];
+      if (!np) continue;
+      g.beginPath(); g.arc(X(np.position.x), Y(np.position.z), 6, 0, 6.283); g.fillStyle = '#4fd2ff'; g.fill();
+      g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke();
+    }
+    // 몬스터 (현재 구역)
+    for (const en of game.enemies) {
+      if (!en.alive || en.isBoss || en.isField || en.isMid || en.elite) continue;
+      g.beginPath(); g.arc(X(en.x), Y(en.z), 3.4, 0, 6.283); g.fillStyle = '#ff5a5a'; g.fill();
+    }
+    // 보스 묘비 (타이머 표시)
+    for (const gr of game.graves) {
+      g.beginPath(); g.arc(X(gr.x), Y(gr.z), 7, 0, 6.283); g.fillStyle = '#0e1420'; g.fill();
+      g.strokeStyle = '#ffd257'; g.lineWidth = 2; g.stroke();
+    }
+    // 지구 귀환 게이트
+    g.beginPath(); g.arc(X(EARTH_GATE.x), Y(EARTH_GATE.z), 10, 0, 6.283);
+    g.fillStyle = s.earthGateOpen ? '#ffd257' : '#8a97a8'; g.fill();
+    g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke();
+    // 내 캐릭터
+    g.beginPath(); g.arc(X(game.player.x), Y(game.player.z), 8.5, 0, 6.283); g.fillStyle = '#3ddc54'; g.fill();
+    g.strokeStyle = '#fff'; g.lineWidth = 2.5; g.stroke();
+    // 현재 구역 테두리
+    if (zone.map) {
+      g.strokeStyle = '#fff'; g.lineWidth = 3;
+      g.strokeRect(X(zone.map.cx - 48) + 2, Y(zone.map.cz - 48) + 2, M / 3 - 4, M / 3 - 4);
+    }
     const img = cv.toDataURL('image/png');
-
-    const zoneCards = ZONES.slice(0, 4).map((z) => {
+    const zoneCards = ZONES.map((z) => {
       const unlocked = s.unlocked.includes(z.id);
       const current = zone.id === z.id;
-      const remain = ['mid', 'boss', 'field'].map((t) => game.bossRemain(z.id, t)).reduce((a, b) => a + b, 0);
       return `<button class="wm-zone ${current ? 'on' : ''} ${unlocked ? '' : 'fog'}" data-zone="${z.id}">
         ${unlocked ? '' : '<span class="wm-cloud">☁️</span>'}
         <span class="wm-ic">${z.icon}</span>
         <span class="wm-nm">${z.short}</span>
-        <span class="wm-st">${current ? '지금 여기' : unlocked ? '이동' : '미탐험 · 방벽'}</span>
+        <span class="wm-st">${current ? '지금 여기' : unlocked ? '구역 정보' : '미탐험 · 방벽'}</span>
       </button>`;
     }).join('');
-
     const html = `${head('🗺️ 서울 판타지 지도', `${zone.icon} ${zone.name}`)}
       <div class="wm-wrap">
-        <img class="wm-map" src="${img}" alt="${zone.name} 지도">
+        <img class="wm-map" src="${img}" alt="서울 판타지 지도">
         <div class="wm-legend">
           <span><i class="lg me"></i>내 위치</span>
           <span><i class="lg mon"></i>몬스터</span>
           <span><i class="lg boss"></i>보스</span>
           <span><i class="lg chest"></i>보물</span>
           <span><i class="lg npc"></i>NPC</span>
+          <span>🚪 방벽</span>
         </div>
       </div>
       <div class="wm-zones">${zoneCards}</div>
-      <div class="hint" style="margin-top:10px">지도는 지금 구역의 실제 지형(길·물가·숲)입니다. 잠긴 구역은 이전 구역 보스를 처치하면 안개가 걷히고 방벽이 열려요.</div>`;
+      <div class="hint" style="margin-top:10px">하나로 연결된 서울 지도예요. 걸어서 구역 사이를 이동하고, 잠긴 구역은 이전 구역 보스를 처치하면 방벽이 열려요. 구역 카드를 누르면 구역 정보를 볼 수 있어요.</div>`;
     const sheet = openSheet(html, 'hub-sheet');
     sheet.querySelectorAll('[data-zone]').forEach((el) => el.addEventListener('click', () => {
       const id = parseInt(el.dataset.zone, 10);
       const z = ZONES.find((x) => x.id === id);
-      if (z.comingSoon) { ui.toast('2단계 업데이트에서 만나요!', 'bad'); return; }
+      if (!z) return;
       if (!game.state.unlocked.includes(id)) {
-        const prev = PLAYABLE.find((p) => p.id === id - 1);
+        const prev = ZONES.find((p) => p.id === id - 1);
         ui.toast(prev ? `${prev.name} 보스를 먼저 처치해야 방벽이 열려요.` : '아직 갈 수 없는 구역이에요.', 'bad');
         return;
       }
-      if (id === game.zone.id) { closeModal(); return; }
-      if (id === 4 && !game.state.equip.charm) { ui.toast('수중호흡 아티팩트가 필요해요!', 'bad'); ui.openZoneInfo(4); return; }
-      if (game.enterZone(id)) closeModal();
+      closeModal();
+      ui.openZoneInfo(id);
     }));
   };
 
   // ---------- 구역 정보 (보스 리스폰 표시) ----------
   ui.openZoneInfo = function (zoneId = game.zone.id) {
-    const z = PLAYABLE.find((x) => x.id === zoneId) || game.zone;
+    const z = ZONES.find((x) => x.id === zoneId) || game.zone;
     const m = game.medalInfo(z.id);
     const chest = game.chestInfo(z.id);
     const ak = ARMOR_KINDS[z.threat];
@@ -1686,7 +1711,9 @@ export function createUI(game, THREE) {
     });
   });
   $('talkBtn').addEventListener('click', () => ui.openQuestDialog(game.questInfo(game.zone.id)));
-  $('leaveBtn').addEventListener('click', () => ui.openWorldMap());
+  $('leaveBtn').addEventListener('click', () => {
+    if (game.player && game.player.alive) game.returnToStart();
+  });
 
   // ---------- 플로팅 조이스틱 ----------
   // 좌하단 고정 조이스틱 대신, 화면을 터치하면 그 지점에 반투명 조이스틱이 떠서 방향을 보여 준다.
