@@ -54,6 +54,13 @@ async function boot() {
     ]);
     loadingText.textContent = '계정을 확인하는 중…';
 
+    // 고퀄 2.5D 도트 PNG 에셋을 먼저 불러온다 (시안과 인게임 화면 일치)
+    loadingText.textContent = '도트 그래픽을 불러오는 중…';
+    const { preloadAssets } = await import('./assets.js');
+    await preloadAssets(THREE, (r) => {
+      loadingText.textContent = `도트 그래픽을 불러오는 중… ${Math.round(r * 100)}%`;
+    });
+
     const token = readToken();
     const store = createSaveManager({ cloud: token ? new CloudAdapter(token) : null });
     const start = createStartScreen(store);

@@ -1,6 +1,7 @@
 // 3D 월드 · 캐릭터 생성 (2.5D 도트 스프라이트 + 로우폴리 지형)
 import { AVATAR_MAP } from './data.js';
 import { makeHeroSprite, makeMonsterSprite, makeCompanionSprite, visualEquip } from './sprites.js';
+import { ASSET_URL, getTexture, aspectOf } from './assets.js';
 const rand = (seed) => {
   let s = seed >>> 0;
   return () => {
@@ -196,18 +197,18 @@ export function makeCompanion(THREE, cls, gradeColor = 0xffffff) {
 }
 
 export function makeChest(THREE) {
+  const url = ASSET_URL.prop('chest');
   const g = new THREE.Group();
-  const base = box(THREE, 0.8, 0.5, 0.6, 0x8a5a2e); base.position.y = 0.25; g.add(base);
-  const lid = new THREE.Group();
-  const lidBox = box(THREE, 0.84, 0.24, 0.64, 0xa06a34); lidBox.position.y = 0.12; lid.add(lidBox);
-  lid.position.set(0, 0.5, -0.3); g.add(lid);
-  for (const x of [-0.28, 0.28]) {
-    const band = box(THREE, 0.09, 0.56, 0.64, 0xd9b45a); band.position.set(x, 0.28, 0); g.add(band);
-  }
-  const lock = box(THREE, 0.16, 0.2, 0.08, 0xffd257); lock.position.set(0, 0.34, 0.32); g.add(lock);
-  const glowS = glow(THREE, 0xffe08a, 0.18); glowS.position.set(0, 0.6, 0); glowS.visible = false; g.add(glowS);
-  g.userData = { lid, glowS };
-  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  const h = 1.0, w = h * (aspectOf(THREE, url) || 1.2);
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: getTexture(THREE, url), transparent: true, alphaTest: 0.4, depthWrite: true }));
+  mesh.scale.set(w, h, 1);
+  mesh.position.y = h / 2;
+  const art = new THREE.Group(); art.add(mesh); g.add(art);
+  const shadow = new THREE.Mesh(new THREE.CircleGeometry(w * 0.34, 14), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.26, depthWrite: false }));
+  shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.03; g.add(shadow);
+  const glowS = new THREE.Mesh(new THREE.CircleGeometry(0.7, 18), new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.0, depthWrite: false, blending: THREE.AdditiveBlending }));
+  glowS.rotation.x = -Math.PI / 2; glowS.position.y = 0.05; g.add(glowS);
+  g.userData = { lid: { rotation: { x: 0 }, position: { z: 0 } }, mesh, art, opened: false, url, h };
   return g;
 }
 
@@ -380,20 +381,7 @@ export function buildZone(THREE, zone, openedChests = []) {
   ground.receiveShadow = true;
   group.add(ground);
 
-  // 보스 제단
-  const altar = cyl(THREE, 9, 9.4, 0.14, zone.id === 3 ? 0xd8bc86 : zone.id === 4 ? 0x3f7f8c : 0x6d7a5a, 32);
-  altar.position.set(zone.boss.x, 0.07, zone.boss.z); altar.receiveShadow = true; group.add(altar);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(8.6, 9.1, 40), new THREE.MeshBasicMaterial({ color: 0xffcf6a, transparent: true, opacity: 0.35, side: THREE.DoubleSide }));
-  ring.rotation.x = -Math.PI / 2; ring.position.set(zone.boss.x, 0.16, zone.boss.z); group.add(ring);
-
-  // 지역 필드보스 제단 (하루 1회)
-  let fieldRing = null;
-  if (zone.field) {
-    const fa = cyl(THREE, 10, 10.4, 0.13, zone.id === 3 ? 0xc9a468 : zone.id === 4 ? 0x2f6f7c : 0x8a7a4a, 30);
-    fa.position.set(zone.field.x, 0.065, zone.field.z); fa.receiveShadow = true; group.add(fa);
-    fieldRing = new THREE.Mesh(new THREE.RingGeometry(9.4, 9.9, 42), new THREE.MeshBasicMaterial({ color: 0xffd257, transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
-    fieldRing.rotation.x = -Math.PI / 2; fieldRing.position.set(zone.field.x, 0.17, zone.field.z); group.add(fieldRing);
-  }
+  // 보스 영역은 바닥 그림 없이 내부 좌표/반경으로만 인식한다 (지형이 그대로 보이게)
 
   // ---------- 소품 배치 (인스턴싱) ----------
   const scatter = [];
@@ -553,7 +541,7 @@ export function buildZone(THREE, zone, openedChests = []) {
   }
 
   return {
-    group, props, chests, npc, portal, spawnPoints, particles: points, fieldRing,
+    group, props, chests, npc, portal, spawnPoints, particles: points, fieldRing: null,
     update(dt, t) {
       const arr = pgeo.attributes.position.array;
       for (let i = 0; i < pc; i++) {
@@ -567,8 +555,6 @@ export function buildZone(THREE, zone, openedChests = []) {
       }
       pgeo.attributes.position.needsUpdate = true;
       npc.userData.marker.position.y = 2.3 + Math.sin(t * 2.2) * 0.12;
-      ring.rotation.z = t * 0.15;
-      if (fieldRing) fieldRing.rotation.z = -t * 0.12;
       portal.rotation.y = t * 0.8;
     },
   };

@@ -4,6 +4,7 @@ import {
   COMPANION_CLASSES, CHARMS, SECRET_TOTAL, MEDAL_TIERS, MEDAL_STEP, OPT_LABEL, MOB_REWARD,
   AVATARS, avatarOf, SKILLS, SKILL_IDS, HEAL_SKILL_IDS, EVOLVE_NEED, BOSS_LABEL, BOSS_TIMER,
   COSTUMES, COSTUME_MAP, COSTUME_PULL_COST, COSTUME_REFUND, COSTUME_STAT_LABEL,
+  ELEMENTS, ELEM_BEATS,
 } from './data.js';
 import { CloudAdapter } from './save.js';
 import { heroPortraitDataUrl, heroFullDataUrl, visualEquip } from './sprites.js';
@@ -141,6 +142,16 @@ export function createUI(game, THREE) {
     worldLayer.appendChild(el);
     ui.tags.set(e, el);
     e.tag = el;
+  };
+
+  ui.attachGrave = function (g) {
+    const zone = game.zone;
+    const nm = g.type === 'mid' ? zone.mobs.mid.name : g.type === 'field' ? (zone.mobs.field || {}).name : zone.mobs.boss.name;
+    const el = document.createElement('div');
+    el.className = 'grave-tag';
+    el.innerHTML = `<div class="gt-title">⚰️ ${nm}</div><div class="gt-time">⏳ …</div>`;
+    worldLayer.appendChild(el);
+    g.el = el;
   };
 
   ui.updateBossBar = function (e) {
@@ -361,34 +372,24 @@ export function createUI(game, THREE) {
       ctx.fillRect(dd[0] - 2.6, dd[1] - 2.2, 5.2, 4.4);
       ctx.strokeStyle = '#7a5a20'; ctx.lineWidth = 1; ctx.strokeRect(dd[0] - 2.6, dd[1] - 2.2, 5.2, 4.4);
     }
-    // 몬스터
+    // 몬스터 = 빨간 점
     for (const e of game.enemies) {
       if (!e.alive) continue;
       const dd = px2(e.x, e.z);
       if (Math.hypot(dd[0] - cx, dd[1] - cy) > R) continue;
-      if (e.isField) {
-        ctx.beginPath(); ctx.arc(dd[0], dd[1], 6, 0, 6.283); ctx.fillStyle = '#ffc93c'; ctx.fill();
-        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.6; ctx.stroke();
-      } else if (e.isBoss) {
-        ctx.beginPath(); ctx.arc(dd[0], dd[1], 5.2, 0, 6.283); ctx.fillStyle = '#c98bff'; ctx.fill();
-        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.4; ctx.stroke();
-      } else if (e.isMid) {
-        ctx.beginPath(); ctx.arc(dd[0], dd[1], 3.8, 0, 6.283); ctx.fillStyle = '#5aa9ff'; ctx.fill();
-      } else if (e.elite) {
-        ctx.beginPath(); ctx.arc(dd[0], dd[1], 2.8, 0, 6.283); ctx.fillStyle = '#ffb347'; ctx.fill();
-      } else {
-        ctx.beginPath(); ctx.arc(dd[0], dd[1], 2, 0, 6.283); ctx.fillStyle = '#ff5566'; ctx.fill();
-      }
+      const big = e.isField || e.isBoss || e.isMid;
+      ctx.beginPath(); ctx.arc(dd[0], dd[1], big ? 4.8 : 2.6, 0, 6.283);
+      ctx.fillStyle = big ? '#ff2d2d' : '#ff5b5b'; ctx.fill();
+      if (big) { ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 1.5; ctx.stroke(); }
     }
-    // 플레이어
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(-game.player.facing + Math.PI);
+    // 내 캐릭터 = 초록 점
+    ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 6.283); ctx.fillStyle = '#2dff7a'; ctx.fill();
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.8; ctx.stroke();
+    // 바라보는 방향
     ctx.beginPath();
-    ctx.moveTo(0, -8); ctx.lineTo(5.5, 6.5); ctx.lineTo(0, 3); ctx.lineTo(-5.5, 6.5); ctx.closePath();
-    ctx.fillStyle = '#ffffff'; ctx.fill();
-    ctx.strokeStyle = '#2f6bff'; ctx.lineWidth = 2; ctx.stroke();
-    ctx.restore();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.sin(game.player.facing) * 11, cy + Math.cos(game.player.facing) * 11);
+    ctx.strokeStyle = 'rgba(45,255,122,.6)'; ctx.lineWidth = 2.2; ctx.stroke();
     // 가장자리 어둡게
     const grd = ctx.createRadialGradient(cx, cy, R * 0.6, cx, cy, R);
     grd.addColorStop(0, 'rgba(0,0,0,0)');
@@ -406,6 +407,13 @@ export function createUI(game, THREE) {
     ui.mapT += dt;
     if (ui.mapT > 0.07) { ui.mapT = 0; drawMinimap(); }
 
+    // 일반 몹 이름표는 가장 가까운 한 마리만 (여러 마리 겹침 방지)
+    let nearE = null, nearD = 1e9;
+    for (const en of game.enemies) {
+      if (!en.alive || en.isBoss || en.isField || en.isMid || en.elite) continue;
+      const dd = Math.hypot(en.x - game.player.x, en.z - game.player.z);
+      if (dd < 9.5 && dd < nearD) { nearD = dd; nearE = en; }
+    }
     for (const [e, el] of ui.tags) {
       if (!e.alive) {
         if (e.deadT > 0.5 || !e.mesh.parent) { el.remove(); ui.tags.delete(e); }
@@ -419,7 +427,8 @@ export function createUI(game, THREE) {
       }
       const dist = Math.hypot(e.x - game.player.x, e.z - game.player.z);
       // 잡몹 이름표는 가까울 때만 (여러 마리가 겹쳐 보이지 않게)
-      const far = dist > (e.isBoss || e.isField || e.isMid || e.elite ? 17 : 9.5);
+      const special = e.isBoss || e.isField || e.isMid || e.elite;
+      const far = dist > (special ? 17 : 9.5) || (!special && e !== nearE);
       const p = project(e.x, e.headY + 0.3, e.z);
       if (far || !p.visible || p.x < -80 || p.x > window.innerWidth + 80 || p.y < -40 || p.y > window.innerHeight + 60) {
         el.style.display = 'none';
@@ -429,6 +438,20 @@ export function createUI(game, THREE) {
         const fill = el.querySelector('.et-bar i');
         if (fill) fill.style.width = pct(e.hp, e.maxHp);
       }
+    }
+    // 보스 묘비 리스폰 카운트다운
+    for (const g of game.graves) {
+      if (!g.el) continue;
+      const now = Date.now();
+      const remain = Math.max(0, g.until - now);
+      if (remain <= 0) { g.el.style.display = 'none'; continue; }
+      const txt = `⏳ ${game.fmtRemain(remain)}`;
+      const tEl = g.el.querySelector('.gt-time');
+      if (tEl && tEl._t !== txt) { tEl._t = txt; tEl.textContent = txt; }
+      const pj = project(g.x, 2.35, g.z);
+      if (!pj.visible) { g.el.style.display = 'none'; continue; }
+      g.el.style.display = 'block';
+      g.el.style.transform = `translate(${pj.x}px, ${pj.y}px) translate(-50%,-100%)`;
     }
     if (ui.tutorialStep) ui.tickTutorial();
     const pl = game.player;
@@ -665,6 +688,7 @@ export function createUI(game, THREE) {
     { id: 'stats', icon: '💪', name: '스탯' },
     { id: 'skills', icon: '📖', name: '스킬' },
     { id: 'companions', icon: '🐾', name: '동료' },
+    { id: 'ach', icon: '🏆', name: '업적' },
     { id: 'settings', icon: '⚙️', name: '설정' },
     { id: 'help', icon: '❔', name: '도움말' },
   ];
@@ -694,6 +718,7 @@ export function createUI(game, THREE) {
     else if (tab === 'stats') ui.openStats();
     else if (tab === 'skills') ui.openSkills();
     else if (tab === 'companions') ui.openCompanions();
+    else if (tab === 'ach') ui.openAch();
     else if (tab === 'settings') ui.openSettings();
     else if (tab === 'help') ui.openHelp();
     else ui.openBag();
@@ -813,7 +838,7 @@ export function createUI(game, THREE) {
         <div class="codex">${codexCards}</div>
       </div>
       <div class="equip-block">${equipRows}</div>
-      <div class="hint" style="margin:6px 2px 9px">아이템을 누르면 바로 장착됩니다. 같은 등급·같은 아이템을 모으면 <b style="color:#ff5566">빨강(신화)</b>으로 진화해요. <button class="link-btn" data-hub="merge">합성·진화 →</button></div>
+      <div class="hint" style="margin:6px 2px 9px">아이템을 누르면 <b>설명 · 스탯 비교</b>가 열리고, <b>[장착하기]</b>를 눌러야 장착됩니다. 같은 등급·같은 아이템을 모으면 <b style="color:#ff5566">빨강(신화)</b>으로 진화해요. <button class="link-btn" data-hub="merge">합성·진화 →</button></div>
       <div class="item-grid">${grid}</div>`;
 
     const sheet = openSheet(html, 'bag-sheet');
@@ -836,11 +861,7 @@ export function createUI(game, THREE) {
       el.addEventListener('click', (ev) => {
         if (ev.target.closest('[data-evolve]')) return;
         const [kind, fam, g] = el.dataset.item.split(':');
-        const grade = parseInt(g, 10);
-        if (kind === 'charm') return;
-        game.equipItem(kind, fam, grade);
-        ui.toast(`장착: ${game.itemName(kind, fam, grade)}`, grade >= 3 ? 'gold' : 'good');
-        ui.openBag();
+        ui.itemDetail(kind, fam, parseInt(g, 10));
       });
     });
     sheet.querySelectorAll('[data-evolve]').forEach((el) => el.addEventListener('click', (ev) => {
@@ -851,6 +872,83 @@ export function createUI(game, THREE) {
     }));
     sheet.querySelectorAll('[data-unequip]').forEach((el) => {
       el.addEventListener('click', () => { game.unequip(el.dataset.unequip); ui.openBag(); });
+    });
+  };
+
+  // ---------- 아이템 상세 · 스탯 비교 · 장착 확인 ----------
+  ui.itemDetail = function (kind, fam, grade) {
+    const s = game.state;
+    const slot = kind === 'accessory' ? fam : kind;
+    const it = { kind, fam, grade };
+    const cur = s.equip[slot];
+    const gd = GRADES[grade];
+    const st = game.itemStats(it);
+    const opts = game.itemOptions(it);
+    // 장착했을 때의 능력치 (장착 전/후 비교)
+    const before = game.derived();
+    const backup = s.equip[slot];
+    s.equip[slot] = it;
+    const after = game.derived();
+    s.equip[slot] = backup;
+
+    const rows = [];
+    const push = (label, a, b, dec = 0, suffix = '') => {
+      const df = b - a;
+      if (Math.abs(df) < (dec ? 0.05 : 0.5) && !(kind === 'weapon' && label === '공격력') && !(kind === 'armor' && label === '방어력')) return;
+      const cls = df > 0 ? 'up' : df < 0 ? 'down' : 'same';
+      const sign = df > 0 ? '+' : '';
+      rows.push(`<div class="cmp-row"><span class="cr-l">${label}</span><span class="cr-v">${dec ? a.toFixed(dec) : fmt(a)}${suffix}</span><span class="cr-d ${cls}">${df === 0 ? '—' : `${sign}${dec ? df.toFixed(dec) : fmt(df)}${suffix}`}</span></div>`);
+    };
+    push('공격력', before.attack, after.attack);
+    push('방어력', before.defense, after.defense);
+    push('최대 체력', before.maxHp, after.maxHp);
+    push('최대 마나', before.maxMp, after.maxMp);
+    push('치명타', before.critChance * 100, after.critChance * 100, 1, '%');
+    push('치명타 피해', before.critDmg * 100, after.critDmg * 100, 0, '%');
+    push('회피', before.evade * 100, after.evade * 100, 1, '%');
+    push('공격 속도', before.atkSpeed * 100, after.atkSpeed * 100, 0, '%');
+    push('이동 속도', before.moveSpeed, after.moveSpeed, 1);
+
+    const kindName = kind === 'weapon' ? '무기' : kind === 'armor' ? '방어구' : kind === 'charm' ? '부적' : (ACCESSORY_KINDS[fam] || {}).name || '장신구';
+    const curName = cur ? (cur.kind === 'charm' ? (CHARMS[cur.fam] || {}).name : game.itemName(cur.kind, cur.fam, cur.grade)) : null;
+    const optRows = opts.length
+      ? opts.map((o) => `<span class="opt-chip">${OPT_LABEL[o.k] || o.k} +${o.v}%</span>`).join('')
+      : '<span class="hint">추가 옵션 없음</span>';
+    const desc = kind === 'charm'
+      ? ((CHARMS[fam] || {}).desc || '')
+      : `${equipStatText(it)}`;
+
+    const el = document.createElement('div');
+    el.className = 'item-sheet';
+    el.innerHTML = `
+      <div class="islot">
+        <div class="islot-head">
+          <div class="islot-ico" style="--g:${gd.color}">${itemIcon(kind, fam)}</div>
+          <div class="islot-tt">
+            <div class="islot-name" style="color:${gd.color}">${kind === 'charm' ? (CHARMS[fam] || {}).name : game.itemName(kind, fam, grade)}</div>
+            <div class="islot-sub">${gd.name} · ${kindName}</div>
+          </div>
+          <button class="islot-x" data-close>✕</button>
+        </div>
+        <div class="islot-desc">${desc}</div>
+        <div class="opt-chips">${optRows}</div>
+        <div class="cmp-head"><b>${curName ? `현재 장착 · ${curName}` : '현재 장착 없음'}</b><span>장착하면</span></div>
+        <div class="cmp-table">${rows.join('') || '<div class="hint">능력치 변화 없음</div>'}</div>
+        <div class="islot-actions">
+          <button class="btn ghost" data-close>닫기</button>
+          <button class="btn gold" data-equip>장착하기</button>
+        </div>
+      </div>`;
+    document.getElementById('modalRoot').appendChild(el);
+    el.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => el.remove()));
+    el.addEventListener('click', (ev) => { if (ev.target === el) el.remove(); });
+    el.querySelector('[data-equip]').addEventListener('click', () => {
+      const ok = game.equipItem(kind, fam, grade);
+      el.remove();
+      if (ok) {
+        ui.toast(`장착: ${game.itemName(kind, fam, grade)}`, grade >= 3 ? 'gold' : 'good');
+        ui.openBag();
+      }
     });
   };
 
@@ -1249,7 +1347,7 @@ export function createUI(game, THREE) {
   ui.openHelp = function () {
     const html = `${head('❔ 도움말', '스쿨히어로 1단계', 'help')}
       <ul class="help-list">
-        <li><b>이동</b> · 화면 아래 조이스틱 또는 PC의 <b>WASD / 방향키</b></li>
+        <li><b>이동</b> · <b>화면 아무 곳이나 터치해 드래그</b>(플로팅 조이스틱) 또는 PC의 <b>WASD / 방향키</b></li>
         <li><b>공격</b> · 움직이기만 하면 무기 사거리 안의 적을 자동으로 공격해요</li>
         <li><b>미니맵</b> · 오른쪽 위 원을 누르면 서울 판타지 전체 지도가 열려요</li>
         <li><b>메달</b> · 미니맵 아래 메달을 누르면 구역 정보와 보스 리스폰 시간이 보여요</li>
@@ -1337,43 +1435,100 @@ export function createUI(game, THREE) {
   };
 
   // ---------- 월드맵 ----------
+  // ---------- 전체 지도 (실제 맵 지형) ----------
   ui.openWorldMap = function () {
     const s = game.state;
-    const nodes = ZONES.map((z) => {
-      const pos = MAP_POS[z.id];
-      const unlocked = !z.comingSoon && s.unlocked.includes(z.id);
-      const current = game.zone.id === z.id;
-      const locked = !unlocked || z.comingSoon;
-      const fill = z.comingSoon ? '#2a3348' : unlocked ? '#3d6fe0' : '#252c3d';
-      const stroke = current ? '#ffd257' : locked ? '#4a5468' : '#9fd8ff';
-      return `<g class="zm-node ${locked ? 'locked' : ''}" data-zone="${z.id}" transform="translate(${pos.x},${pos.y})">
-        <circle r="${current ? 6.2 : 5}" fill="${fill}" stroke="${stroke}" stroke-width="${current ? 1.4 : 0.9}" opacity="${locked ? 0.75 : 1}"/>
-        ${current ? `<circle r="8.4" fill="none" stroke="#ffd257" stroke-width="0.6" opacity="0.8"/>` : ''}
-        <text class="zm-label" x="0" y="1.7" text-anchor="middle" font-size="${current ? 4.4 : 4}">${z.icon}</text>
-        <text class="zm-small" x="0" y="${current ? 12 : 10.5}" text-anchor="middle" font-size="3.6">${z.short}${locked && !z.comingSoon ? ' 🔒' : ''}</text>
-      </g>`;
+    const zone = game.zone;
+    buildMapBase(zone);
+    const M = 760;
+    const cv = document.createElement('canvas');
+    cv.width = M; cv.height = M;
+    const g = cv.getContext('2d');
+    g.imageSmoothingEnabled = true;
+    g.drawImage(mapBase, 0, 0, M, M);
+    const X = (wx) => (wx + 48) / 96 * M;
+    const Y = (wz) => (wz + 48) / 96 * M;
+    // 구역 테두리(방벽)
+    g.strokeStyle = 'rgba(140,190,255,.35)'; g.lineWidth = 6; g.strokeRect(3, 3, M - 6, M - 6);
+
+    // 상자(보물)
+    for (const ch of game.world.chests) {
+      if (ch.opened) continue;
+      g.fillStyle = '#ffd257'; g.strokeStyle = '#7a5a20'; g.lineWidth = 2;
+      g.fillRect(X(ch.x) - 7, Y(ch.z) - 6, 14, 12);
+      g.strokeRect(X(ch.x) - 7, Y(ch.z) - 6, 14, 12);
+    }
+    // NPC · 포탈
+    const np = game.world.npc.position, po = game.world.portal.position;
+    g.fillStyle = '#7fd0ff'; g.beginPath(); g.arc(X(np.x), Y(np.z), 7, 0, 6.283); g.fill();
+    g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke();
+    g.fillStyle = '#4ab0ff'; g.beginPath(); g.arc(X(po.x), Y(po.z), 9, 0, 6.283); g.fill();
+    g.strokeStyle = '#bff0ff'; g.lineWidth = 3; g.stroke();
+    // 몬스터
+    for (const e of game.enemies) {
+      if (!e.alive) continue;
+      const big = e.isField || e.isBoss || e.isMid;
+      g.beginPath(); g.arc(X(e.x), Y(e.z), big ? 10 : 5.5, 0, 6.283);
+      g.fillStyle = big ? '#ff2d2d' : '#ff6b6b'; g.fill();
+      if (big) { g.strokeStyle = '#fff'; g.lineWidth = 2.5; g.stroke(); }
+    }
+    // 보스 묘비(리스폰 대기)
+    for (const gr of game.graves) {
+      const remain = Math.max(0, gr.until - Date.now());
+      g.fillStyle = '#b9a6ff';
+      g.beginPath(); g.arc(X(gr.x), Y(gr.z), 9, 0, 6.283); g.fill();
+      g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke();
+      g.fillStyle = '#2a2440'; g.font = 'bold 11px sans-serif'; g.textAlign = 'center';
+      g.fillText('✝', X(gr.x), Y(gr.z) + 4);
+    }
+    // 내 캐릭터 = 초록 점
+    const px = X(game.player.x), py = Y(game.player.z);
+    g.beginPath(); g.arc(px, py, 8, 0, 6.283); g.fillStyle = '#2dff7a'; g.fill();
+    g.strokeStyle = '#fff'; g.lineWidth = 3; g.stroke();
+    if (gr_range()) { /* noop */ }
+    g.beginPath();
+    g.moveTo(px, py);
+    g.lineTo(px + Math.sin(game.player.facing) * 20, py + Math.cos(game.player.facing) * 20);
+    g.strokeStyle = 'rgba(45,255,122,.75)'; g.lineWidth = 4; g.stroke();
+
+    function gr_range() { return false; }
+    const img = cv.toDataURL('image/png');
+
+    const zoneCards = ZONES.slice(0, 4).map((z) => {
+      const unlocked = s.unlocked.includes(z.id);
+      const current = zone.id === z.id;
+      const remain = ['mid', 'boss', 'field'].map((t) => game.bossRemain(z.id, t)).reduce((a, b) => a + b, 0);
+      return `<button class="wm-zone ${current ? 'on' : ''} ${unlocked ? '' : 'fog'}" data-zone="${z.id}">
+        ${unlocked ? '' : '<span class="wm-cloud">☁️</span>'}
+        <span class="wm-ic">${z.icon}</span>
+        <span class="wm-nm">${z.short}</span>
+        <span class="wm-st">${current ? '지금 여기' : unlocked ? '이동' : '미탐험 · 방벽'}</span>
+      </button>`;
     }).join('');
-    const html = `${head('🗺️ 서울 판타지 월드맵', `해금 ${s.unlocked.filter((u) => u <= 4).length}/4 구역`)}
-      <div class="worldmap">
-        <svg viewBox="0 0 100 100">
-          <defs>
-            <linearGradient id="landG" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#203a2c"/><stop offset="100%" stop-color="#17281f"/></linearGradient>
-            <linearGradient id="riverG" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#2a6fa8"/><stop offset="100%" stop-color="#3f9bd0"/></linearGradient>
-          </defs>
-          <rect width="100" height="100" fill="url(#landG)"/>
-          <path d="M0,58 C18,54 30,60 46,56 C62,52 74,58 100,50 L100,60 C74,68 62,62 46,66 C30,70 18,64 0,68 Z" fill="url(#riverG)" opacity="0.9"/>
-          <text x="50" y="63" text-anchor="middle" font-size="3.2" fill="#bfe8ff" opacity="0.8">한 강</text>
-          <text x="8" y="95" font-size="3" fill="#7f8ba0">서울 판타지 · 1단계</text>
-          ${nodes}
-        </svg>
+
+    const html = `${head('🗺️ 서울 판타지 지도', `${zone.icon} ${zone.name}`)}
+      <div class="wm-wrap">
+        <img class="wm-map" src="${img}" alt="${zone.name} 지도">
+        <div class="wm-legend">
+          <span><i class="lg me"></i>내 위치</span>
+          <span><i class="lg mon"></i>몬스터</span>
+          <span><i class="lg boss"></i>보스</span>
+          <span><i class="lg chest"></i>보물</span>
+          <span><i class="lg npc"></i>NPC</span>
+        </div>
       </div>
-      <div class="hint" style="margin-top:10px">해금한 구역을 누르면 바로 이동합니다. 잠긴 구역은 이전 구역 보스를 처치해야 열려요.</div>`;
+      <div class="wm-zones">${zoneCards}</div>
+      <div class="hint" style="margin-top:10px">지도는 지금 구역의 실제 지형(길·물가·숲)입니다. 잠긴 구역은 이전 구역 보스를 처치하면 안개가 걷히고 방벽이 열려요.</div>`;
     const sheet = openSheet(html, 'hub-sheet');
     sheet.querySelectorAll('[data-zone]').forEach((el) => el.addEventListener('click', () => {
       const id = parseInt(el.dataset.zone, 10);
       const z = ZONES.find((x) => x.id === id);
       if (z.comingSoon) { ui.toast('2단계 업데이트에서 만나요!', 'bad'); return; }
-      if (!game.state.unlocked.includes(id)) { ui.toast('이전 구역 보스를 먼저 처치해야 해요.', 'bad'); return; }
+      if (!game.state.unlocked.includes(id)) {
+        const prev = PLAYABLE.find((p) => p.id === id - 1);
+        ui.toast(prev ? `${prev.name} 보스를 먼저 처치해야 방벽이 열려요.` : '아직 갈 수 없는 구역이에요.', 'bad');
+        return;
+      }
       if (id === game.zone.id) { closeModal(); return; }
       if (id === 4 && !game.state.equip.charm) { ui.toast('수중호흡 아티팩트가 필요해요!', 'bad'); ui.openZoneInfo(4); return; }
       if (game.enterZone(id)) closeModal();
@@ -1386,6 +1541,9 @@ export function createUI(game, THREE) {
     const m = game.medalInfo(z.id);
     const chest = game.chestInfo(z.id);
     const ak = ARMOR_KINDS[z.threat];
+    const zel = (z.mobs.normal[0] || {}).elem;
+    const ze = ELEMENTS[zel];
+    const zw = ze ? Object.entries(ELEM_BEATS).filter(([, arr]) => arr.includes(zel)).map(([k]) => `${(ELEMENTS[k] || {}).icon} ${(ELEMENTS[k] || {}).name}`).join(' · ') : '';
     const bosses = game.bossStatus(z.id);
     const bossRows = bosses.map((b) => `<div class="boss-row">
       <span class="br-l"><b>${b.name}</b><small>${b.label} · Lv.${b.lv}</small></span>
@@ -1399,6 +1557,7 @@ export function createUI(game, THREE) {
         <div class="zi-box" style="flex:0 0 84px"><div class="zi-medal"><span>${m.tier}</span></div><div class="zi-medal-title">메달 ${m.tier}등급</div></div>
         <div class="zi-box"><div class="big">${chest.found}/${chest.total}</div><div class="lbl">숨겨진 상자</div></div>
       </div>
+      ${ze ? `<div class="zi-elem">이 구역 속성 <b style="color:${ze.color}">${ze.icon} ${ze.name}</b> · 약점 ${zw}</div>` : ''}
       <div class="sec-title" style="text-align:left">보스 리스폰</div>
       <div class="boss-list">${bossRows}</div>
       <div class="hint" style="margin-top:8px">처치 ${m.kills}마리${m.next ? ` · 다음 등급까지 ${m.next - m.kills}마리` : ' · 최고 등급'}</div>
@@ -1422,6 +1581,33 @@ export function createUI(game, THREE) {
     }, 1000);
   };
 
+  // ---------- 업적 도감 ----------
+  ui.openAch = function () {
+    const list = game.achList();
+    const done = list.filter((a) => a.progress >= a.goal).length;
+    const cards = list.map((a) => {
+      const r = Math.min(1, a.progress / a.goal);
+      const claimable = a.progress >= a.goal && !a.claimed;
+      return `<div class="ach-card ${a.progress >= a.goal ? 'done' : ''}">
+        <div class="ach-ico">${a.progress >= a.goal ? a.icon : '🔒'}</div>
+        <div class="ach-body">
+          <div class="ach-name">${a.name}<span class="ach-rw">${a.reward}G</span></div>
+          <div class="hint">${a.desc}</div>
+          <div class="ach-bar"><i style="width:${r * 100}%"></i></div>
+          <div class="ach-num">${Math.min(a.progress, a.goal)} / ${a.goal}</div>
+        </div>
+        ${claimable ? `<button class="btn gold ach-claim" data-ach="${a.id}">받기</button>` : a.claimed ? '<span class="ach-ok">완료</span>' : ''}
+      </div>`;
+    }).join('');
+    const sheet = openSheet(`${head('🏆 업적', `${done}/${list.length} 달성`)}
+      <div class="hint" style="margin-bottom:10px">모험 기록이 자동으로 쌓입니다. 달성한 업적은 보상을 받을 수 있어요.</div>
+      <div class="ach-list">${cards}</div>`, 'hub-sheet');
+    sheet.querySelectorAll('[data-ach]').forEach((el) => el.addEventListener('click', () => {
+      const r = game.claimAch(el.dataset.ach);
+      if (r.ok) { ui.toast(`업적 보상 +${r.reward}G`, 'gold'); ui.openAch(); }
+    }));
+  };
+
   // ---------- 몹 도감 ----------
   ui.openBestiary = function (zoneId = game.zone.id) {
     const cards = PLAYABLE.map((z) => {
@@ -1433,8 +1619,10 @@ export function createUI(game, THREE) {
         const st = game.mobStats(z.id, m);
         const lv = z.scale.lvl + (m.boss === 'field' ? 5 : m.boss === 'boss' ? 3 : m.boss === 'mid' ? 1 : m.elite ? 1 : 0);
         const drop = m.boss === 'field' ? '지역 보스 영혼 · 노란 장비' : m.boss === 'boss' ? '에픽 영혼 · 보라 장비' : m.boss === 'mid' ? '중간보스 영혼 · 파란 장비' : m.elite ? '정예 영혼 · 녹색 장비' : '일반 영혼';
+        const el = ELEMENTS[m.elem] || null;
+        const weak = el ? Object.entries(ELEM_BEATS).filter(([, arr]) => arr.includes(m.elem)).map(([k]) => (ELEMENTS[k] || {}).icon || k).join(' ') : '';
         return `<div class="mob-row ${z.id === zoneId ? 'on' : ''}">
-          <div class="mr-name"><b>${m.name}</b><span>${label} · Lv.${lv}</span></div>
+          <div class="mr-name"><b>${m.name}</b><span>${label} · Lv.${lv}${el ? ` · <em class="elem" style="color:${el.color}">${el.icon} ${el.name}</em>` : ''}</span>${weak ? `<span class="weak">약점 ${weak}</span>` : ''}</div>
           <div class="mr-stats"><span>❤ ${Math.round(st.hp)}</span><span>⚔ ${Math.round(st.atk)}</span><span class="xp">+${Math.round(st.xp)} XP</span><span class="gold">+${Math.round(st.gold)} G</span></div>
           <div class="mr-drop">${drop}</div>
         </div>`;
@@ -1459,37 +1647,56 @@ export function createUI(game, THREE) {
   $('talkBtn').addEventListener('click', () => ui.openQuestDialog(game.questInfo(game.zone.id)));
   $('leaveBtn').addEventListener('click', () => ui.openWorldMap());
 
-  // 조이스틱
-  const joystick = $('joystick');
-  const knob = $('joyKnob');
-  let joyId = null;
-  function joyStart(ev) {
-    joyId = ev.pointerId;
-    joystick.setPointerCapture(ev.pointerId);
-    joyMove(ev);
+  // ---------- 플로팅 조이스틱 ----------
+  // 좌하단 고정 조이스틱 대신, 화면을 터치하면 그 지점에 반투명 조이스틱이 떠서 방향을 보여 준다.
+  const floatJoy = document.createElement('div');
+  floatJoy.className = 'float-joy hidden';
+  floatJoy.innerHTML = '<div class="fj-ring"></div><div class="fj-knob"></div>';
+  document.getElementById('hud').appendChild(floatJoy);
+  const fjKnob = floatJoy.querySelector('.fj-knob');
+  const FJ_MAX = 58;
+  let fjId = null, fjOX = 0, fjOY = 0;
+  function uiTargetBlocked(t) {
+    if (!t || !t.closest) return false;
+    return !!t.closest('button, a, input, textarea, select, .player-card, .map-col, .bottom-bar, .side-menu, .quest-track, .talk-btn, .chest-open-btn, .boss-bar, .toasts, .zone-banner, #modalRoot, .float-joy, .enemy-tag, .grave-tag, .dmg');
   }
-  function joyMove(ev) {
-    if (joyId !== ev.pointerId) return;
-    const r = joystick.getBoundingClientRect();
-    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-    let dx = ev.clientX - cx, dy = ev.clientY - cy;
-    const max = r.width * 0.36;
-    const len = Math.hypot(dx, dy);
-    if (len > max) { dx = (dx / len) * max; dy = (dy / len) * max; }
-    knob.style.transform = `translate(${dx}px, ${dy}px)`;
-    game.input.mx = dx / max;
-    game.input.mz = dy / max;
-  }
-  function joyEnd(ev) {
-    if (joyId !== ev.pointerId) return;
-    joyId = null;
-    knob.style.transform = 'translate(0,0)';
+  function fjStart(ev) {
+    if (fjId !== null) return;
+    if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+    if (uiTargetBlocked(ev.target)) return;
+    if (ui.modal) return;
+    fjId = ev.pointerId;
+    fjOX = ev.clientX; fjOY = ev.clientY;
+    floatJoy.style.left = fjOX + 'px';
+    floatJoy.style.top = fjOY + 'px';
+    floatJoy.classList.remove('hidden');
+    fjKnob.style.transform = 'translate(0,0)';
     game.input.mx = 0; game.input.mz = 0;
+    window.addEventListener('pointermove', fjMove, { passive: false });
+    window.addEventListener('pointerup', fjEnd);
+    window.addEventListener('pointercancel', fjEnd);
   }
-  joystick.addEventListener('pointerdown', joyStart);
-  joystick.addEventListener('pointermove', joyMove);
-  joystick.addEventListener('pointerup', joyEnd);
-  joystick.addEventListener('pointercancel', joyEnd);
+  function fjMove(ev) {
+    if (fjId !== ev.pointerId) return;
+    ev.preventDefault();
+    let dx = ev.clientX - fjOX, dy = ev.clientY - fjOY;
+    const len = Math.hypot(dx, dy);
+    if (len > FJ_MAX) { dx = (dx / len) * FJ_MAX; dy = (dy / len) * FJ_MAX; }
+    fjKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+    game.input.mx = dx / FJ_MAX;
+    game.input.mz = dy / FJ_MAX;
+  }
+  function fjEnd(ev) {
+    if (ev.pointerId !== fjId) return;
+    fjId = null;
+    floatJoy.classList.add('hidden');
+    fjKnob.style.transform = 'translate(0,0)';
+    game.input.mx = 0; game.input.mz = 0;
+    window.removeEventListener('pointermove', fjMove);
+    window.removeEventListener('pointerup', fjEnd);
+    window.removeEventListener('pointercancel', fjEnd);
+  }
+  document.addEventListener('pointerdown', fjStart, { passive: true });
 
   // 키보드
   const keyMap = { KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd', ArrowUp: 'arrowup', ArrowDown: 'arrowdown', ArrowLeft: 'arrowleft', ArrowRight: 'arrowright' };

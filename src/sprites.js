@@ -1,6 +1,7 @@
 // 스쿨히어로 — 2.5D 도트 스프라이트 · 초상화 생성
 // 캐릭터/몬스터를 캔버스 픽셀아트로 그려 NearestFilter 텍스처로 쓴다.
 import { GRADES, AVATAR_MAP, COSTUME_MAP } from './data.js';
+import { ASSET_URL, HERO_IDS, MONSTER_KEYS, COMPANION_IDS, GOLD_KEYS, getTexture, getSilhouette, aspectOf } from './assets.js';
 
 const TAU = Math.PI * 2;
 const hex = (n) => '#' + (n >>> 0).toString(16).padStart(6, '0');
@@ -721,82 +722,111 @@ function monsterSilhouette(THREE, def) {
   return t;
 }
 
-// ---------- 몬스터 빌보드 스프라이트 ----------
+// ---------- 몬스터 2.5D 도트 빌보드 (생성 PNG 그대로 사용) ----------
+// 시안/생성 단계에서 만든 투명 PNG를 THREE.Texture로 불러와 세운다.
+const MONSTER_H = {
+  slime: 0.92, goblin: 1.14, orc: 1.4, frog: 1.12, lizard: 1.42, scarab: 1.02, crab: 1.2,
+  scorpion: 1.24, mummy: 1.52, merfolk: 1.5, siren: 1.52, naga: 1.86, wraith: 1.62,
+  witch: 1.78, golem: 2.2, ent: 2.4, ogre: 2.15, anubis: 2.05, hydra: 2.0, kraken: 2.6,
+};
+function monsterAssetKey(def) {
+  const gold = def.boss === 'field' || def.gold;
+  if (gold && GOLD_KEYS.includes(def.shape)) return `gold-${def.shape}`;
+  return MONSTER_KEYS.includes(def.shape) ? def.shape : 'goblin';
+}
 export function makeMonsterSprite(THREE, def) {
-  const S = def.boss === 'field' ? 2.05 : def.boss === 'boss' ? 1.72 : def.boss === 'mid' ? 1.34 : def.elite ? 1.16 : 1.0;
-  const tall = def.shape === 'kraken' ? 1.95 : def.shape === 'ent' ? 1.85 : def.shape === 'ogre' ? 1.75 : def.shape === 'golem' ? 1.6 : def.shape === 'hydra' ? 1.5 : 1.28;
+  const key = monsterAssetKey(def);
+  const url = ASSET_URL.monster(key);
+  const baseH = MONSTER_H[def.shape] || 1.28;
+  const bossMul = def.boss === 'field' ? 1.22 : def.boss === 'boss' ? 1.12 : def.boss === 'mid' ? 1.05 : def.elite ? 1.06 : 1;
+  const h = baseH * 1.12 * bossMul;
+  const asp = aspectOf(THREE, url) || 0.75;
+  const w = h * asp;
   const g = new THREE.Group();
-  const w = tall * 0.92, h = tall;
-  const mat = new THREE.SpriteMaterial({ map: monsterTexture(THREE, def), transparent: true, alphaTest: 0.45, depthWrite: true });
-  const spr = new THREE.Sprite(mat);
-  spr.scale.set(w, h, 1);
-  spr.position.y = h / 2;
-  g.add(spr);
+
+  const planeGeo = new THREE.PlaneGeometry(1, 1);
+  const mat = new THREE.MeshBasicMaterial({ map: getTexture(THREE, url), transparent: true, alphaTest: 0.4, depthWrite: true, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(planeGeo, mat);
+  mesh.scale.set(w, h, 1);
+  mesh.position.y = h / 2;
+  const art = new THREE.Group();          // 카메라를 바라보는 빌보드 축
+  art.add(mesh);
+  g.add(art);
 
   // 피격 흰색 실루엣
-  const flashMat = new THREE.SpriteMaterial({ map: monsterSilhouette(THREE, def), transparent: true, alphaTest: 0.45, depthWrite: false, opacity: 0.62 });
-  const flash = new THREE.Sprite(flashMat);
-  flash.scale.set(w * 1.02, h * 1.02, 1);
-  flash.position.y = h / 2;
-  flash.visible = false;
-  g.add(flash);
+  const sil = getSilhouette(THREE, url);
+  let flash = null;
+  if (sil) {
+    flash = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: sil, transparent: true, alphaTest: 0.4, depthWrite: false, opacity: 0.55 }));
+    flash.scale.set(w * 1.02, h * 1.02, 1);
+    flash.position.y = h / 2;
+    flash.visible = false;
+    art.add(flash);
+  }
 
-  // 바닥 그림자
+  // 바닥 그림자 (입체감)
   const shadow = new THREE.Mesh(
-    new THREE.CircleGeometry(Math.max(0.28, w * 0.42), 18),
-    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.26, depthWrite: false }),
+    new THREE.CircleGeometry(Math.max(0.2, w * 0.22), 20),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.24, depthWrite: false }),
   );
   shadow.rotation.x = -Math.PI / 2;
-  shadow.position.y = 0.035;
+  shadow.position.y = 0.03;
   g.add(shadow);
 
-  g.scale.setScalar(S);
-  const radius = Math.max(0.34, (def.boss === 'boss' || def.boss === 'field' ? 0.95 : def.elite ? 0.5 : 0.42) * S * 0.82);
   const float = def.shape === 'wraith' || def.shape === 'witch' || def.shape === 'siren' || def.shape === 'kraken';
-  const baseY = float ? 0.22 : 0;
-  const bounce = def.shape === 'slime' || def.shape === 'frog' || def.shape === 'scarab';
-
+  const bounce = def.shape === 'slime' || def.shape === 'frog' || def.shape === 'scarab' || def.shape === 'goblin';
+  const baseY = float ? 0.2 : 0;
   let flashT = 0;
+  let hitK = 0;
+  const radius = Math.max(0.32, w * 0.34 + 0.12);
+
   g.userData = {
-    sprite: spr, flash, shadow, isSprite: true, S, float, baseY, bounce,
-    headY: h * S * 0.98,
-    radius,
-    hit() { flashT = 0.075; flash.visible = true; },
+    sprite: mesh, flash, shadow, isSprite: true, billboard: art,
+    float, baseY, bounce, headY: h * 0.96, radius, url,
+    hit() { flashT = 0.075; hitK = 1; if (flash) flash.visible = true; },
     setColorTint(hexColor) { mat.color.setHex(hexColor); },
     update(time, e, camera) {
-      if (flashT > 0) { flashT -= 1 / 60; if (flashT <= 0) flash.visible = false; }
+      // 세워진 채 카메라 쪽으로만 회전 (Y축 빌보드 → 납작해지지 않는 입체감)
+      if (camera) art.rotation.y = Math.atan2(camera.position.x - g.position.x, camera.position.z - g.position.z);
+      if (flashT > 0) { flashT -= 1 / 60; if (flashT <= 0 && flash) flash.visible = false; }
       const alive = !e || e.alive !== false;
+      const ph = e ? e.floatT : 0;
       let y = baseY;
-      if (float) y += Math.sin(time * 1.9 + (e ? e.floatT : 0)) * 0.09;
-      if (bounce) y += Math.abs(Math.sin(time * 3.4 + (e ? e.floatT : 0))) * 0.12;
-      spr.position.y = h / 2 + y;
-      flash.position.y = h / 2 + y;
-      // 통통 튀는 스쿼시
+      let sx = 1, sy = 1;
+      if (float) { y += Math.sin(time * 1.9 + ph) * 0.1; sy = 1 + Math.sin(time * 1.9 + ph) * 0.02; }
       if (bounce) {
-        const k = Math.abs(Math.sin(time * 3.4 + (e ? e.floatT : 0)));
-        const sq = 1 + (0.5 - k) * 0.1;
-        spr.scale.set(w * sq * S / S, h * (2 - sq) , 1);
-        spr.scale.set(w * sq, h * (2 - sq), 1);
+        const k = Math.abs(Math.sin(time * 3.4 + ph));
+        y += k * 0.11;
+        sy = 1 + (0.5 - k) * 0.09; sx = 1 - (0.5 - k) * 0.07;
       }
-      // 좌우 반전 (카메라 기준)
-      if (e && camera) {
-        const fx = Math.sin(e.facing || 0), fz = Math.cos(e.facing || 0);
-        const rx = camera.matrixWorld.elements[0], rz = camera.matrixWorld.elements[2];
-        const dot = fx * rx + fz * rz;
-        spr.scale.x = Math.abs(spr.scale.x) * (dot < -0.05 ? -1 : 1);
-        flash.scale.x = Math.abs(flash.scale.x) * (dot < -0.05 ? -1 : 1);
+      if (e && e.moving) { sy += Math.sin(time * 12 + ph) * 0.02; }
+      if (e && e.stunT > 0) { art.rotation.z = Math.sin(time * 14) * 0.14; } else art.rotation.z *= 0.85;
+      hitK = Math.max(0, hitK - (1 / 60) * 7);
+      const hk = 1 + hitK * 0.06;
+      mesh.position.y = h / 2 + y;
+      mesh.scale.set(w * sx * hk, h * sy * hk, 1);
+      if (flash) { flash.position.y = mesh.position.y; flash.scale.set(mesh.scale.x * 1.02, mesh.scale.y * 1.02, 1); }
+      shadow.scale.setScalar(1 + (y - baseY) * 0.16);
+      // 이동·공격 방향 좌우 반전 (카메라 기준)
+      if (e) {
+        const dirX = Math.sin(e.facing || 0);
+        const faceLeft = dirX < -0.12;
+        mesh.scale.x = Math.abs(mesh.scale.x) * (faceLeft ? -1 : 1);
+        if (flash) flash.scale.x = Math.abs(flash.scale.x) * (faceLeft ? -1 : 1);
       }
       // 사망 페이드
       if (!alive) {
         const k = Math.max(0, 1 - (e.deadT || 0) * 2.2);
-        mat.opacity = k; flashMat.opacity = 0; shadow.material.opacity = 0.26 * k;
-        spr.position.y = h / 2 - (1 - k) * h * 0.4;
+        mat.opacity = k;
+        if (flash) flash.material.opacity = 0;
+        shadow.material.opacity = 0.3 * k;
+        art.rotation.z = (1 - k) * 0.9;
+        mesh.position.y = h / 2 - (1 - k) * h * 0.35;
       }
     },
   };
   return g;
 }
-
 // =======================================================================
 // 주인공 탑뷰 도트 (앞 = 텍스처 위쪽)
 // =======================================================================
@@ -1019,58 +1049,111 @@ function heroAtlas(THREE, av, eq) {
   return t;
 }
 
+// =======================================================================
+// 주인공 2.5D 도트 빌보드 (생성 PNG 그대로 · 카메라 정면 · 입체감)
+// =======================================================================
+const HERO_H = 2.2;
 export function makeHeroSprite(THREE, av, eq) {
+  const id = av && HERO_IDS.includes(av.id) ? av.id : 'boyA';
+  const url = ASSET_URL.hero(id);
+  const h = HERO_H;
+  const w = h * (aspectOf(THREE, url) || 0.72);
   const g = new THREE.Group();
-  const map = heroAtlas(THREE, av, eq).clone();
-  map.needsUpdate = true;
-  map.repeat.set(0.25, 1);
-  map.offset.set(0, 0);
-  const mat = new THREE.MeshBasicMaterial({ map, transparent: true, alphaTest: 0.42, depthWrite: true, side: THREE.DoubleSide });
+
+  const mat = new THREE.MeshBasicMaterial({ map: getTexture(THREE, url), transparent: true, alphaTest: 0.4, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
-  // 바닥에 눕힌 탑뷰 스프라이트. 텍스처 위쪽이 캐릭터 정면(+Z)이 되도록 Y를 뒤집는다.
-  mesh.rotation.set(-Math.PI / 2, 0, 0);
-  mesh.position.y = 0.055;
-  mesh.scale.set(1, -1, 1);
+  mesh.renderOrder = 16;
+  mesh.scale.set(w, h, 1);
+  mesh.position.y = h / 2;
   const art = new THREE.Group();
-  art.scale.set(2.3, 2.3, 1);
   art.add(mesh);
   g.add(art);
-  // 바닥 그림자 원반
+
+  // 바닥 그림자 (타원 · 키에 따라 번짐)
   const shadow = new THREE.Mesh(
-    new THREE.CircleGeometry(0.42, 20),
-    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22, depthWrite: false }),
+    new THREE.CircleGeometry(w * 0.34, 22),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false }),
   );
   shadow.rotation.x = -Math.PI / 2;
-  shadow.position.y = 0.035;
+  shadow.position.y = 0.028;
+  shadow.scale.set(1.18, 0.72, 1);
   g.add(shadow);
-  // 무기 등급 발광 링
+
+  // 장비 등급 오라 (바닥 링)
+  const grade = eq && eq.weapon ? eq.weapon.grade : 0;
+  const auraCol = grade >= 2 ? GRADES[Math.min(5, grade)].color : '#8fd8ff';
   const aura = new THREE.Mesh(
-    new THREE.RingGeometry(0.34, 0.4, 22),
-    new THREE.MeshBasicMaterial({ color: eq && eq.weapon && eq.weapon.grade >= 2 ? GRADES[eq.weapon.grade].color : '#8fd8ff', transparent: true, opacity: eq && eq.weapon && eq.weapon.grade >= 3 ? 0.22 : 0.0, side: THREE.DoubleSide, depthWrite: false }),
+    new THREE.RingGeometry(w * 0.34, w * 0.42, 26),
+    new THREE.MeshBasicMaterial({ color: auraCol, transparent: true, opacity: grade >= 2 ? 0.3 : 0.12, side: THREE.DoubleSide, depthWrite: false }),
   );
   aura.rotation.x = -Math.PI / 2;
-  aura.position.y = 0.03;
+  aura.position.y = 0.024;
   g.add(aura);
 
-  let curFrame = -1;
+  let flip = 1;
   g.userData = {
-    isHeroSprite: true, mesh, art, map, aura, shadow, avatar: av,
-    frame(f) {
-      if (f === curFrame) return;
-      curFrame = f;
-      map.offset.x = f * 0.25;
-    },
+    isHeroSprite: true, mesh, art, shadow, aura, avatar: av, height: h,
+    // 무기 휘두르기 모션 (부채꼴 잔상 없이 몸 동작만)
     animate(p, dt) {
-      const f = p.atkAnim > 0 ? 3 : p.moving ? ((Math.floor(p.walkT) % 2) ? 1 : 2) : 0;
-      this.frame(f);
-      const k = p.atkAnim > 0 ? 1.07 : p.moving ? 1 + Math.sin(p.walkT * 2) * 0.022 : 1;
-      art.scale.set(2.3 * k, 2.3 * k, 1);
-      aura.material.opacity = 0.24 + Math.sin(performance.now() / 500) * 0.08;
+      const cam = p.__cam;
+      if (cam) art.rotation.y = Math.atan2(cam.position.x - p.x, cam.position.z - p.z);
+      const fam = p.atkFam || 'sword';
+      const max = p.atkAnimMax || 0.24;
+      const on = p.atkAnim > 0;
+      const k = on ? 1 - p.atkAnim / max : 0;
+      const swing = on ? Math.sin(Math.min(1, k) * Math.PI) : 0;
+      g.position.x = p.x + Math.sin(p.facing || 0) * 0.2 * swing;
+      g.position.z = p.z + Math.cos(p.facing || 0) * 0.2 * swing;
+      let rotZ = 0, dy = 0, sx = 1, sy = 1, scale = 1;
+      // 숨쉬기
+      const breath = Math.sin((performance.now() / 1000) * 2.1) * 0.012;
+      sy = 1 + breath;
+      // 걷기 통통
+      if (p.moving) {
+        dy += Math.abs(Math.sin(p.walkT)) * 0.075;
+        rotZ += Math.sin(p.walkT * 2) * 0.035;
+        sy *= 1 + Math.sin(p.walkT * 4) * 0.015;
+      }
+      if (on) {
+        if (fam === 'dagger') {
+          rotZ += -0.28 * swing;
+          dy += 0.03 * swing;
+          scale = 1 + 0.05 * swing;
+        } else if (fam === 'axe' || fam === 'mace') {
+          rotZ += (k < 0.45 ? 0.42 : -0.5) * (k < 0.45 ? k / 0.45 : 1);
+          dy += (k < 0.45 ? -0.02 : 0.05);
+        } else if (fam === 'bow' || fam === 'crossbow') {
+          rotZ += -0.1 * swing;
+          scale = 1 - 0.03 * swing;
+        } else if (fam === 'staff' || fam === 'book') {
+          dy += 0.07 * swing;
+          scale = 1 + 0.03 * swing;
+          sx *= 1 + 0.02 * swing;
+        } else {
+          rotZ += (-0.55 + k * 1.15) * 1.25;
+          dy += 0.02 * swing;
+          scale = 1 + 0.07 * swing;
+          sx *= 1 + 0.05 * swing;
+        }
+      }
+      // 이동·공격 방향 좌우 반전
+      const want = Math.sin(p.facing || 0) < -0.12 ? -1 : 1;
+      if (want !== flip) flip = want;
+      mesh.scale.set(w * sx * scale * flip, h * sy * scale, 1);
+      mesh.position.y = h / 2 + dy;
+      mesh.rotation.z = rotZ;
+      shadow.scale.set(1.18 - dy * 0.6, 0.72 - dy * 0.3, 1);
+      shadow.material.opacity = 0.28 - dy * 0.2;
+      aura.material.opacity = (grade >= 2 ? 0.26 : 0.1) + Math.sin(performance.now() / 420) * 0.06;
+      if (!p.alive) {
+        mesh.rotation.z = 1.35;
+        mesh.position.y = h * 0.22;
+        mat.opacity = 0.55;
+      } else mat.opacity = 1;
     },
   };
   return g;
 }
-
 // =======================================================================
 // 동료 도트
 // =======================================================================
@@ -1124,31 +1207,42 @@ const COMPANION_ART = {
   },
 };
 export function makeCompanionSprite(THREE, cls, gradeColor) {
-  const key = `c|${cls.id}`;
-  const cache = makeCompanionSprite.cache || (makeCompanionSprite.cache = new Map());
-  let tex = cache.get(key);
-  if (!tex) {
-    const { c, g } = makeCanvas(48, 48);
-    const C = hex(cls.color), D = shade(cls.color, -0.4);
-    (COMPANION_ART[cls.id] || COMPANION_ART.melee)(g, C, D);
-    crisp(c);
-    tex = texture(THREE, c);
-    cache.set(key, tex);
-  }
+  const id = COMPANION_IDS.includes(cls.id) ? cls.id : 'melee';
+  const url = ASSET_URL.companion(id);
+  const h = 1.5;
+  const w = h * (aspectOf(THREE, url) || 0.7);
   const g = new THREE.Group();
-  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, alphaTest: 0.45, depthWrite: true }));
-  spr.scale.set(1.2, 1.2, 1);
-  spr.position.y = 0.6;
-  g.add(spr);
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: getTexture(THREE, url), transparent: true, alphaTest: 0.4, depthWrite: false, depthTest: false, side: THREE.DoubleSide }));
+  mesh.renderOrder = 15;
+  mesh.scale.set(w, h, 1);
+  mesh.position.y = h / 2;
+  const art = new THREE.Group();
+  art.add(mesh);
+  g.add(art);
+  const shadow = new THREE.Mesh(new THREE.CircleGeometry(w * 0.32, 16), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.26, depthWrite: false }));
+  shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.03; shadow.scale.set(1.15, 0.7, 1); g.add(shadow);
   const ring = new THREE.Mesh(
-    new THREE.CircleGeometry(0.4, 16),
-    new THREE.MeshBasicMaterial({ color: gradeColor || 0xffffff, transparent: true, opacity: 0.32, depthWrite: false }),
+    new THREE.CircleGeometry(0.42, 18),
+    new THREE.MeshBasicMaterial({ color: gradeColor || 0xffffff, transparent: true, opacity: 0.28, depthWrite: false }),
   );
-  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.03; g.add(ring);
-  g.userData = { sprite: spr, headY: 1.25, radius: 0.4 };
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.026; g.add(ring);
+  let flip = 1;
+  g.userData = {
+    sprite: mesh, shadow, headY: 1.5, radius: 0.4,
+    animate(c, dt) {
+      const cam = c.__cam;
+      if (cam) art.rotation.y = Math.atan2(cam.position.x - c.x, cam.position.z - c.z);
+      const t = performance.now() / 1000;
+      let dy = Math.abs(Math.sin(t * 3 + (c.bobT || 0))) * (c.moving ? 0.08 : 0.02);
+      const want = Math.sin(c.facing || 0) < -0.12 ? -1 : 1;
+      if (want !== flip) flip = want;
+      mesh.scale.set(w * flip, h * (1 + Math.sin(t * 2.4) * 0.01), 1);
+      mesh.position.y = h / 2 + dy;
+      shadow.scale.set(1.15 - dy * 0.5, 0.7 - dy * 0.25, 1);
+    },
+  };
   return g;
 }
-
 // =======================================================================
 // 초상화 · 전신 (HUD · 선택 화면 · 가방)
 // =======================================================================
@@ -1282,145 +1376,14 @@ function drawFace(g, av, cx, cy, s, opts = {}) {
   }
 }
 
-export function heroPortraitDataUrl(av, size = 128) {
-  const { c, g } = makeCanvas(size, size);
-  const cx = size / 2, cy = size * 0.48;
-  // 배경 원
-  const bg = g.createLinearGradient(0, 0, 0, size);
-  bg.addColorStop(0, shade(av.uniform, 0.35));
-  bg.addColorStop(1, shade(av.accent || av.uniform, -0.35));
-  g.fillStyle = bg; g.beginPath(); g.arc(cx, cy, size * 0.49, 0, TAU); g.fill();
-  g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = size * 0.02;
-  g.beginPath(); g.arc(cx, cy, size * 0.48, 0, TAU); g.stroke();
-  g.save();
-  g.beginPath(); g.arc(cx, cy, size * 0.47, 0, TAU); g.clip();
-  drawFace(g, av, cx, cy + size * 0.02, size / 100, { iris: av.accent });
-  g.restore();
-  return c.toDataURL('image/png');
+export function heroPortraitDataUrl(av) {
+  const id = av && HERO_IDS.includes(av.id) ? av.id : 'boyA';
+  return ASSET_URL.portrait(id);
 }
 
-export function heroFullDataUrl(av, eq, size = 220) {
-  const W = size, H = Math.round(size * 1.45);
-  const { c, g } = makeCanvas(W, H);
-  const s = W / 120;
-  const cx = W / 2, cy = H * 0.3;
-  // 배경
-  const bg = g.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, 'rgba(60,90,150,.16)');
-  bg.addColorStop(1, 'rgba(10,16,28,.05)');
-  g.fillStyle = bg;
-  g.beginPath(); roundRect(g, 0, 0, W, H, 16 * s); g.fill();
-  // 받침 그림자
-  g.fillStyle = 'rgba(0,0,0,.28)';
-  g.beginPath(); g.ellipse(cx, H * 0.95, 34 * s, 7 * s, 0, 0, TAU); g.fill();
-
-  const uni = hex(av.uniform), accent = hex(av.accent || av.uniform), skin = hex(av.skin);
-  const armor = eq && eq.armor ? eq.armor : null;
-  const weapon = eq && eq.weapon ? eq.weapon : null;
-  const aFam = armor ? armor.fam : null;
-  const gradeColor = weapon ? GRADES[weapon.grade].color : '#dfe9f7';
-  const metal = weapon && weapon.grade >= 2 ? mixColor('#e6eefb', gradeColor, 0.55) : '#e6eefb';
-  let cape = shade(uni, -0.25);
-  if (aFam === 'slash') cape = '#8a5a34';
-  else if (aFam === 'blunt') cape = '#8f98a8';
-  else if (aFam === 'ranged') cape = '#b9c4d4';
-  else if (aFam === 'magic') cape = shade(accent, -0.12);
-  if (armor && armor.grade >= 2) cape = mixColor(cape, GRADES[armor.grade].color, 0.3);
-  if (armor && armor.capeColor) cape = armor.capeColor;
-  const trimCol = (armor && armor.trimColor) || (armor ? GRADES[Math.min(5, armor.grade)].color : gradeColor);
-
-  const bodyY = H * 0.52;
-  // 망토
-  g.fillStyle = cape;
-  g.beginPath();
-  g.moveTo(cx - 20 * s, bodyY - 24 * s);
-  g.quadraticCurveTo(cx - 34 * s, bodyY + 30 * s, cx - 24 * s, H * 0.9);
-  g.lineTo(cx + 24 * s, H * 0.9);
-  g.quadraticCurveTo(cx + 34 * s, bodyY + 30 * s, cx + 20 * s, bodyY - 24 * s);
-  g.closePath(); g.fill();
-  g.fillStyle = shade(cape, -0.22);
-  g.beginPath();
-  g.moveTo(cx - 15 * s, bodyY - 18 * s);
-  g.quadraticCurveTo(cx - 22 * s, bodyY + 26 * s, cx - 14 * s, H * 0.88);
-  g.lineTo(cx + 14 * s, H * 0.88);
-  g.quadraticCurveTo(cx + 22 * s, bodyY + 26 * s, cx + 15 * s, bodyY - 18 * s);
-  g.closePath(); g.fill();
-  // 다리
-  g.fillStyle = '#2b3040';
-  g.fillRect(cx - 13 * s, bodyY + 22 * s, 10 * s, 34 * s);
-  g.fillRect(cx + 3 * s, bodyY + 22 * s, 10 * s, 34 * s);
-  g.fillStyle = '#1a1d26';
-  roundRect(g, cx - 15 * s, bodyY + 52 * s, 13 * s, 9 * s, 3 * s); g.fill();
-  roundRect(g, cx + 2 * s, bodyY + 52 * s, 13 * s, 9 * s, 3 * s); g.fill();
-  // 스커트
-  if (av.skirt) {
-    g.fillStyle = shade(uni, -0.1);
-    g.beginPath();
-    g.moveTo(cx - 16 * s, bodyY + 14 * s); g.lineTo(cx + 16 * s, bodyY + 14 * s);
-    g.lineTo(cx + 22 * s, bodyY + 34 * s); g.lineTo(cx - 22 * s, bodyY + 34 * s);
-    g.closePath(); g.fill();
-    g.strokeStyle = shade(uni, 0.3); g.lineWidth = 2 * s;
-    g.beginPath(); g.moveTo(cx - 20 * s, bodyY + 31 * s); g.lineTo(cx + 20 * s, bodyY + 31 * s); g.stroke();
-  }
-  // 몸통
-  const plate = aFam === 'blunt' || aFam === 'ranged';
-  g.fillStyle = plate ? (aFam === 'ranged' ? '#c8d3e2' : '#a8b3c4') : uni;
-  roundRect(g, cx - 17 * s, bodyY - 22 * s, 34 * s, 42 * s, 8 * s); g.fill();
-  if (plate) {
-    g.fillStyle = shade(aFam === 'ranged' ? '#c8d3e2' : '#a8b3c4', 0.25);
-    roundRect(g, cx - 12 * s, bodyY - 18 * s, 24 * s, 20 * s, 6 * s); g.fill();
-    g.strokeStyle = 'rgba(90,110,140,.7)'; g.lineWidth = 1.6 * s;
-    g.beginPath(); g.moveTo(cx, bodyY - 16 * s); g.lineTo(cx, bodyY + 16 * s); g.stroke();
-  } else if (aFam === 'magic') {
-    g.fillStyle = shade(accent, -0.05);
-    roundRect(g, cx - 17 * s, bodyY - 22 * s, 34 * s, 30 * s, 8 * s); g.fill();
-    g.fillStyle = '#f4f7ff';
-    g.beginPath(); g.moveTo(cx - 7 * s, bodyY - 20 * s); g.lineTo(cx, bodyY - 4 * s); g.lineTo(cx + 7 * s, bodyY - 20 * s); g.closePath(); g.fill();
-    g.fillStyle = gradeColor;
-    g.beginPath(); g.arc(cx, bodyY - 10 * s, 2.4 * s, 0, TAU); g.fill();
-  } else {
-    // 교복 셔츠 · 넥타이
-    g.fillStyle = '#f4f7ff';
-    g.beginPath(); g.moveTo(cx - 8 * s, bodyY - 22 * s); g.lineTo(cx, bodyY - 8 * s); g.lineTo(cx + 8 * s, bodyY - 22 * s); g.closePath(); g.fill();
-    g.fillStyle = av.skirt ? hex(av.ribbon || 0xd04848) : '#3d6fd6';
-    g.beginPath(); g.moveTo(cx, bodyY - 12 * s); g.lineTo(cx + 4 * s, bodyY - 6 * s); g.lineTo(cx, bodyY + 4 * s); g.lineTo(cx - 4 * s, bodyY - 6 * s); g.closePath(); g.fill();
-  }
-  // 어깨 보호대
-  for (const sd of [-1, 1]) {
-    g.fillStyle = plate ? '#aab5c6' : accent;
-    g.beginPath(); g.ellipse(cx + sd * 19 * s, bodyY - 18 * s, 9 * s, 7.4 * s, sd * 0.3, 0, TAU); g.fill();
-    g.fillStyle = plate ? '#dfe7f2' : shade(accent, 0.35);
-    g.beginPath(); g.ellipse(cx + sd * 19 * s, bodyY - 20 * s, 5 * s, 3.6 * s, sd * 0.3, 0, TAU); g.fill();
-    if (armor && (armor.grade >= 2 || armor.costume)) {
-      g.fillStyle = trimCol;
-      g.beginPath(); g.arc(cx + sd * 19 * s, bodyY - 18 * s, 2 * s, 0, TAU); g.fill();
-    }
-  }
-  // 팔
-  for (const sd of [-1, 1]) {
-    g.fillStyle = plate ? '#9fabbd' : uni;
-    roundRect(g, cx + sd * 26 * s - 5 * s, bodyY - 14 * s, 10 * s, 26 * s, 5 * s); g.fill();
-    g.fillStyle = skin;
-    g.beginPath(); g.arc(cx + sd * 26 * s, bodyY + 14 * s, 4.6 * s, 0, TAU); g.fill();
-  }
-  // 무기
-  const wxs = cx + 26 * s, wys = bodyY + 12 * s;
-  g.save();
-  g.translate(wxs, wys);
-  g.rotate(-0.25);
-  const sc = 1.5 * s;
-  g.scale(sc, sc);
-  weaponArt(g, weapon ? weapon.fam : 'sword', 0, 0, metal, gradeColor);
-  g.restore();
-  // 머리
-  drawFace(g, av, cx, cy, s * 1.02, { iris: av.accent });
-  // 등급 표시
-  if (weapon && weapon.grade >= 2) {
-    g.fillStyle = gradeColor;
-    g.beginPath(); g.arc(W - 14 * s, 14 * s, 4 * s, 0, TAU); g.fill();
-    g.strokeStyle = 'rgba(255,255,255,.7)'; g.lineWidth = 1.2 * s; g.stroke();
-  }
-  return c.toDataURL('image/png');
+export function heroFullDataUrl(av) {
+  const id = av && HERO_IDS.includes(av.id) ? av.id : 'boyA';
+  return ASSET_URL.hero(id);
 }
 
 export function avatarPalette(id) {

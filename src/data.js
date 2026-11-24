@@ -473,3 +473,46 @@ export function defaultBalance() {
     mobs,
   };
 }
+
+// ======================================================================
+// 속성 상성 (2차 확장) — 유리 1.5배 · 불리 0.5배
+// ======================================================================
+export const ELEMENTS = {
+  blade: { name: '참격', icon: '⚔️', color: '#cfe3ff' },
+  fire: { name: '화염', icon: '🔥', color: '#ff9a4a' },
+  ice: { name: '냉기', icon: '❄️', color: '#9fe8ff' },
+  nature: { name: '자연', icon: '🌿', color: '#7ed957' },
+  water: { name: '수류', icon: '💧', color: '#5ab9ff' },
+  shadow: { name: '암흑', icon: '🌑', color: '#b58cff' },
+  holy: { name: '신성', icon: '✨', color: '#ffe9a8' },
+};
+// key 요소가 value 요소들을 이긴다
+export const ELEM_BEATS = {
+  fire: ['nature', 'ice'],
+  nature: ['water'],
+  water: ['fire'],
+  ice: ['nature', 'water'],
+  blade: ['shadow'],
+  shadow: ['holy'],
+  holy: ['blade'],
+};
+export const ELEM_OF_SHAPE = {
+  slime: 'nature', goblin: 'nature', orc: 'nature', ogre: 'nature', ent: 'nature',
+  frog: 'water', lizard: 'nature', wraith: 'shadow', hydra: 'water', witch: 'shadow',
+  scorpion: 'fire', mummy: 'shadow', scarab: 'fire', anubis: 'shadow', golem: 'fire',
+  merfolk: 'water', naga: 'water', crab: 'water', siren: 'water', kraken: 'water',
+};
+export const ELEM_OF_WEAPON = {
+  sword: 'blade', dagger: 'shadow', axe: 'blade', mace: 'holy',
+  bow: 'blade', crossbow: 'blade', staff: 'fire', book: 'ice',
+};
+for (const w of Object.values(WEAPONS)) w.elem = ELEM_OF_WEAPON[w.id] || 'blade';
+for (const z of PLAYABLE) {
+  for (const role of ['normal', 'elite']) {
+    for (const m of (z.mobs[role] || [])) m.elem = ELEM_OF_SHAPE[m.shape] || 'nature';
+  }
+  for (const role of ['mid', 'boss', 'field']) {
+    const m = z.mobs[role];
+    if (m) m.elem = ELEM_OF_SHAPE[m.shape] || 'nature';
+  }
+}

@@ -5,8 +5,10 @@ import {
   itemOptions, defaultBalance, MOB_REWARD, OPT_LABEL,
   AVATARS, AVATAR_MAP, avatarOf, SKILLS, SKILL_IDS, HEAL_SKILL_IDS,
   BOSS_TIMER, BOSS_LABEL, EVOLVE_NEED, SOUL_KINDS, COSTUMES, COSTUME_MAP, COSTUME_PULL_COST, COSTUME_REFUND,
+  ELEMENTS, ELEM_BEATS,
 } from './data.js';
 import { buildZone, makePlayer, makeMonster, makeCompanion } from './world.js';
+import { ASSET_URL, getTexture, aspectOf } from './assets.js';
 
 const SAVE_KEY = 'school-hero.save.v1';
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -51,7 +53,7 @@ export function createGame(THREE) {
     time: 0,
     running: false,
     input: { mx: 0, mz: 0, keys: new Set() },
-    enemies: [], companions: [], projectiles: [], pickups: [], effects: [], telegraphs: [],
+    enemies: [], companions: [], projectiles: [], pickups: [], effects: [], telegraphs: [], graves: [],
     zone: null, world: null,
     player: null,
     ui: null,
@@ -99,6 +101,7 @@ export function createGame(THREE) {
     appearance: { mode: 'armor', costumeId: null, unlocked: [] },
     bossKills: { mid: 0, boss: 0, field: 0 },
     evolutions: 0,
+    achClaimed: [],
   });
 
   function loadState() {
@@ -454,13 +457,15 @@ export function createGame(THREE) {
     });
 
     // 몬스터 배치
+    game.clearGraves();
     spawnZoneMobs(zone);
+    for (const t of ['mid', 'boss', 'field']) if (game.bossRemain(zone.id, t) > 0) game.addGrave(t);
 
     // 카메라 즉시 이동
     const aspect0 = window.innerWidth / Math.max(1, window.innerHeight);
-    const vis0 = Math.max(13.6, 10.2 / aspect0);
-    camera.position.set(game.player.x, vis0 * 1.06, game.player.z + vis0 * 0.42);
-    camera.lookAt(game.player.x, 0, game.player.z - 1);
+    const vis0 = Math.min(15.5, Math.max(11, 9.6 / aspect0));
+    camera.position.set(game.player.x, vis0 * 1.22, game.player.z + vis0 * 1.08);
+    camera.lookAt(camera.position.x, 0, camera.position.z - vis0 * 1.08);
 
     if (game.ui) {
       game.ui.onZoneEnter(zone);
@@ -517,6 +522,68 @@ export function createGame(THREE) {
     return list.map((b) => ({ ...b, remain: game.bossRemain(zoneId, b.type), total: BOSS_TIMER[b.type] || 0, label: BOSS_LABEL[b.type] }));
   };
 
+  // ---------- 보스 특수 패턴 ----------
+  const BOSS_PATTERN = {
+    ogre: 'charge', golem: 'charge', anubis: 'charge',
+    ent: 'nova', witch: 'nova', kraken: 'nova', siren: 'nova',
+    hydra: 'split',
+  };
+
+  // ---------- 보스 묘비 + 리스폰 카운트다운 ----------
+  function graveSpot(type) {
+    const z = game.zone;
+    if (!z) return null;
+    return type === 'mid' ? z.mid : type === 'field' ? z.field : z.boss;
+  }
+  function bossTimerKey(type) { return `${game.zone.id}:${type}`; }
+  game.addGrave = function (type) {
+    const spot = graveSpot(type);
+    if (!spot || !type) return;
+    const existing = game.graves.find((x) => x.type === type);
+    if (existing) { existing.until = (game.state.bossTimers || {})[bossTimerKey(type)] || existing.until; return; }
+    const url = ASSET_URL.prop('gravestone');
+    const h = type === 'field' ? 2.4 : 2.0;
+    const w = h * (aspectOf(THREE, url) || 0.75);
+    const grp = new THREE.Group();
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: getTexture(THREE, url), transparent: true, alphaTest: 0.4, depthWrite: true, side: THREE.DoubleSide }));
+    mesh.scale.set(w, h, 1);
+    mesh.position.y = h / 2;
+    const art = new THREE.Group(); art.add(mesh); grp.add(art);
+    const glow = new THREE.Mesh(new THREE.CircleGeometry(w * 0.85, 18), new THREE.MeshBasicMaterial({ color: 0x9f7bff, transparent: true, opacity: 0.16, depthWrite: false, blending: THREE.AdditiveBlending }));
+    glow.rotation.x = -Math.PI / 2; glow.position.y = 0.04; grp.add(glow);
+    grp.position.set(spot.x, 0, spot.z);
+    scene.add(grp);
+    const g = { type, x: spot.x, z: spot.z, mesh: grp, art, glow, el: null, until: (game.state.bossTimers || {})[bossTimerKey(type)] || 0 };
+    game.graves.push(g);
+    if (game.ui) game.ui.attachGrave(g);
+  };
+  game.removeGrave = function (type) {
+    const i = game.graves.findIndex((x) => x.type === type);
+    if (i < 0) return;
+    const g = game.graves[i];
+    if (g.el && g.el.parentNode) g.el.parentNode.removeChild(g.el);
+    scene.remove(g.mesh);
+    g.mesh.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+    game.graves.splice(i, 1);
+  };
+  game.clearGraves = function () { for (const g of [...game.graves]) game.removeGrave(g.type); };
+  function updateGraves(dt) {
+    for (const g of [...game.graves]) {
+      if (g.art) { g.art.rotation.y = Math.atan2(camera.position.x - g.x, camera.position.z - g.z); g.glow.material.opacity = 0.12 + Math.sin(game.time * 2.6) * 0.06; }
+      const until = (game.state.bossTimers || {})[bossTimerKey(g.type)];
+      if (until) g.until = until;
+      if (g.until - Date.now() <= 0) {
+        game.removeGrave(g.type);
+        const zone = game.zone;
+        const def = g.type === 'mid' ? zone.mobs.mid : g.type === 'field' ? zone.mobs.field : zone.mobs.boss;
+        if (def) {
+          spawnEnemy(def, g.x, g.z, true);
+          if (game.ui) game.ui.toast(`${def.name}이(가) 다시 나타났어요!`, 'bad');
+        }
+      }
+    }
+  }
+
   function enemyLevel(def, zone) {
     return Math.max(1, zone.scale.lvl + (def.boss === 'field' ? 5 : def.boss === 'boss' ? 3 : def.boss === 'mid' ? 1 : def.elite ? 1 : 0));
   }
@@ -539,7 +606,9 @@ export function createGame(THREE) {
       elite: !!def.elite,
       level: lvl, tag: null, floatT: Math.random() * 6, telegraphT: 9 + Math.random() * 4,
       skillCd: 2.5 + Math.random() * 2.5,
-      summonDone: false, deadT: 0, facing: Math.PI, fixed,
+      summonDone: false, splitDone: false, chargeCd: 5 + Math.random() * 3, charge: null,
+      pattern: def.boss ? (BOSS_PATTERN[def.shape] || 'nova') : null,
+      deadT: 0, facing: Math.PI, fixed,
       targetType: 'player', leashing: false, knockT: 0,
     };
     mesh.userData.ref = e;
@@ -697,11 +766,23 @@ export function createGame(THREE) {
     game.pickups.push({ type, x: x + (Math.random() - 0.5) * 1.2, z: z + (Math.random() - 0.5) * 1.2, data, vx: (Math.random() - 0.5) * 2, vz: (Math.random() - 0.5) * 2, t: 0, alive: true });
   }
 
+  // 속성 상성: 유리 1.5배 · 불리 0.5배
+  game.elemMult = function (elem, targetElem) {
+    if (!elem || !targetElem || elem === targetElem) return 1;
+    const beat = ELEM_BEATS[elem] || [];
+    const beaten = ELEM_BEATS[targetElem] || [];
+    if (beat.includes(targetElem)) return 1.5;
+    if (beaten.includes(elem)) return 0.5;
+    return 1;
+  };
   game.dealDamage = function (e, baseDmg, opts = {}) {
     if (!e.alive) return 0;
     const d = game.derived();
     const medal = game.medalInfo(game.zone.id).bonus;
     let dmg = baseDmg * (1 + medal) * (1 + (game.state.level - 1) * 0.02);
+    const atkElem = opts.elem || (opts.noElem ? null : (d.weapon && d.weapon.elem)) || null;
+    const em = game.elemMult(atkElem, e.def.elem);
+    dmg *= em;
     let crit = false;
     if (opts.canCrit !== false && Math.random() < d.critChance) { crit = true; dmg *= d.critDmg; }
     dmg = Math.max(1, Math.round(dmg * (0.9 + Math.random() * 0.2)));
@@ -722,7 +803,9 @@ export function createGame(THREE) {
     }
     game.camShake = Math.max(game.camShake, crit ? 0.24 : opts.heavy ? 0.2 : 0.08);
     hitSpark(e.x, (e.headY || 1) * 0.75, e.z, crit ? 0xffd257 : 0xffffff);
-    game.lastHit = { dmg, crit, at: game.time, heavy: !!opts.heavy, enemy: e.def.key };
+    if (crit) specialHit(e, 'crit');
+    game.lastHit = { dmg, crit, at: game.time, heavy: !!opts.heavy, enemy: e.def.key, elem: em };
+    if (em !== 1 && game.ui && Math.random() < 0.35) game.ui.floatText(e.x, (e.headY || 1) + 0.3, e.z, em > 1 ? '약점!' : '내성', em > 1 ? 'crit' : 'hurt');
     if (game.ui) {
       game.ui.damageNumber(e.x, e.headY, e.z, crit ? `${dmg}!` : dmg, crit ? 'crit' : '');
       if (e.isBoss || e.isMid || e.isField) game.ui.updateBossBar(e);
@@ -778,6 +861,7 @@ export function createGame(THREE) {
       game.state.bossKills[btype] = (game.state.bossKills[btype] || 0) + 1;
       game.save(); game.flushSave();
       if (game.ui) game.ui.toast(`${e.def.name} 처치! 다음 등장까지 ${fmtRemain(BOSS_TIMER[btype])}`, 'gold');
+      game.addGrave(btype);
     }
     // 사망 연출
     if (e.isField) { game.camShake = 0.9; if (game.ui) game.ui.toast(`${zone.name} 지역 필드보스 처치!`, 'gold'); }
@@ -902,8 +986,9 @@ export function createGame(THREE) {
     if (game.tutorialHook && Math.hypot(p.x - beforeX, p.z - beforeZ) > 0.02) game.tutorialHook('move');
     // 캐릭터 애니메이션 (탑뷰 도트 프레임 · 무기 계열별 모션)
     const m = game.playerMesh;
+    p.__cam = camera;
     m.position.set(p.x, 0, p.z);
-    m.rotation.y = p.facing;
+    if (!m.userData.isHeroSprite) m.rotation.y = p.facing;
     if (m.userData.animate) m.userData.animate(p, dt);
     else animateArm(p, m, dt);
   }
@@ -1000,12 +1085,11 @@ export function createGame(THREE) {
       if (hits.length) {
         if (W.extra && Math.random() < W.extra) {
           const t = hits[0];
-          game.dealDamage(t, dmgBase * 0.6);
-          if (game.ui && t.alive) game.ui.floatText(t.x, t.headY + 0.2, t.z, '추가타!', 'crit');
+          specialHit(t, 'double');
+          game.dealDamage(t, dmgBase * 0.6, { canCrit: false });
         }
         if (W.stun && Math.random() < W.stun) {
-          for (const t of hits) if (t.alive) { t.stunT = 1.2; stunStars(t.x, t.headY + 0.4, t.z); }
-          if (game.ui) game.ui.floatText(p.x, 2.1, p.z, '기절!', 'heal');
+          for (const t of hits) if (t.alive) { t.stunT = 1.2; stunStars(t.x, t.headY + 0.4, t.z); specialHit(t, 'stun'); }
         }
       }
     }
@@ -1052,164 +1136,82 @@ export function createGame(THREE) {
     return m;
   }
 
-  // +Z 를 정면으로 하는 부채꼴 링 (group.rotation.y = facing)
-  function arcMesh(range, arc, color, opacity = 0.8, inner = 0.55) {
-    const geo = new THREE.RingGeometry(range * inner, range, 26, 1, -Math.PI / 2 - arc / 2, arc);
-    const mesh = new THREE.Mesh(geo, fxMat(color, opacity));
-    mesh.rotation.x = -Math.PI / 2;
-    const g = new THREE.Group();
-    g.add(mesh);
-    g.position.set(0, 0.16, 0);
-    return g;
+  // 무기 휘두르기: 바닥 부채꼴 잔상 없이 몸 동작 + 짧은 궤적만.
+  // 이중타격 · 치명타 · 스턴 같은 특수 판정에서만 화려한 타격 이펙트가 터진다.
+  function weaponSwingFx(fam, p, a, W, hits) {
+    const fx = Math.sin(a), fz = Math.cos(a);
+    if (fam === 'dagger') {
+      for (let i = 0; i < 2; i++) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.06, W.range * 0.8), fxMat(0xdff4ff, 0.5));
+        m.position.set(p.x + fx * W.range * 0.45, 1.05 + i * 0.12, p.z + fz * W.range * 0.45);
+        m.rotation.y = a;
+        addFx(m, 0.13, (f, k) => { m.material.opacity = k * 0.45; }, 'dagger:motion');
+      }
+      dustBurst(p.x + fx * 0.6, p.z + fz * 0.6, 0xdff4ff, 2);
+    } else if (fam === 'axe' || fam === 'mace') {
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.11, 6, 5), fxMat(fam === 'axe' ? 0xffcf8a : 0xffe0a0, 0.8));
+      const y0 = fam === 'axe' ? 2.3 : 2.0;
+      tip.position.set(p.x + fx * 0.9, y0, p.z + fz * 0.9);
+      addFx(tip, 0.24, (f, k) => { tip.position.y = 0.25 + (1 - k) * y0 * 0.75; tip.material.opacity = k * 0.8; }, 'melee:tip');
+      dustBurst(p.x + fx * 1.1, p.z + fz * 1.1, fam === 'axe' ? 0xffd6a0 : 0xfff0c0, 3);
+    } else if (fam === 'bow' || fam === 'crossbow') {
+      const flash = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 5), fxMat(0xffe0a0, 0.85));
+      flash.position.set(p.x + fx * 0.6, 1.1, p.z + fz * 0.6);
+      addFx(flash, 0.12, (f, k) => { flash.scale.setScalar(1 + (1 - k) * 1.6); flash.material.opacity = k; }, 'ranged:muzzle');
+    } else if (fam === 'staff' || fam === 'book') {
+      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.16, 7, 6), fxMat(fam === 'staff' ? 0xb58cff : 0x9ff0ff, 0.9));
+      orb.position.set(p.x + fx * 0.7, 1.25, p.z + fz * 0.7);
+      addFx(orb, 0.22, (f, k) => { orb.scale.setScalar(0.6 + (1 - k) * 1.5); orb.material.opacity = k; }, 'cast:orb');
+    } else {
+      dustBurst(p.x + fx * 0.7, p.z + fz * 0.7, 0xeaf6ff, 2);
+      for (let i = 0; i < 2; i++) {
+        const st = new THREE.Mesh(new THREE.SphereGeometry(0.085, 6, 5), fxMat(0xdff2ff, 0.7));
+        const sa = a + (i - 0.5) * 1.3;
+        st.position.set(p.x + Math.sin(sa) * W.range * 0.75, 1.0, p.z + Math.cos(sa) * W.range * 0.75);
+        addFx(st, 0.15, (f, k) => { st.material.opacity = k * 0.6; st.position.y += 0.01; }, 'sword:motion');
+      }
+    }
   }
 
-  function weaponSwingFx(fam, p, a, W, hits) {
-    if (fam === 'sword') {
-      const arc = 2.2;
-      const g = arcMesh(W.range, arc, 0xbfe8ff, 0.9, 0.5);
-      g.position.set(p.x, 0.18, p.z);
-      g.rotation.y = a - 0.35;
-      addFx(g, 0.24, (fx, k) => {
-        g.rotation.y = a - 0.35 + (1 - k) * 0.7;
-        g.scale.setScalar(0.86 + (1 - k) * 0.22);
-        g.children[0].material.opacity = k * 0.95;
-      }, 'sword:slash');
-      const tail = arcMesh(W.range * 0.95, arc * 0.7, 0x9fd8ff, 0.5, 0.75);
-      tail.position.set(p.x, 0.22, p.z); tail.rotation.y = a + 0.4;
-      addFx(tail, 0.18, (fx, k) => { tail.children[0].material.opacity = k * 0.5; }, 'sword:trail');
-    } else if (fam === 'dagger') {
-      const g = new THREE.Group();
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.06, W.range * 1.05), fxMat(0xbfe6ff, 0.9));
-      blade.position.z = W.range * 0.5;
-      g.add(blade);
-      g.position.set(p.x, 1.0, p.z);
-      g.rotation.y = a;
-      addFx(g, 0.16, (fx, k) => {
-        blade.position.z = W.range * (0.25 + (1 - k) * 0.6);
-        blade.material.opacity = k;
-        blade.scale.x = 0.5 + k;
-      }, 'dagger:thrust');
-      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.14, 6, 5), fxMat(0xdff4ff, 0.9));
-      tip.position.set(p.x, 1.05, p.z);
-      addFx(tip, 0.18, (fx, k) => {
-        tip.position.x = p.x + Math.sin(a) * W.range * (0.3 + (1 - k) * 0.7);
-        tip.position.z = p.z + Math.cos(a) * W.range * (0.3 + (1 - k) * 0.7);
-        tip.material.opacity = k;
-      }, 'dagger:tip');
-    } else if (fam === 'axe') {
-      // 위에서 아래로 내려찍기 + 바닥 충격
-      const swing = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.5, 0.1), fxMat(0xffcf8a, 0.85));
-      const gg = new THREE.Group();
-      gg.add(swing);
-      gg.position.set(p.x + Math.sin(a) * 0.7, 1.1, p.z + Math.cos(a) * 0.7);
-      gg.rotation.y = a;
-      addFx(gg, 0.3, (fx, k) => {
-        swing.rotation.x = -1.2 + (1 - k) * 2.2;
-        swing.position.y = 0.9 - (1 - k) * 0.6;
-        swing.material.opacity = k;
-      }, 'axe:chop');
-      const slam = flatRing(p.x + Math.sin(a) * 1.3, p.z + Math.cos(a) * 1.3, 0.3, 1.0, 0xffb46a, 0.9, 0.1);
-      addFx(slam, 0.32, (fx, k) => {
-        slam.scale.setScalar(1 + (1 - k) * 2.0);
-        slam.material.opacity = k * 0.9;
-      }, 'axe:impact');
-      dustBurst(p.x + Math.sin(a) * 1.3, p.z + Math.cos(a) * 1.3, 0xffd6a0, 5);
-    } else if (fam === 'mace') {
-      // 둔기: 묵직한 내려치기 + 충격 링 + 스턴 별
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 6), fxMat(0xffcf8a, 0.9));
-      head.position.set(p.x, 2.2, p.z);
-      addFx(head, 0.3, (fx, k) => {
-        head.position.y = 2.2 - (1 - k) * 2.0;
-        head.position.x = p.x + Math.sin(a) * (1 - k) * 1.5;
-        head.position.z = p.z + Math.cos(a) * (1 - k) * 1.5;
-        head.scale.setScalar(1 + (1 - k) * 0.6);
-        head.material.opacity = k;
-      }, 'mace:slam');
-      const shock = flatRing(p.x + Math.sin(a) * 1.2, p.z + Math.cos(a) * 1.2, 0.5, 1.2, 0xffe0a0, 0.95, 0.1);
-      addFx(shock, 0.42, (fx, k) => {
-        shock.scale.setScalar(1 + (1 - k) * 3.2);
-        shock.material.opacity = k * 0.9;
-      }, 'mace:shock');
-      dustBurst(p.x + Math.sin(a) * 1.2, p.z + Math.cos(a) * 1.2, 0xffd9a8, 7);
-    } else if (fam === 'bow' || fam === 'crossbow' || fam === 'staff' || fam === 'book') {
-      // 발사/시전 잔상
-      const color = fam === 'staff' ? 0xb58cff : fam === 'book' ? 0x9ff0ff : 0xffd27f;
-      const g = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6), fxMat(color, 0.85));
-      g.position.set(p.x + Math.sin(a) * 0.45, 1.1, p.z + Math.cos(a) * 0.45);
-      addFx(g, 0.16, (fx, k) => { g.scale.setScalar(1 + (1 - k) * 1.6); g.material.opacity = k * 0.85; }, fam + ':' + (fam === 'staff' || fam === 'book' ? 'cast' : 'shot'));
+  // ---------- 특수 판정 타격 이펙트 (파박!) ----------
+  // 치명타 · 이중타격 · 스턴에만 PNG 임팩트가 크게 터진다.
+  let impactTex = null;
+  const SPECIAL = {
+    crit: { label: '치명타!', size: 2.5, shake: 0.34, color: 0xffd257 },
+    double: { label: '이중타격!', size: 2.0, shake: 0.24, color: 0x9fe0ff },
+    stun: { label: '스턴!', size: 2.2, shake: 0.26, color: 0xffe066 },
+  };
+  function specialHit(e, kind) {
+    const c = SPECIAL[kind] || SPECIAL.crit;
+    if (!impactTex) impactTex = getTexture(THREE, ASSET_URL.fx('impact'));
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: impactTex, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, opacity: 0.95 }));
+    const y = (e.headY || 1.2) * 0.72;
+    m.position.set(e.x, y, e.z);
+    m.renderOrder = 30;
+    scene.add(m);
+    const base = c.size * (e.isBoss || e.isField ? 1.35 : e.isMid ? 1.15 : 1);
+    addFx(m, 0.34, (fx, k) => {
+      m.rotation.set(0, Math.atan2(camera.position.x - e.x, camera.position.z - e.z), 0);
+      m.scale.setScalar(base * (0.55 + (1 - k) * 0.75));
+      m.material.opacity = Math.min(1, k * 1.8);
+      m.position.y = y + (1 - k) * 0.15;
+    }, 'special:impact');
+    for (let i = 0; i < 7; i++) {
+      const sp = new THREE.Mesh(new THREE.OctahedronGeometry(0.09, 0), fxMat(c.color, 0.95));
+      sp.position.set(e.x, y, e.z);
+      const ang = (i / 7) * TAU + Math.random();
+      const spd = 2.4 + Math.random() * 2.6;
+      addFx(sp, 0.3 + Math.random() * 0.12, (fx, k) => {
+        const t = 1 - k;
+        sp.position.set(e.x + Math.cos(ang) * spd * t, y + Math.sin(ang * 2) * 0.5 * t, e.z + Math.sin(ang) * spd * t);
+        sp.material.opacity = k;
+        sp.rotation.x += 0.3; sp.rotation.y += 0.2;
+      }, 'special:shard');
     }
-    // 무기별 개성 추가 연출
-    if (fam === 'sword') {
-      for (let i = 0; i < 6; i++) {
-        const sp = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.02, 0.3), fxMat(0xbfe6ff, 0.9));
-        const ang = a - 0.5 + i * 0.18;
-        sp.position.set(p.x + Math.sin(ang) * W.range * 0.9, 0.5 + Math.random() * 0.6, p.z + Math.cos(ang) * W.range * 0.9);
-        sp.rotation.y = ang;
-        addFx(sp, 0.3, (fx, k) => { sp.position.y = 0.5 + (1 - k) * 0.7; sp.material.opacity = k; }, 'sword:spark');
-      }
-    } else if (fam === 'dagger') {
-      for (let i = 0; i < 3; i++) {
-        const streak = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, W.range * 0.7), fxMat(0xfff0b0, 0.8));
-        const off = (i - 1) * 0.22;
-        streak.position.set(p.x + Math.sin(a + off) * W.range * 0.5, 0.9 + i * 0.12, p.z + Math.cos(a + off) * W.range * 0.5);
-        streak.rotation.y = a + off;
-        addFx(streak, 0.16, (fx, k) => { streak.material.opacity = k * 0.8; streak.scale.z = 0.6 + (1 - k) * 0.7; }, 'dagger:streak');
-      }
-    } else if (fam === 'axe') {
-      for (let i = 0; i < 6; i++) {
-        const rock = new THREE.Mesh(new THREE.TetrahedronGeometry(0.1), fxMat(0xb08a5a, 0.9));
-        const ang = a + (Math.random() - 0.5) * 1.2;
-        rock.position.set(p.x + Math.sin(ang) * 1.2, 0.4, p.z + Math.cos(ang) * 1.2);
-        const sp2 = 1 + Math.random();
-        addFx(rock, 0.45, (fx, k) => {
-          const t = 1 - k;
-          rock.position.y = 0.4 + t * 1.1 - t * t * 2.2;
-          rock.position.x = p.x + Math.sin(ang) * (1.2 + t * sp2);
-          rock.position.z = p.z + Math.cos(ang) * (1.2 + t * sp2);
-          rock.rotation.x += 0.3;
-          rock.material.opacity = k;
-        }, 'axe:debris');
-      }
-    } else if (fam === 'bow' || fam === 'crossbow') {
-      const flash = flatRing(p.x + Math.sin(a) * 0.6, p.z + Math.cos(a) * 0.6, 0.1, 0.35, fam === 'bow' ? 0xffe0a0 : 0x9fe8ff, 0.9, 0.9);
-      addFx(flash, 0.2, (fx, k) => { flash.scale.setScalar(1 + (1 - k) * 1.4); flash.material.opacity = k; }, fam + ':muzzle');
-      if (fam === 'crossbow') {
-        for (const off of [-0.12, 0.12]) {
-          const tr = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 1.2), fxMat(0xbfe6ff, 0.55));
-          tr.position.set(p.x + Math.sin(a + off) * 1.4, 1.0, p.z + Math.cos(a + off) * 1.4);
-          tr.rotation.y = a + off;
-          addFx(tr, 0.18, (fx, k) => { tr.material.opacity = k * 0.6; }, 'crossbow:tracer');
-        }
-      }
-    } else if (fam === 'staff') {
-      const circle = flatRing(p.x, p.z, 0.7, 1.15, 0xb58cff, 0.85, 0.12);
-      addFx(circle, 0.5, (fx, k) => { circle.rotation.z += 0.3; circle.scale.setScalar(1 + (1 - k) * 0.5); circle.material.opacity = k * 0.85; }, 'staff:circle');
-      for (let i = 0; i < 4; i++) {
-        const rune = new THREE.Mesh(new THREE.OctahedronGeometry(0.09), fxMat(0xe0c8ff, 0.95));
-        const ang = (i / 4) * TAU + game.time;
-        rune.position.set(p.x + Math.cos(ang) * 1.0, 0.3 + (i % 2) * 0.4, p.z + Math.sin(ang) * 1.0);
-        addFx(rune, 0.4, (fx, k) => { rune.position.y = 0.3 + (1 - k) * 0.9; rune.material.opacity = k; }, 'staff:rune');
-      }
-    } else if (fam === 'book') {
-      for (let i = 0; i < 3; i++) {
-        const page = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.02, 0.26), fxMat(0x9ff0ff, 0.9));
-        const ang = a + (i - 1) * 0.5;
-        page.position.set(p.x + Math.sin(ang) * 0.7, 1.0 + i * 0.2, p.z + Math.cos(ang) * 0.7);
-        page.rotation.set(Math.random(), ang, Math.random());
-        addFx(page, 0.5, (fx, k) => {
-          page.position.y = 1.0 + (1 - k) * 1.2 + i * 0.15;
-          page.rotation.y += 0.12;
-          page.material.opacity = Math.min(1, k * 1.5);
-        }, 'book:page');
-      }
-    }
-    if (hits && hits.length) {
-      for (const e of hits.slice(0, 2)) {
-        const ring = flatRing(e.x, e.z, e.radius * 0.8, e.radius * 1.2, 0xfff6d0, 0.75, 0.1);
-        addFx(ring, 0.22, (fx, k) => { ring.scale.setScalar(1 + (1 - k) * 1.6); ring.material.opacity = k * 0.75; }, 'hit:ring');
-      }
-    }
+    game.camShake = Math.max(game.camShake, c.shake);
+    if (game.ui) game.ui.floatText(e.x, (e.headY || 1.2) + 0.55, e.z, c.label, 'crit');
   }
+  game.specialHit = specialHit;
 
   function dustBurst(x, z, color, n = 6) {
     for (let i = 0; i < n; i++) {
@@ -1590,6 +1592,8 @@ export function createGame(THREE) {
       return;
     }
     e.leashing = false;
+    // 돌진 패턴 (오우거·골렘·아누비스 계열)
+    if (e.pattern === 'charge' && bossCharge(e, dt, dx, dz)) return;
     e.telegraphT -= dt;
     if (dd > e.def.atkRange * 0.9 + e.radius) {
       moveEnemy(e, (dx / dd) * e.speed * dt, (dz / dd) * e.speed * dt);
@@ -1604,6 +1608,18 @@ export function createGame(THREE) {
       e.telegraphT = e.isField ? 16 : e.isBoss ? 13 : 10;
       addTelegraph(p.x, p.z, e.isField ? 5.6 : e.isBoss ? 4.6 : 3.6, 1.5, e.atk * 1.9, e);
     }
+    // 분열 패턴 (히드라 계열): 체력 60%에서 두 마리로 갈라진다
+    if (e.pattern === 'split' && !e.splitDone && e.hp < e.maxHp * 0.6) {
+      e.splitDone = true;
+      for (let i = 0; i < 2; i++) {
+        const def = game.zone.mobs.normal[i % game.zone.mobs.normal.length];
+        const ang = (i / 2) * TAU + 0.6;
+        spawnEnemy(def, e.x + Math.cos(ang) * 2.8, e.z + Math.sin(ang) * 2.8, true);
+      }
+      dustBurst(e.x, e.z, 0x9fe0a0, 12);
+      game.camShake = Math.max(game.camShake, 0.4);
+      if (game.ui) game.ui.toast(`${e.def.name}이(가) 분열했어요!`, 'bad');
+    }
     // 50% 이하 소환
     if (e.isBoss && !e.summonDone && e.hp < e.maxHp * 0.5) {
       e.summonDone = true;
@@ -1614,6 +1630,43 @@ export function createGame(THREE) {
       }
       if (game.ui) game.ui.toast(`${e.def.name}이(가) 부하를 불러냈어요!`, 'bad');
     }
+  }
+
+  // 돌진: 바닥 예고선 → 빠르게 들이받기
+  function bossCharge(e, dt, dx, dz) {
+    const p = game.player;
+    if (!e.charge) {
+      e.chargeCd -= dt;
+      const dd = Math.hypot(dx, dz);
+      if (e.chargeCd <= 0 && dd > 2.5 && dd < 16) {
+        const len = 13;
+        e.charge = { t: 0, dx: dx / dd, dz: dz / dd, hit: false };
+        const run = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.035, len), new THREE.MeshBasicMaterial({ color: 0xff4d5e, transparent: true, opacity: 0.34, depthWrite: false }));
+        run.position.set(e.x + e.charge.dx * len * 0.45, 0.07, e.z + e.charge.dz * len * 0.45);
+        run.rotation.y = Math.atan2(e.charge.dx, e.charge.dz);
+        scene.add(run);
+        e.charge.trail = run;
+        if (game.ui) game.ui.floatText(e.x, (e.headY || 2) + 0.4, e.z, '돌진!', 'hurt');
+      }
+      return false;
+    }
+    const c = e.charge;
+    c.t += dt;
+    if (c.trail) c.trail.material.opacity = 0.2 + Math.sin(c.t * 20) * 0.12;
+    e.facing = Math.atan2(c.dx, c.dz);
+    if (c.t < 0.8) { e.state = 'chase'; return true; }
+    moveEnemy(e, c.dx * 20 * dt, c.dz * 20 * dt);
+    if (!c.hit && p.alive && Math.hypot(p.x - e.x, p.z - e.z) < e.radius + 1.0) {
+      c.hit = true;
+      game.damagePlayer(e.atk * 1.5, e);
+      game.camShake = 0.5;
+    }
+    if (c.t > 1.4) {
+      if (c.trail) { scene.remove(c.trail); c.trail.geometry.dispose(); c.trail.material.dispose(); }
+      e.charge = null;
+      e.chargeCd = 7 + Math.random() * 3;
+    }
+    return true;
   }
 
   function addTelegraph(x, z, r, time, dmg, source) {
@@ -1985,15 +2038,17 @@ export function createGame(THREE) {
         break;
       }
       case 'swordwave': {
-        const wave = arcMesh(1.9, 1.5, 0xbfe6ff, 0.95, 0.25);
-        wave.position.set(p.x + Math.sin(a) * 1.0, 0.6, p.z + Math.cos(a) * 1.0);
-        wave.rotation.y = a;
-        addFx(wave, 0.42, (fx, k) => {
+        // 부채꼴 대신 세워진 칼날 파동이 날아간다
+        const blade = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.55, 0.08), fxMat(0xbfe6ff, 0.9));
+        blade.position.set(p.x + Math.sin(a) * 1.0, 1.0, p.z + Math.cos(a) * 1.0);
+        blade.rotation.y = a;
+        addFx(blade, 0.42, (fx, k) => {
           const t = 1 - k;
           const dist = 1.0 + t * def.range;
-          wave.position.set(p.x + Math.sin(a) * dist, 0.6, p.z + Math.cos(a) * dist);
-          wave.scale.setScalar(1 + t * 1.1);
-          wave.children[0].material.opacity = k;
+          blade.position.set(p.x + Math.sin(a) * dist, 1.0, p.z + Math.cos(a) * dist);
+          blade.scale.set(1 + t * 0.6, 1 - t * 0.4, 1);
+          blade.rotation.z = Math.sin(t * 9) * 0.3;
+          blade.material.opacity = k;
         }, 'skill:swordwave');
         for (const e of [...game.enemies]) {
           if (!e.alive) continue;
@@ -2229,10 +2284,13 @@ export function createGame(THREE) {
       if (c.opening == null || c.opening >= 1) continue;
       c.opening = Math.min(1, c.opening + dt * 3.4);
       const k = c.opening;
-      const lid = c.mesh.userData.lid;
-      lid.rotation.x = -1.9 * k;
-      lid.position.z = -0.3 - 0.05 * k;
-      c.mesh.position.y = Math.sin(k * Math.PI) * 0.08;
+      const ud = c.mesh.userData;
+      if (ud.art) {
+        ud.art.rotation.z = -0.14 * Math.sin(k * Math.PI);
+        ud.art.scale.setScalar(1 + 0.14 * Math.sin(k * Math.PI));
+      }
+      if (ud.mesh) ud.mesh.material.opacity = 1 - 0.25 * k;
+      c.mesh.position.y = Math.sin(k * Math.PI) * 0.12;
     }
   }
 
@@ -2364,19 +2422,24 @@ export function createGame(THREE) {
 
   // ---------- 카메라 ----------
   let camPos = new THREE.Vector3(0, 18, 26);
+  // 카메라 각도 완전 고정(약 45도 쿼터뷰). 캐릭터가 움직여도 회전하지 않는다.
+  function camRig() {
+    const aspect = window.innerWidth / Math.max(1, window.innerHeight);
+    const vis = Math.min(15.5, Math.max(11, 9.6 / aspect));
+    return { back: vis * 1.08, height: vis * 1.22, vis };
+  }
   function updateCamera(dt) {
     const p = game.player;
-    const aspect = window.innerWidth / Math.max(1, window.innerHeight);
-    const vis = Math.max(13.6, 10.2 / aspect);
-    const targetX = p.x;
-    const targetZ = p.z + vis * 0.42;
-    const tx = targetX + (game.camShake > 0 ? (Math.random() - 0.5) * game.camShake : 0);
-    const tz = targetZ + (game.camShake > 0 ? (Math.random() - 0.5) * game.camShake : 0);
+    const rig = camRig();
+    const shake = game.camShake > 0 ? game.camShake : 0;
+    const tx = p.x + (shake ? (Math.random() - 0.5) * shake : 0);
+    const tz = p.z + rig.back + (shake ? (Math.random() - 0.5) * shake : 0);
     camPos.x = lerp(camPos.x, tx, 1 - Math.pow(0.0015, dt));
     camPos.z = lerp(camPos.z, tz, 1 - Math.pow(0.0015, dt));
-    camPos.y = lerp(camPos.y || vis * 1.06, vis * 1.06, 1 - Math.pow(0.002, dt));
+    camPos.y = lerp(camPos.y || rig.height, rig.height, 1 - Math.pow(0.002, dt));
     camera.position.copy(camPos);
-    camera.lookAt(p.x, 0, p.z - 1);
+    // 시선도 카메라 위치 기준 → 이동해도 화면이 돌지 않는다
+    camera.lookAt(camPos.x, 0, camPos.z - rig.back);
     if (game.camShake > 0) game.camShake = Math.max(0, game.camShake - dt * 2.4);
     sun.position.set(p.x + 16, 34, p.z + 14);
     sun.target.position.set(p.x, 0, p.z);
@@ -2441,6 +2504,7 @@ export function createGame(THREE) {
     updateEffects(dt);
     updateChests(dt);
     updateRespawn(dt);
+    updateGraves(dt);
     updateCamera(dt);
     game.world.update(dt, game.time);
     // 보스 바: 가까운 보스가 없으면 숨긴다
@@ -2622,6 +2686,36 @@ export function createGame(THREE) {
     return { ok: true, costume: roll, refund, owned: !refund };
   };
 
+  // ---------- 업적 도감 ----------
+  const ACHS = [
+    { id: 'first', icon: '🗡️', name: '첫 사냥', desc: '몬스터 1마리 처치', goal: 1, reward: 50, get: (s) => s.kills },
+    { id: 'hunter100', icon: '🏹', name: '숙련된 사냥꾼', desc: '몬스터 100마리 처치', goal: 100, reward: 200, get: (s) => s.kills },
+    { id: 'hunter1000', icon: '🔥', name: '전설의 사냥꾼', desc: '몬스터 1,000마리 처치', goal: 1000, reward: 800, get: (s) => s.kills },
+    { id: 'boss1', icon: '👑', name: '구역 정복', desc: '구역 보스 처치', goal: 1, reward: 250, get: (s) => (s.bossKills || {}).boss || 0 },
+    { id: 'field1', icon: '⚔️', name: '필드보스 사냥', desc: '지역 필드보스 처치', goal: 1, reward: 400, get: (s) => (s.bossKills || {}).field || 0 },
+    { id: 'chest5', icon: '📦', name: '보물 사냥꾼', desc: '숨겨진 상자 5개 발견', goal: 5, reward: 200, get: (s) => s.chestsFound || 0 },
+    { id: 'evo1', icon: '💎', name: '신화의 시작', desc: '빨강(신화) 진화 1회', goal: 1, reward: 300, get: (s) => s.evolutions || 0 },
+    { id: 'lv10', icon: '🌟', name: '한 걸음 성장', desc: '레벨 10 달성', goal: 10, reward: 150, get: (s) => s.level },
+    { id: 'lv20', icon: '✨', name: '숲을 넘어', desc: '레벨 20 달성', goal: 20, reward: 350, get: (s) => s.level },
+    { id: 'party3', icon: '🤝', name: '좋은 동료', desc: '동료 3명과 동행', goal: 3, reward: 180, get: (s) => (s.party || []).length },
+    { id: 'skill4', icon: '📖', name: '스킬 마스터', desc: '스킬 4개 습득', goal: 4, reward: 220, get: (s) => ((s.skills || {}).learned || []).length },
+    { id: 'explorer', icon: '🗺️', name: '서울 탐험가', desc: '구역 4곳 해금', goal: 4, reward: 500, get: (s) => (s.unlocked || []).filter((u) => u <= 4).length },
+  ];
+  game.achList = function () {
+    const s = game.state;
+    return ACHS.map((a) => ({ id: a.id, icon: a.icon, name: a.name, desc: a.desc, goal: a.goal, reward: a.reward, progress: Math.floor(a.get(s) || 0), claimed: (s.achClaimed || []).includes(a.id) }));
+  };
+  game.claimAch = function (id) {
+    const a = game.achList().find((x) => x.id === id);
+    if (!a || a.claimed || a.progress < a.goal) return { ok: false };
+    game.state.achClaimed = game.state.achClaimed || [];
+    game.state.achClaimed.push(id);
+    game.state.gold += a.reward;
+    game.save();
+    if (game.ui) game.ui.markDirty(true);
+    return { ok: true, reward: a.reward };
+  };
+
   game.learnTalent = function (id) {
     const node = TALENTS.find((t) => t.id === id);
     if (!node || game.state.talents.includes(id)) return false;
@@ -2799,6 +2893,7 @@ export function createGame(THREE) {
       souls(kind, n) { game.state.souls[kind] = (game.state.souls[kind] || 0) + n; },
       heal() { game.player.hp = game.derived().maxHp; },
       spawn(key) { const z = game.zone; const all = [...z.mobs.normal, ...z.mobs.elite]; const d = all.find((m) => m.key === key) || all[0]; return spawnEnemy(d, game.player.x + 2, game.player.z - 2); },
+      spawnBoss(type = 'mid') { const z = game.zone; const d = type === 'boss' ? z.mobs.boss : type === 'field' ? z.mobs.field : z.mobs.mid; return spawnEnemy(d, game.player.x + 1.5, game.player.z - 4.5, true); },
       killAll() { for (const e of [...game.enemies]) if (e.alive && !e.isBoss) game.dealDamage(e, 99999, { canCrit: false }); },
       state() { return { zone: game.zone.id, level: game.state.level, hp: game.player.hp, maxHp: game.derived().maxHp, attack: game.derived().attack, kills: game.state.kills, medal: game.medalInfo(game.zone.id), enemies: game.enemies.filter((e) => e.alive).length, chests: game.chestInfo(game.zone.id), pos: { x: +game.player.x.toFixed(2), z: +game.player.z.toFixed(2) } }; },
       avatar(id) { return game.setAvatar(id); },
