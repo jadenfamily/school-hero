@@ -491,7 +491,7 @@ export function createUI(game, THREE) {
   ui.updateTalkButtons = function () {
     const t = $('talkBtn'), l = $('leaveBtn');
     t.classList.toggle('hidden', !game.nearNpc);
-    // 귀환 버튼은 항상 보인다 — 누르면 처음 소환 지점(1구역)으로 돌아간다
+    // 귀환 버튼은 항상 보인다 — 누르면 마지막으로 해금한 구역으로 돌아간다 (사망 부활은 1구역)
     l.classList.remove('hidden');
     if (game.nearNpc) {
       const q = game.questInfo(game.zone.id);
@@ -793,6 +793,13 @@ export function createUI(game, THREE) {
       const g = GRADES[it.grade] || GRADES[0];
       return `<div class="row-line eq-row"><span><b style="color:${g.color}">${it.kind === 'charm' ? CHARMS[it.fam].name : game.itemName(it.kind, it.fam, it.grade)}</b><br><span class="hint">${equipStatText(it)}</span></span><button class="btn ghost" data-unequip="${k}">해제</button></div>`;
     }).join('');
+    // 보유 부적 교체 (장착 슬롯은 1개지만 얻은 부적은 전부 보관한다)
+    const charmBtns = (s.charms || []).map((fam) => {
+      const c = CHARMS[fam];
+      if (!c) return '';
+      const equipped = s.equip.charm && s.equip.charm.fam === fam;
+      return `<button class="btn ${equipped ? 'gold' : 'ghost'}" data-charm="${fam}" ${equipped ? 'disabled' : ''}>${c.icon} ${c.name}${equipped ? ' · 장착 중' : ''}</button>`;
+    }).join('');
 
     const grid = entries.length ? entries.map((it) => {
       const g = GRADES[it.grade] || GRADES[0];
@@ -868,6 +875,7 @@ export function createUI(game, THREE) {
         <div class="codex">${codexCards}</div>
       </div>
       <div class="equip-block">${equipRows}</div>
+      ${charmBtns ? `<div class="charm-box"><b>🧿 보유 부적</b><div class="charm-row">${charmBtns}</div><div class="hint">눌러서 장착 중인 부적을 교체할 수 있어요. 해독 부적은 늪지 독을 막고, 수중호흡 아티팩트는 한강 심해 유적을 열어줘요.</div></div>` : ''}
       <div class="hint" style="margin:6px 2px 9px">아이템을 누르면 <b>설명 · 스탯 비교</b>가 열리고, <b>[장착하기]</b>를 눌러야 장착됩니다. 같은 등급·같은 아이템을 모으면 <b style="color:#ff5566">빨강(신화)</b>으로 진화해요. <button class="link-btn" data-hub="merge">합성·진화 →</button></div>
       <div class="item-grid">${grid}</div>`;
 
@@ -902,6 +910,9 @@ export function createUI(game, THREE) {
     }));
     sheet.querySelectorAll('[data-unequip]').forEach((el) => {
       el.addEventListener('click', () => { game.unequip(el.dataset.unequip); ui.openBag(); });
+    });
+    sheet.querySelectorAll('[data-charm]').forEach((el) => {
+      el.addEventListener('click', () => { if (game.equipCharm(el.dataset.charm)) ui.openBag(); });
     });
   };
 
@@ -1574,7 +1585,7 @@ export function createUI(game, THREE) {
         ${unlocked ? '' : '<span class="wm-cloud">☁️</span>'}
         <span class="wm-ic">${z.icon}</span>
         <span class="wm-nm">${z.short}</span>
-        <span class="wm-st">${current ? '지금 여기' : unlocked ? '구역 정보' : '미탐험 · 방벽'}</span>
+        <span class="wm-st">${current ? '지금 여기' : unlocked ? '🚀 탭하여 이동' : '미탐험 · 방벽'}</span>
       </button>`;
     }).join('');
     const html = `${head('🗺️ 서울 판타지 지도', `${zone.icon} ${zone.name}`)}
@@ -1590,7 +1601,7 @@ export function createUI(game, THREE) {
         </div>
       </div>
       <div class="wm-zones">${zoneCards}</div>
-      <div class="hint" style="margin-top:10px">하나로 연결된 서울 지도예요. 걸어서 구역 사이를 이동하고, 잠긴 구역은 이전 구역 보스를 처치하면 방벽이 열려요. 구역 카드를 누르면 구역 정보를 볼 수 있어요.</div>`;
+      <div class="hint" style="margin-top:10px">하나로 연결된 서울 지도예요. 해금된 구역 카드를 누르면 그 구역 스폰으로 이동해요. 지금 있는 구역 카드를 누르면 구역 정보를 볼 수 있어요. 잠긴 구역은 이전 구역 보스를 처치하면 방벽이 열려요.</div>`;
     const sheet = openSheet(html, 'hub-sheet');
     sheet.querySelectorAll('[data-zone]').forEach((el) => el.addEventListener('click', () => {
       const id = parseInt(el.dataset.zone, 10);
@@ -1602,7 +1613,10 @@ export function createUI(game, THREE) {
         return;
       }
       closeModal();
-      ui.openZoneInfo(id);
+      // 지금 있는 구역은 정보만 보고, 해금된 다른 구역은 그 자리로 이동한다
+      if (id === game.zone.id) { ui.openZoneInfo(id); return; }
+      game.setDistrict(id, { spawn: true });
+      if (game.ui) game.ui.toast(`${z.name}(으)로 이동했어요.`, 'good');
     }));
   };
 
@@ -1718,7 +1732,7 @@ export function createUI(game, THREE) {
   });
   $('talkBtn').addEventListener('click', () => ui.openQuestDialog(game.questInfo(game.zone.id)));
   $('leaveBtn').addEventListener('click', () => {
-    if (game.player && game.player.alive) game.returnToStart();
+    if (game.player && game.player.alive) game.returnToLastDistrict();
   });
 
   // ---------- 플로팅 조이스틱 ----------
