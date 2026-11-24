@@ -3,7 +3,7 @@ import {
   PLAYABLE, ZONES, GRADES, WEAPONS, ARMOR_KINDS, ACCESSORY_KINDS, TALENTS, SOUL_KINDS,
   COMPANION_CLASSES, CHARMS, SECRET_TOTAL, MEDAL_TIERS, MEDAL_STEP, OPT_LABEL, MOB_REWARD,
   AVATARS, avatarOf, SKILLS, SKILL_IDS, HEAL_SKILL_IDS, EVOLVE_NEED, BOSS_LABEL, BOSS_TIMER,
-  COSTUMES, COSTUME_MAP, COSTUME_PULL_COST, COSTUME_REFUND, COSTUME_STAT_LABEL,
+  COSTUMES, COSTUME_MAP, COSTUME_PULL_COST, COSTUME_MAX_LEVEL, COSTUME_STAT_LABEL, COMPANION_PULL_COST,
   ELEMENTS, ELEM_BEATS, EARTH_GATE,
 } from './data.js';
 import { districtAt, PATH_CENTERS } from './world.js';
@@ -837,10 +837,11 @@ export function createUI(game, THREE) {
     })();
     const codexCards = COSTUMES.map((c) => {
       const owned = (ap.unlocked || []).includes(c.id);
-      const bonus = Object.entries(c.stats || {}).map(([k, v]) => `${COSTUME_STAT_LABEL[k] || k} +${v}%`).join(' · ');
+      const lv = game.costumeLevel(c.id);
+      const bonus = Object.entries(game.costumeScaledStats(c.id)).map(([k, v]) => `${COSTUME_STAT_LABEL[k] || k} +${v}%`).join(' · ');
       return `<div class="codex-card ${owned ? 'owned' : 'locked'}">
         <div class="cc-ico">${c.icon}</div>
-        <div class="cc-body"><div class="cc-name">${c.name} <span class="cc-cls">${c.cls}</span>${owned ? '<span class="cc-own">보유</span>' : '<span class="cc-lock">미보유</span>'}</div>
+        <div class="cc-body"><div class="cc-name">${c.name} <span class="cc-cls">${c.cls}</span>${owned ? `<span class="cc-own">보유 Lv.${lv}</span>` : '<span class="cc-lock">미보유</span>'}</div>
           <div class="cc-bonus">${bonus}</div><div class="hint">${c.desc}</div></div>
       </div>`;
     }).join('');
@@ -850,7 +851,8 @@ export function createUI(game, THREE) {
       ...COSTUMES.map((c) => {
         const owned = (ap.unlocked || []).includes(c.id);
         const on = ap.mode === 'costume' && ap.costumeId === c.id;
-        return `<button class="look-opt ${on ? 'on' : ''} ${owned ? '' : 'locked'}" data-look="costume:${c.id}" title="${c.desc}">${c.icon} ${c.name}${owned ? '' : ' 🔒'}</button>`;
+        const lv = owned ? ` Lv.${game.costumeLevel(c.id)}` : '';
+        return `<button class="look-opt ${on ? 'on' : ''} ${owned ? '' : 'locked'}" data-look="costume:${c.id}" title="${c.desc}">${c.icon} ${c.name}${lv}${owned ? '' : ' 🔒'}</button>`;
       }),
     ].join('');
     const html = `${head('🎒 가방', `Lv.${s.level} · ${A.name}`, 'bag')}
@@ -870,7 +872,7 @@ export function createUI(game, THREE) {
       </div>
       <div class="look-box">
         <div class="look-head"><b>👗 외형</b><span class="hint">능력치는 그대로, 캐릭터 색조·오라로 표현됩니다</span>
-          <button class="mini-btn gold" data-gacha>🎲 외형 뽑기 ${COSTUME_PULL_COST}G</button></div>
+          <button class="mini-btn gold" data-gacha ${game.costumePoolStatus().allMaxed ? 'disabled' : ''}>${game.costumePoolStatus().allMaxed ? '모두 최대 레벨' : `🎲 외형 뽑기 ${COSTUME_PULL_COST}G`}</button></div>
         <div class="look-opts">${lookOpts}</div>
         <div class="codex-head"><b>📖 외형 도감</b><span class="codex-total">${totalBonusText}</span></div>
         <div class="codex">${codexCards}</div>
@@ -891,7 +893,7 @@ export function createUI(game, THREE) {
     sheet.querySelector('[data-gacha]').addEventListener('click', () => {
       const r = game.pullCostume();
       if (!r.ok) { ui.toast(r.msg, 'bad'); return; }
-      if (r.refund) ui.toast(`${r.costume.icon} ${r.costume.name} 중복! 골드 ${r.refund} 환급`, 'good');
+      if (r.leveledUp) ui.toast(`${r.costume.icon} ${r.costume.name} 레벨업! Lv.${r.level}`, 'good');
       else ui.toast(`${r.costume.icon} ${r.costume.name} 획득! 외형에서 착용할 수 있어요.`, 'gold');
       ui.openBag();
     });
@@ -1090,7 +1092,7 @@ export function createUI(game, THREE) {
 
     const need = EVOLVE_NEED.map((n, i) => `<span class="evo-need" style="color:${GRADES[i].color}">${GRADES[i].name} ${n}개</span>`).join('<span class="hint"> · </span>');
     const html = `${head('⚗️ 합성 · 진화', '3개 합성 / 개수 모아 빨강 진화', 'merge')}
-      <div class="hint" style="margin-bottom:10px">흰 일반 → 초 고급 → 파 희귀 → 보 영웅 → 노 전설 → <b style="color:#ff5566">빨강 신화</b></div>
+      <div class="hint" style="margin-bottom:10px">흰 일반 → 초 고급 → 파 희귀 → 보 에픽 → 노 전설 → <b style="color:#ff5566">빨강 신화</b></div>
       <div class="sec-title">합성 (같은 등급 3개 → 상위 1개)</div>
       ${rows}
       <div style="display:flex;gap:8px;margin-top:10px"><button class="btn gold" data-merge-all style="flex:1">한 번에 모두 합성</button></div>
@@ -1261,40 +1263,60 @@ export function createUI(game, THREE) {
   };
 
   // ---------- 동료 ----------
-  ui.openCompanions = function () {
+  ui.openCompanions = function (filter) {
     const s = game.state;
-    const cards = s.companions.map((c) => {
+    if (filter) ui._compFilter = filter;
+    const f = ui._compFilter || 'all';
+    const tabs = [['all', '전체'], ['tank', '🛡️ 탱커'], ['healer', '💗 힐러'], ['melee', '🗡️ 근접'], ['mage', '🔮 마법']]
+      .map(([id, label]) => `<button class="tab ${f === id ? 'on' : ''}" data-comp-tab="${id}">${label}</button>`).join('');
+    const list = s.companions.filter((c) => f === 'all' || c.cls === f);
+    const cards = list.map((c) => {
       const cls = COMPANION_CLASSES[c.cls];
-      const g = GRADES[c.grade];
+      const g = GRADES[c.grade] || GRADES[0];
       const inParty = s.party.includes(c.id);
       return `<div class="comp-card ${inParty ? 'in-party' : ''}" style="--g:${g.color};--gs:${g.glow}">
         <div class="av" style="border-color:${g.color}">${cls.icon}</div>
         <div class="info">
           <div class="nm">${c.name} <span style="font-size:9px;color:${g.color}">${g.name}</span></div>
           <div class="cls">${cls.role} · ${cls.name}</div>
-          <div class="lv">Lv.${c.lv || 1} · 공격 ${Math.round(cls.atk * (1 + ((c.lv || 1) - 1) * 0.22) * (1 + (c.grade || 0) * 0.16))}</div>
-          <div class="lv">체력 ${(() => { const live = (game.companions || []).find((x) => x.data && x.data.id === c.id); return live ? `${Math.round(live.hp)} / ${live.maxHp}` : `${Math.round(cls.hp * (1 + (c.grade || 0) * 0.12))}`; })()}</div>
+          <div class="lv">Lv.${c.lv || 1} · 공격 ${Math.round(cls.atk * (1 + ((c.lv || 1) - 1) * 0.22) * (1 + (c.grade || 0) * 0.20))}</div>
+          <div class="lv">체력 ${(() => { const live = (game.companions || []).find((x) => x.data && x.data.id === c.id); return live ? `${Math.round(live.hp)} / ${live.maxHp}` : `${Math.round(cls.hp * (1 + (c.grade || 0) * 0.15))}`; })()}</div>
         </div>
-        <button class="btn ${inParty ? 'ghost' : ''}" data-party="${c.id}">${inParty ? '대기' : '동행'}</button>
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <button class="btn ${inParty ? 'ghost' : ''}" data-party="${c.id}">${inParty ? '대기' : '동행'}</button>
+          <button class="mini-btn danger" data-dismiss="${c.id}">보내기</button>
+        </div>
       </div>`;
-    }).join('') || `<div class="hint" style="margin:8px 0 16px">아직 동료가 없어요. 아래 뽑기로 동료를 만나 보세요!</div>`;
+    }).join('') || `<div class="hint" style="margin:8px 0 16px">${f === 'all' ? '아직 동료가 없어요. 아래 뽑기로 동료를 만나 보세요!' : '이 직업의 동료가 없어요.'}</div>`;
     const html = `${head('🐾 동료', `동행 ${s.party.length}/3`, 'companions')}
+      <div class="tab-row">${tabs}</div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <span class="hint">동료 뽑기 · 120골드 (보유 ${fmt(s.gold)})</span>
+        <span class="hint">동료 뽑기 · ${COMPANION_PULL_COST}골드 (보유 ${fmt(s.gold)})</span>
         <button class="btn gold" data-pull>뽑기 ✨</button>
       </div>
       ${cards}
-      <div class="hint" style="margin-top:10px">탱커·힐러·근접딜러·마법딜러 중 최대 3명까지 함께 싸워요.</div>`;
+      <div class="hint" style="margin-top:10px">탱커·힐러·근접딜러·마법딜러 중 최대 3명까지 함께 싸워요. 같은 동료가 다시 나오면 등급이 올라가요 (최대 신화).</div>`;
     const sheet = openSheet(html, 'hub-sheet');
+    sheet.querySelectorAll('[data-comp-tab]').forEach((el) => el.addEventListener('click', () => ui.openCompanions(el.dataset.compTab)));
     sheet.querySelector('[data-pull]').addEventListener('click', () => {
       const r = game.pullCompanion();
       if (!r.ok) { ui.toast(r.msg, 'bad'); return; }
-      ui.toast(`${r.cls.icon} ${r.companion.name} (${r.cls.role}, ${GRADES[r.grade].name}) 등장!`, 'gold');
+      if (r.upgraded === 'grade') ui.toast(`${r.cls.icon} ${r.companion.name} 등급 상승! ${GRADES[r.grade].name}이 됐어요`, 'good');
+      else if (r.upgraded === 'level') ui.toast(`${r.cls.icon} ${r.companion.name} 이미 신화라 레벨 +5!`, 'good');
+      else ui.toast(`${r.cls.icon} ${r.companion.name} (${r.cls.role}, ${GRADES[r.grade].name}) 등장!`, 'gold');
       ui.openCompanions();
     });
     sheet.querySelectorAll('[data-party]').forEach((el) => el.addEventListener('click', () => {
       const r = game.toggleParty(el.dataset.party);
       if (!r.ok) ui.toast(r.msg, 'bad');
+      ui.openCompanions();
+    }));
+    sheet.querySelectorAll('[data-dismiss]').forEach((el) => el.addEventListener('click', () => {
+      const c = s.companions.find((x) => x.id === el.dataset.dismiss);
+      if (!c) return;
+      if (!window.confirm(`${c.name} 동료를 보내겠어요? 보낸 동료는 다시 돌아오지 않아요.`)) return;
+      const r = game.dismissCompanion(el.dataset.dismiss);
+      if (r.ok) ui.toast(`${r.name} 동료를 보냈어요`, 'good');
       ui.openCompanions();
     }));
   };
