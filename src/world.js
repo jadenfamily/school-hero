@@ -1,6 +1,6 @@
 // 3D 월드 · 캐릭터 생성 (2.5D 도트 스프라이트 + 로우폴리 지형)
-import { AVATAR_MAP } from './data.js';
-import { makeHeroSprite, makeMonsterSprite, makeCompanionSprite, visualEquip } from './sprites.js';
+import { AVATAR_MAP, GRADES, ARMOR_KINDS } from './data.js';
+import { makeMonsterSprite, visualEquip } from './sprites.js';
 import { ASSET_URL, getTexture, aspectOf } from './assets.js';
 const rand = (seed) => {
   let s = seed >>> 0;
@@ -12,6 +12,42 @@ const rand = (seed) => {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 };
+
+// ---------- 지형 높이 ----------
+// 결정적 지형 높이: 구역마다 다른 완만한 언덕/웅덩이. 진폭 약 1.2~2.0, 경사는 완만하게.
+// 스폰·NPC·포털·보스/필드·메인 길목은 평탄하게 만든다.
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+const smooth = (t) => t * t * (3 - 2 * t);
+export function groundHeight(zoneId, x, z) {
+  const zId = zoneId | 0;
+  const a = zId * 1.7 + 0.6;
+  const b = zId * 2.3 + 1.9;
+  const h1 = Math.sin(x * 0.09 + a) * Math.cos(z * 0.075 + b);
+  const h2 = Math.sin(x * 0.045 - b * 0.7 + z * 0.06 + a * 0.5) * Math.cos(z * 0.05 - a);
+  let h = h1 * 0.9 + h2 * 0.7;
+  // 스폰 지점(0, 23) 근처 평탄화
+  const dSpawn = Math.hypot(x - 0, z - 23);
+  h *= smooth(clamp01((dSpawn - 4) / 5));
+  // NPC 근처(4~6, 22) 평탄화
+  const dNpc = Math.hypot(x - 5, z - 22);
+  h *= smooth(clamp01((dNpc - 3) / 4));
+  // 포털 근처(-6, 28) 평탄화
+  const dPortal = Math.hypot(x + 6, z - 28);
+  h *= smooth(clamp01((dPortal - 3) / 4));
+  // 보스(-2, -32) / 미드(0, -33) 근처 평탄화
+  const dBoss = Math.hypot(x + 1, z + 32);
+  h *= smooth(clamp01((dBoss - 4) / 5));
+  // 필드/미드 지점 평탄화 (구역 1~4의 field/mid 위치)
+  const flatPts = [[30, -24], [-30, -26], [30, 24], [30, 22], [-19, -6], [20, -8], [18, -4], [-20, -5]];
+  for (const [fx, fz] of flatPts) {
+    const d = Math.hypot(x - fx, z - fz);
+    h *= smooth(clamp01((d - 3.5) / 4.5));
+  }
+  // 메인 길목: freeSpot과 같은 판정 |x + sin(z*0.08)*2.5| < 3.2 인 띠를 평탄하게
+  const dPath = Math.abs(x + Math.sin(z * 0.08) * 2.5);
+  h *= smooth(clamp01((dPath - 3.2) / 3.5));
+  return h;
+}
 
 function mat(THREE, color, opts = {}) {
   return new THREE.MeshLambertMaterial({ color, flatShading: true, ...opts });
@@ -178,13 +214,210 @@ function groundTexture(THREE, theme, zoneId, rnd) {
   return tex;
 }
 
+// ---------- 3D 로우폴리 휴머노이드 ----------
+// 손(그립) 원점에서 뻗는 무기. 근접 무기는 아래(-y)로, 지팡이는 위로 뻗는다.
+// (인형 1개 안에서만 지오메트리/재질을 공유한다. disposeGroup이 인형 단위로
+//  지오메트리를 해제하므로, 인형끼리 공유하면 다른 인형이 깨진다.)
+function buildWeaponMesh(THREE, fam, M) {
+  const g = new THREE.Group();
+  const add = (mesh, x = 0, y = 0, z = 0) => { mesh.position.set(x, y, z); g.add(mesh); return mesh; };
+  const tipDown = (mesh, y) => { mesh.rotation.x = Math.PI; return add(mesh, 0, y, 0); };
+  switch (fam) {
+    case 'dagger': {
+      add(cyl(THREE, 0.03, 0.03, 0.13, 0x6a4a22), 0, -0.06, 0);
+      add(box(THREE, 0.14, 0.04, 0.05, 0xdfe7f2), 0, -0.14, 0);
+      add(box(THREE, 0.07, 0.2, 0.025, 0xdfe7f2), 0, -0.25, 0);
+      tipDown(cone(THREE, 0.035, 0.1, 0xdfe7f2, 4), -0.4);
+      break;
+    }
+    case 'axe': {
+      add(cyl(THREE, 0.03, 0.035, 0.42, 0x8a6a3a), 0, -0.26, 0);
+      add(box(THREE, 0.3, 0.2, 0.05, 0xdfe7f2), 0, -0.48, 0);
+      add(box(THREE, 0.1, 0.12, 0.05, 0xdfe7f2), 0, -0.48, 0.08);
+      break;
+    }
+    case 'mace': {
+      add(cyl(THREE, 0.03, 0.035, 0.4, 0x8a6a3a), 0, -0.25, 0);
+      add(sphere(THREE, 0.11, 0xdfe7f2, 8), 0, -0.47, 0);
+      for (let i = 0; i < 4; i++) {
+        const s = cone(THREE, 0.03, 0.08, 0xdfe7f2, 4);
+        const a = (i / 4) * Math.PI * 2;
+        s.position.set(Math.cos(a) * 0.11, -0.47, Math.sin(a) * 0.11);
+        s.rotation.z = -Math.cos(a) * 1.2; s.rotation.x = Math.sin(a) * 1.2;
+        g.add(s);
+      }
+      break;
+    }
+    case 'bow': {
+      const limbT = box(THREE, 0.04, 0.4, 0.04, 0x8a6a3a);
+      limbT.position.set(0, 0.2, -0.07); limbT.rotation.x = -0.4; g.add(limbT);
+      const limbB = box(THREE, 0.04, 0.4, 0.04, 0x8a6a3a);
+      limbB.position.set(0, -0.2, -0.07); limbB.rotation.x = 0.4; g.add(limbB);
+      add(box(THREE, 0.015, 0.72, 0.015, 0xf2ead0), 0, 0, -0.22);
+      const shaft = cyl(THREE, 0.015, 0.015, 0.5, 0xdcc39a, 5);
+      shaft.rotation.x = Math.PI / 2; add(shaft, 0, 0, 0.12);
+      const tip = cone(THREE, 0.03, 0.09, 0xe9f2ff, 4);
+      tip.rotation.x = Math.PI / 2; add(tip, 0, 0, 0.4);
+      break;
+    }
+    case 'crossbow': {
+      add(box(THREE, 0.07, 0.07, 0.42, 0x8a6a3a), 0, -0.05, 0.05);
+      add(box(THREE, 0.44, 0.05, 0.05, 0xdfe7f2), 0, -0.02, 0.22);
+      const bolt = cyl(THREE, 0.015, 0.015, 0.34, 0xd7e2f0, 5);
+      bolt.rotation.x = Math.PI / 2; add(bolt, 0, 0.02, 0.12);
+      break;
+    }
+    case 'staff': {
+      add(cyl(THREE, 0.028, 0.035, 0.85, 0x8a6a3a), 0, -0.05, 0);
+      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), M.grade);
+      add(orb, 0, 0.48, 0);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.02, 6, 14), M.metal);
+      ring.rotation.x = Math.PI / 2; add(ring, 0, 0.48, 0);
+      tipDown(cone(THREE, 0.04, 0.1, 0xdfe7f2, 4), -0.52);
+      break;
+    }
+    case 'book': {
+      const cover = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.06, 0.42), M.grade);
+      add(cover, 0, -0.12, 0);
+      add(box(THREE, 0.27, 0.045, 0.37, 0xf7f0d8), 0, -0.1, 0);
+      const rune = new THREE.Mesh(new THREE.OctahedronGeometry(0.05, 0), M.grade);
+      add(rune, 0, 0.22, 0);
+      break;
+    }
+    case 'sword':
+    default: {
+      add(cyl(THREE, 0.03, 0.03, 0.14, 0x6a4a22), 0, -0.07, 0);
+      add(box(THREE, 0.2, 0.045, 0.055, 0xdfe7f2), 0, -0.15, 0);
+      add(box(THREE, 0.085, 0.28, 0.028, 0xdfe7f2), 0, -0.31, 0);
+      tipDown(cone(THREE, 0.042, 0.12, 0xdfe7f2, 4), -0.5);
+      const gem = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 5), M.grade);
+      add(gem, 0, -0.15, 0.045);
+      break;
+    }
+  }
+  return g;
+}
+
+// 로우폴리 치비 휴머노이드. 정면은 +z (rotation.y = atan2(dx,dz)가 이동 방향을 향한다).
+// opts: { avatar, skin, uniform, hair, accent, weaponFam, grade, armorFam, capeColor, scale }
+export function makeHumanoid3D(THREE, opts = {}) {
+  const av = opts.avatar || null;
+  const skin = opts.skin != null ? opts.skin : (av ? av.skin : 0xf2c9a0);
+  const uniform = opts.uniform != null ? opts.uniform : (av ? av.uniform : 0x2b3a66);
+  const hairCol = opts.hair != null ? opts.hair : (av ? av.hair : 0x1e2130);
+  const accent = opts.accent != null ? opts.accent : (av ? av.accent : 0x4a6bd6);
+  const fam = opts.weaponFam || 'sword';
+  const grade = Math.min(5, Math.max(0, opts.grade || 0));
+  const gradeCol = GRADES[grade].color;
+  let capeCol = opts.capeColor || null;
+  if (!capeCol && opts.armorFam && ARMOR_KINDS[opts.armorFam]) capeCol = ARMOR_KINDS[opts.armorFam].cape;
+  if (!capeCol) capeCol = accent;
+
+  const skinM = mat(THREE, skin);
+  const uniM = mat(THREE, uniform);
+  const hairM = mat(THREE, hairCol);
+  const pantsM = mat(THREE, av ? av.pants : 0x2c3242);
+  const capeM = mat(THREE, capeCol);
+  const gradeM = mat(THREE, gradeCol);
+  const metalM = mat(THREE, 0xdfe7f2);
+  const darkM = mat(THREE, 0x20242e);
+  const M = { grade: gradeM, metal: metalM };
+
+  const g = new THREE.Group();
+  g.add(blobShadow(THREE, 0.42));
+
+  // 다리 (고관절 y=0.55에서 회전)
+  const legGeo = new THREE.BoxGeometry(0.16, 0.5, 0.18);
+  legGeo.translate(0, -0.25, 0);
+  const legL = new THREE.Group(); legL.position.set(-0.11, 0.55, 0);
+  legL.add(new THREE.Mesh(legGeo, pantsM)); g.add(legL);
+  const legR = new THREE.Group(); legR.position.set(0.11, 0.55, 0);
+  legR.add(new THREE.Mesh(legGeo, pantsM)); g.add(legR);
+  if (av && av.skirt) {
+    const skirt = cone(THREE, 0.34, 0.42, uniform, 8);
+    skirt.position.y = 0.62; g.add(skirt);
+  }
+
+  // 몸통 그룹 (걷기 바운스·공격 돌진/기울기용, 자식은 절대 높이로 배치)
+  const body = new THREE.Group(); body.userData.baseY = 0; g.add(body);
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.55, 0.3), uniM);
+  torso.position.y = 0.85; body.add(torso);
+  const belt = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.08, 0.32), gradeM);
+  belt.position.y = 0.6; body.add(belt);
+  const cape = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.72, 0.05), capeM);
+  cape.position.set(0, 0.82, -0.19); body.add(cape);
+
+  // 머리
+  const head = new THREE.Group(); head.position.y = 1.42; body.add(head);
+  head.add(new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8), skinM));
+  const hairTop = new THREE.Mesh(new THREE.SphereGeometry(0.31, 10, 8), hairM);
+  hairTop.scale.set(1, 0.72, 1); hairTop.position.set(0, 0.09, -0.04); head.add(hairTop);
+  if (av && av.hairStyle === 'long') {
+    const back = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.52, 0.09), hairM);
+    back.position.set(0, -0.22, -0.26); head.add(back);
+  } else if (av && av.hairStyle === 'messy') {
+    for (let i = 0; i < 3; i++) {
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.16, 4), hairM);
+      spike.position.set(-0.14 + i * 0.14, 0.32, 0);
+      spike.rotation.z = (i - 1) * 0.35; head.add(spike);
+    }
+  }
+  if (av && av.ribbon) {
+    const rb = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.08, 0.05), mat(THREE, av.ribbon));
+    rb.position.set(0, 0.12, -0.3); head.add(rb);
+  }
+  const irisM = mat(THREE, av ? av.iris : 0x3d6fd6);
+  const eyeGeo = new THREE.SphereGeometry(0.04, 6, 5);
+  const eyeL = new THREE.Mesh(eyeGeo, irisM); eyeL.position.set(-0.11, 0.02, 0.26); head.add(eyeL);
+  const eyeR = new THREE.Mesh(eyeGeo, irisM); eyeR.position.set(0.11, 0.02, 0.26); head.add(eyeR);
+
+  // 팔 (어깨 y=1.08에서 회전)
+  const armGeo = new THREE.BoxGeometry(0.14, 0.5, 0.16);
+  armGeo.translate(0, -0.22, 0);
+  const armR = new THREE.Group(); armR.position.set(0.33, 1.08, 0);
+  armR.add(new THREE.Mesh(armGeo, uniM));
+  const handR = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 5), skinM);
+  handR.position.set(0, -0.48, 0); armR.add(handR); body.add(armR);
+  const armL = new THREE.Group(); armL.position.set(-0.33, 1.08, 0);
+  armL.add(new THREE.Mesh(armGeo, uniM));
+  const handL = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 5), skinM);
+  handL.position.set(0, -0.48, 0); armL.add(handL); body.add(armL);
+
+  // 무기 (오른손)
+  const weaponGroup = new THREE.Group();
+  weaponGroup.position.set(0, -0.48, 0.04);
+  armR.add(weaponGroup);
+  const weapon = buildWeaponMesh(THREE, fam, M);
+  weaponGroup.add(weapon);
+
+  // 등급 오라 (희귀 이상)
+  if (grade >= 2) {
+    const aura = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.52, 24),
+      new THREE.MeshBasicMaterial({ color: gradeCol, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false }));
+    aura.rotation.x = -Math.PI / 2; aura.position.y = 0.02; g.add(aura);
+  }
+
+  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  if (opts.scale) g.scale.setScalar(opts.scale);
+  g.userData = {
+    avatar: av, height: 1.9, headY: 1.6, radius: 0.42,
+    armR, armL, legL, legR, body, head, weapon, weaponGroup,
+    isHeroSprite: false,
+  };
+  return g;
+}
+
 // ---------- 캐릭터 ----------
-// 2.5D 탑뷰 도트 스프라이트. 장착 무기·방어구가 외형에 반영된다.
+// 3D 로우폴리 휴머노이드. 장착 무기·방어구가 외형에 반영된다.
 export function makePlayer(THREE, family = 'sword', av = null, equip = null, appearance = null) {
   const A = av || AVATAR_MAP.boyA;
   const eq = visualEquip(equip, appearance);
-  if (!equip && family && family !== 'slash') return makeHeroSprite(THREE, A, { weapon: { fam: family, grade: 0 }, armor: null });
-  return makeHeroSprite(THREE, A, eq);
+  const weapon = eq && eq.weapon ? eq.weapon : (family && family !== 'slash' ? { fam: family, grade: 0 } : { fam: 'sword', grade: 0 });
+  const armor = eq && eq.armor ? eq.armor : null;
+  return makeHumanoid3D(THREE, {
+    avatar: A, weaponFam: weapon.fam, grade: weapon.grade || 0,
+    armorFam: armor ? armor.fam : null, capeColor: armor && armor.capeColor ? armor.capeColor : null,
+  });
 }
 // ---------- 몬스터 · 동료 외형 ----------
 // 2.5D 도트 빌보드 스프라이트 (카메라 정면 + 바닥 그림자)
@@ -193,7 +426,12 @@ export function makeMonster(THREE, def) {
 }
 
 export function makeCompanion(THREE, cls, gradeColor = 0xffffff) {
-  return makeCompanionSprite(THREE, cls, gradeColor);
+  const c = cls && cls.id ? cls : { id: 'melee', color: 0x6fcf97 };
+  const famByClass = { tank: 'sword', healer: 'staff', melee: 'dagger', mage: 'book' };
+  return makeHumanoid3D(THREE, {
+    avatar: null, skin: 0xf2c9a0, uniform: c.color, hair: c.color, accent: 0xffffff,
+    weaponFam: famByClass[c.id] || 'sword', grade: 2, scale: 0.92,
+  });
 }
 
 export function makeChest(THREE) {
@@ -371,10 +609,17 @@ export function buildZone(THREE, zone, openedChests = []) {
   const props = [];
   const chests = [];
 
-  // 지면
+  // 지면 (3D 지형: 48x48 분할 후 groundHeight로 높이 적용)
   const gtex = groundTexture(THREE, zone.theme, zone.id, rnd);
+  const groundGeo = new THREE.PlaneGeometry(96, 96, 48, 48);
+  const gpos = groundGeo.attributes.position;
+  for (let i = 0; i < gpos.count; i++) {
+    // PlaneGeometry는 XY 평면이라 z가 높이 (회전 후 월드 z = -로컬 y)
+    gpos.setZ(i, groundHeight(zone.id, gpos.getX(i), -gpos.getY(i)));
+  }
+  groundGeo.computeVertexNormals();
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(96, 96, 1, 1),
+    groundGeo,
     new THREE.MeshLambertMaterial({ map: gtex })
   );
   ground.rotation.x = -Math.PI / 2;
@@ -456,7 +701,7 @@ export function buildZone(THREE, zone, openedChests = []) {
     const pr = protoFor(kind);
     const inst = new THREE.InstancedMesh(pr.geo, instMat, arr.length);
     arr.forEach((t, i) => {
-      dummy.position.set(t.x, 0, t.z);
+      dummy.position.set(t.x, groundHeight(zone.id, t.x, t.z), t.z);
       dummy.rotation.set(0, t.r, 0);
       dummy.scale.setScalar(t.s);
       dummy.updateMatrix();
@@ -472,13 +717,14 @@ export function buildZone(THREE, zone, openedChests = []) {
   // 숨겨진 보관함 (소품 뒤 그늘에 배치)
   zone.chests.forEach((spec, idx) => {
     const chest = makeChest(THREE);
-    chest.position.set(spec.x, 0, spec.z);
+    chest.position.set(spec.x, groundHeight(zone.id, spec.x, spec.z), spec.z);
     chest.rotation.y = -0.4 + rnd() * 0.8;
     group.add(chest);
     // 가리는 소품: 카메라(+z, 위) 쪽에 크게
     const hide = propMesh(THREE, spec.hide, rnd);
     const hd = 1.15 + rnd() * 0.5;
-    hide.position.set(spec.x + (rnd() - 0.5) * 0.5, 0, spec.z + hd);
+    const hx = spec.x + (rnd() - 0.5) * 0.5, hz = spec.z + hd;
+    hide.position.set(hx, groundHeight(zone.id, hx, hz), hz);
     hide.scale.setScalar(spec.hide === 'rock' || spec.hide === 'sandRock' || spec.hide === 'bubbleRock' ? 1.9 : spec.hide === 'wall' ? 1.25 : 1.5);
     hide.rotation.y = rnd() * 6.28;
     group.add(hide);
@@ -490,7 +736,7 @@ export function buildZone(THREE, zone, openedChests = []) {
 
   // NPC
   const npc = makeNpc(THREE, zone.npc.icon);
-  npc.position.set(zone.npc.x, 0, zone.npc.z);
+  npc.position.set(zone.npc.x, groundHeight(zone.id, zone.npc.x, zone.npc.z), zone.npc.z);
   npc.rotation.y = Math.PI;
   group.add(npc);
 
@@ -500,12 +746,12 @@ export function buildZone(THREE, zone, openedChests = []) {
   pr.rotation.x = -Math.PI / 2; pr.position.y = 0.16; portal.add(pr);
   const pd = new THREE.Mesh(new THREE.CircleGeometry(1.05, 24), new THREE.MeshBasicMaterial({ color: 0x4ab0ff, transparent: true, opacity: 0.35 }));
   pd.rotation.x = -Math.PI / 2; pd.position.y = 0.1; portal.add(pd);
-  portal.position.set(zone.spawn.x - 6, 0, zone.spawn.z + 5);
+  portal.position.set(zone.spawn.x - 6, groundHeight(zone.id, zone.spawn.x - 6, zone.spawn.z + 5), zone.spawn.z + 5);
   group.add(portal);
 
   // 보스 문
-  const gateL = propMesh(THREE, 'pillar', rnd); gateL.position.set(zone.boss.x - 4.2, 0, zone.boss.z + 5.5); gateL.scale.setScalar(1.3);
-  const gateR = propMesh(THREE, 'pillar', rnd); gateR.position.set(zone.boss.x + 4.2, 0, zone.boss.z + 5.5); gateR.scale.setScalar(1.3);
+  const gateL = propMesh(THREE, 'pillar', rnd); gateL.position.set(zone.boss.x - 4.2, groundHeight(zone.id, zone.boss.x - 4.2, zone.boss.z + 5.5), zone.boss.z + 5.5); gateL.scale.setScalar(1.3);
+  const gateR = propMesh(THREE, 'pillar', rnd); gateR.position.set(zone.boss.x + 4.2, groundHeight(zone.id, zone.boss.x + 4.2, zone.boss.z + 5.5), zone.boss.z + 5.5); gateR.scale.setScalar(1.3);
   group.add(gateL, gateR);
   props.push({ x: gateL.position.x, z: gateL.position.z, r: 0.7, kind: 'pillar' }, { x: gateR.position.x, z: gateR.position.z, r: 0.7, kind: 'pillar' });
 
@@ -541,7 +787,7 @@ export function buildZone(THREE, zone, openedChests = []) {
   }
 
   return {
-    group, props, chests, npc, portal, spawnPoints, particles: points, fieldRing: null,
+    group, props, chests, npc, portal, spawnPoints, particles: points, fieldRing: null, groundHeight,
     update(dt, t) {
       const arr = pgeo.attributes.position.array;
       for (let i = 0; i < pc; i++) {
