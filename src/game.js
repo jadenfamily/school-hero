@@ -25,7 +25,18 @@ function angleDiff(a, b) {
 
 export function createGame(THREE) {
   const canvas = document.getElementById('gl');
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  // 웨일 일반 탭처럼 탭이 많거나 GPU 프로세스가 부족한 환경에서는
+  // 고성능 WebGL 컨텍스트 생성이 실패할 수 있다. 그때는 저전력 설정으로 다시 시도한다.
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  } catch (e1) {
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'default' });
+    } catch (e2) {
+      throw new Error('webgl-unavailable');
+    }
+  }
   const lowPower = (window.innerWidth < 700) || (navigator.hardwareConcurrency || 4) <= 2;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, lowPower ? 1.6 : 2));
   renderer.shadowMap.enabled = true;
