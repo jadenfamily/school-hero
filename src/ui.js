@@ -225,9 +225,18 @@ export function createUI(game, THREE) {
       return;
     }
     if (!step) { box.innerHTML = `<div class="q-title">📜 ${q.def.title}</div><div class="q-done">퀘스트 완료!</div>`; return; }
+    // 보스 처치 단계면 보스 위치를 가리키는 화살표 + 거리 (미니맵과 같은 북쪽 기준 방향)
+    let arrowHtml = '';
+    const tgt = game.questBossTarget && game.questBossTarget();
+    if (tgt && game.player) {
+      const dx = tgt.x - game.player.x, dz = tgt.z - game.player.z;
+      const dist = Math.round(Math.hypot(dx, dz));
+      const ang = Math.round(Math.atan2(dx, -dz) * 180 / Math.PI);
+      arrowHtml = `<div class="q-arrow"><span class="q-arrow-glyph" style="transform:rotate(${ang}deg)">▲</span> 보스까지 ${dist}m</div>`;
+    }
     box.innerHTML = `<div class="q-title">📜 ${q.def.title}</div>
       <div class="q-step">${q.progress >= step.n ? '✔ ' : ''}${step.text}</div>
-      <div class="q-prog">${Math.min(q.progress, step.n)} / ${step.n}${q.progress >= step.n ? ' · NPC에게 보상 받기' : ''}</div>`;
+      <div class="q-prog">${Math.min(q.progress, step.n)} / ${step.n}${q.progress >= step.n ? ' · NPC에게 보상 받기' : ''}</div>${arrowHtml}`;
   }
 
   // ---------- 미니맵 · 월드맵 바탕 (서울 지도 전체, 한 번만 그린다) ----------
@@ -366,10 +375,16 @@ export function createUI(game, THREE) {
     let d = p ? px2(p.x, p.z) : [cx, cy];
     const q = game.questInfo(game.zone.id);
     if (q && !q.done) {
-      ctx.save(); ctx.translate(d[0], d[1]); ctx.rotate(Math.PI / 4);
-      const pulse = 5 + Math.sin(game.time * 4) * 1.4;
-      ctx.fillStyle = q.accepted && q.progress >= (q.def.steps[q.step] || {}).n ? '#ffd257' : '#57e08d';
-      ctx.fillRect(-pulse / 2, -pulse / 2, pulse, pulse);
+      // 퀘스트 NPC는 느낌표로 표시 (초록 = 받을 퀘스트 있음, 금색 = 보상 받을 준비 완료)
+      const col = q.accepted && q.progress >= (q.def.steps[q.step] || {}).n ? '#ffd257' : '#57e08d';
+      const fs = 17 + Math.sin(game.time * 4) * 1.5;
+      ctx.save();
+      ctx.font = `900 ${fs}px sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.75)';
+      ctx.strokeText('!', d[0], d[1]);
+      ctx.fillStyle = col;
+      ctx.fillText('!', d[0], d[1]);
       ctx.restore();
     } else {
       ctx.beginPath(); ctx.arc(d[0], d[1], 2.6, 0, 6.283); ctx.fillStyle = '#8fd8ff'; ctx.fill();
@@ -389,17 +404,17 @@ export function createUI(game, THREE) {
       const dd = px2(e.x, e.z);
       if (Math.hypot(dd[0] - cx, dd[1] - cy) > R) continue;
       const big = e.isField || e.isBoss || e.isMid;
-      ctx.beginPath(); ctx.arc(dd[0], dd[1], big ? 4.8 : 2.6, 0, 6.283);
+      ctx.beginPath(); ctx.arc(dd[0], dd[1], big ? 6 : 3.8, 0, 6.283);
       ctx.fillStyle = big ? '#ff2d2d' : '#ff5b5b'; ctx.fill();
       if (big) { ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 1.5; ctx.stroke(); }
     }
     // 내 캐릭터 = 초록 점
-    ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 6.283); ctx.fillStyle = '#2dff7a'; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, cy, 7, 0, 6.283); ctx.fillStyle = '#2dff7a'; ctx.fill();
     ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.8; ctx.stroke();
     // 바라보는 방향
     ctx.beginPath();
     ctx.moveTo(cx, cy);
-    ctx.lineTo(cx + Math.sin(game.player.facing) * 11, cy + Math.cos(game.player.facing) * 11);
+    ctx.lineTo(cx + Math.sin(game.player.facing) * 14, cy + Math.cos(game.player.facing) * 14);
     ctx.strokeStyle = 'rgba(45,255,122,.6)'; ctx.lineWidth = 2.2; ctx.stroke();
     // 가장자리 어둡게
     const grd = ctx.createRadialGradient(cx, cy, R * 0.6, cx, cy, R);
@@ -1519,7 +1534,7 @@ export function createUI(game, THREE) {
     // 몬스터 (현재 구역)
     for (const en of game.enemies) {
       if (!en.alive || en.isBoss || en.isField || en.isMid || en.elite) continue;
-      g.beginPath(); g.arc(X(en.x), Y(en.z), 3.4, 0, 6.283); g.fillStyle = '#ff5a5a'; g.fill();
+      g.beginPath(); g.arc(X(en.x), Y(en.z), 5, 0, 6.283); g.fillStyle = '#ff5a5a'; g.fill();
     }
     // 보스 묘비 (타이머 표시)
     for (const gr of game.graves) {
@@ -1531,7 +1546,7 @@ export function createUI(game, THREE) {
     g.fillStyle = s.earthGateOpen ? '#ffd257' : '#8a97a8'; g.fill();
     g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke();
     // 내 캐릭터
-    g.beginPath(); g.arc(X(game.player.x), Y(game.player.z), 8.5, 0, 6.283); g.fillStyle = '#3ddc54'; g.fill();
+    g.beginPath(); g.arc(X(game.player.x), Y(game.player.z), 12, 0, 6.283); g.fillStyle = '#3ddc54'; g.fill();
     g.strokeStyle = '#fff'; g.lineWidth = 2.5; g.stroke();
     // 현재 구역 테두리
     if (zone.map) {
