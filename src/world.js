@@ -1,6 +1,6 @@
 // 3D 월드 · 캐릭터 생성 (2.5D 도트 스프라이트 + 로우폴리 지형)
 import { AVATAR_MAP, GRADES, ARMOR_KINDS, ZONES, EARTH_GATE } from './data.js';
-import { makeMonsterSprite, visualEquip } from './sprites.js';
+import { visualEquip } from './sprites.js';
 import { ASSET_URL, getTexture, aspectOf } from './assets.js';
 const rand = (seed) => {
   let s = seed >>> 0;
@@ -109,6 +109,23 @@ function setShadow(g) {
   g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = false; } });
   return g;
 }
+
+// ---------- 몬스터용 공유 지오메트리 캐시 ----------
+// 같은 도형의 몬스터끼리 지오메트리만 공유한다. 재질은 인형마다 새로 만든다
+// (피격 플래시·색상 틴트가 인형별로 동작해야 하기 때문).
+// disposeGroup은 인형 단위로 지오메트리를 해제하므로, 공유 지오메트리에는 shared
+// 표시를 달고 game.js의 disposeGroup은 shared 지오메트리를 해제하지 않는다.
+const GEO_CACHE = new Map();
+function sharedGeo(key, make) {
+  let g = GEO_CACHE.get(key);
+  if (!g) { g = make(); g.userData.shared = true; GEO_CACHE.set(key, g); }
+  return g;
+}
+const gBox = (T, w, h, d) => sharedGeo(`b${w},${h},${d}`, () => new T.BoxGeometry(w, h, d));
+const gSphere = (T, r, w = 8, h = 6) => sharedGeo(`s${r},${w},${h}`, () => new T.SphereGeometry(r, w, h));
+const gCone = (T, r, h, s = 6) => sharedGeo(`c${r},${h},${s}`, () => new T.ConeGeometry(r, h, s));
+const gCyl = (T, rt, rb, h, s = 6) => sharedGeo(`y${rt},${rb},${h},${s}`, () => new T.CylinderGeometry(rt, rb, h, s));
+const gRing = (T, ri, ro) => sharedGeo(`r${ri},${ro}`, () => new T.RingGeometry(ri, ro, 24));
 
 function dotTexture(THREE) {
   const c = document.createElement('canvas');
@@ -373,6 +390,8 @@ export function makeHumanoid3D(THREE, opts = {}) {
   const fam = opts.weaponFam || 'sword';
   const grade = Math.min(5, Math.max(0, opts.grade || 0));
   const gradeCol = GRADES[grade].color;
+  // bulk: 몸통 너비 배율 (탱커 동료 1.32, 근접 동료 0.85 등 — 실루엣 구분용)
+  const bulk = opts.bulk || 1;
   let capeCol = opts.capeColor || null;
   if (!capeCol && opts.armorFam && ARMOR_KINDS[opts.armorFam]) capeCol = ARMOR_KINDS[opts.armorFam].cape;
   if (!capeCol) capeCol = accent;
@@ -394,22 +413,25 @@ export function makeHumanoid3D(THREE, opts = {}) {
   // 다리 (고관절 y=0.55에서 회전)
   const legGeo = new THREE.BoxGeometry(0.16, 0.5, 0.18);
   legGeo.translate(0, -0.25, 0);
-  const legL = new THREE.Group(); legL.position.set(-0.11, 0.55, 0);
+  const legL = new THREE.Group(); legL.position.set(-0.11 * bulk, 0.55, 0);
   legL.add(new THREE.Mesh(legGeo, pantsM)); g.add(legL);
-  const legR = new THREE.Group(); legR.position.set(0.11, 0.55, 0);
+  const legR = new THREE.Group(); legR.position.set(0.11 * bulk, 0.55, 0);
   legR.add(new THREE.Mesh(legGeo, pantsM)); g.add(legR);
-  if (av && av.skirt) {
-    const skirt = cone(THREE, 0.34, 0.42, uniform, 8);
+  if (opts.robe || (av && av.skirt)) {
+    const skirt = cone(THREE, 0.34 * bulk, 0.42, uniform, 8);
     skirt.position.y = 0.62; g.add(skirt);
   }
 
   // 몸통 그룹 (걷기 바운스·공격 돌진/기울기용, 자식은 절대 높이로 배치)
   const body = new THREE.Group(); body.userData.baseY = 0; g.add(body);
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.55, 0.3), uniM);
+  torso.scale.x = bulk;
   torso.position.y = 0.85; body.add(torso);
   const belt = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.08, 0.32), trimCol ? mat(THREE, trimCol) : gradeM);
+  belt.scale.x = bulk;
   belt.position.y = 0.6; body.add(belt);
   const cape = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.72, 0.05), capeM);
+  cape.scale.x = bulk;
   cape.position.set(0, 0.82, -0.19); body.add(cape);
 
   // 머리
@@ -417,15 +439,37 @@ export function makeHumanoid3D(THREE, opts = {}) {
   head.add(new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8), skinM));
   const hairTop = new THREE.Mesh(new THREE.SphereGeometry(0.31, 10, 8), hairM);
   hairTop.scale.set(1, 0.72, 1); hairTop.position.set(0, 0.09, -0.04); head.add(hairTop);
-  if (av && av.hairStyle === 'long') {
+  // 아바타별 헤어 실루엣 (3D가 초상화와 닮아 보이게 — hair3d가 없으면 hairStyle로 폴백)
+  const hs = av ? (av.hair3d || av.hairStyle) : null;
+  const backHair = () => {
     const back = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.52, 0.09), hairM);
     back.position.set(0, -0.22, -0.26); head.add(back);
-  } else if (av && av.hairStyle === 'messy') {
-    for (let i = 0; i < 3; i++) {
-      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.16, 4), hairM);
-      spike.position.set(-0.14 + i * 0.14, 0.32, 0);
-      spike.rotation.z = (i - 1) * 0.35; head.add(spike);
+  };
+  if (hs === 'long' || hs === 'twin' || hs === 'bun') backHair();
+  if (hs === 'messy' || hs === 'spiky') {
+    const n = hs === 'spiky' ? 5 : 3;
+    const w = hs === 'spiky' ? 0.09 : 0.07, h = hs === 'spiky' ? 0.22 : 0.16;
+    for (let i = 0; i < n; i++) {
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(w, h, 4), hairM);
+      spike.position.set(-0.2 + i * (0.4 / (n - 1)), 0.32, 0);
+      spike.rotation.z = (i - (n - 1) / 2) * 0.32; head.add(spike);
     }
+  } else if (hs === 'fringe') {
+    // 앞머리 (정돈된 짧은 머리)
+    const fringe = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.13, 0.1), hairM);
+    fringe.position.set(0, 0.2, 0.24); head.add(fringe);
+  } else if (hs === 'twin') {
+    // 양갈래 (머리 양옆 뭉치 + 늘어지는 꼬리)
+    for (const s of [-1, 1]) {
+      const bun = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 6), hairM);
+      bun.position.set(0.34 * s, 0.02, -0.04); head.add(bun);
+      const tail = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.34, 6), hairM);
+      tail.position.set(0.36 * s, -0.26, -0.06); tail.rotation.z = s * 0.25; head.add(tail);
+    }
+  } else if (hs === 'bun') {
+    // 정수리 똥머리 + 긴 뒷머리
+    const bun = new THREE.Mesh(new THREE.SphereGeometry(0.17, 8, 6), hairM);
+    bun.position.set(0, 0.38, -0.02); head.add(bun);
   }
   if (av && av.ribbon) {
     const rb = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.08, 0.05), mat(THREE, av.ribbon));
@@ -435,15 +479,21 @@ export function makeHumanoid3D(THREE, opts = {}) {
   const eyeGeo = new THREE.SphereGeometry(0.04, 6, 5);
   const eyeL = new THREE.Mesh(eyeGeo, irisM); eyeL.position.set(-0.11, 0.02, 0.26); head.add(eyeL);
   const eyeR = new THREE.Mesh(eyeGeo, irisM); eyeR.position.set(0.11, 0.02, 0.26); head.add(eyeR);
+  if (av) {
+    // 눈썹 (머리색) — 얼굴 인상 구분
+    const browGeo = new THREE.BoxGeometry(0.1, 0.025, 0.02);
+    const browL = new THREE.Mesh(browGeo, hairM); browL.position.set(-0.11, 0.13, 0.27); head.add(browL);
+    const browR = new THREE.Mesh(browGeo, hairM); browR.position.set(0.11, 0.13, 0.27); head.add(browR);
+  }
 
   // 팔 (어깨 y=1.08에서 회전)
   const armGeo = new THREE.BoxGeometry(0.14, 0.5, 0.16);
   armGeo.translate(0, -0.22, 0);
-  const armR = new THREE.Group(); armR.position.set(0.33, 1.08, 0);
+  const armR = new THREE.Group(); armR.position.set(0.33 * bulk, 1.08, 0);
   armR.add(new THREE.Mesh(armGeo, uniM));
   const handR = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 5), skinM);
   handR.position.set(0, -0.48, 0); armR.add(handR); body.add(armR);
-  const armL = new THREE.Group(); armL.position.set(-0.33, 1.08, 0);
+  const armL = new THREE.Group(); armL.position.set(-0.33 * bulk, 1.08, 0);
   armL.add(new THREE.Mesh(armGeo, uniM));
   const handL = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 5), skinM);
   handL.position.set(0, -0.48, 0); armL.add(handL); body.add(armL);
@@ -485,19 +535,424 @@ export function makePlayer(THREE, family = 'sword', av = null, equip = null, app
     trimColor: armor && armor.trimColor ? armor.trimColor : null,
   });
 }
-// ---------- 몬스터 · 동료 외형 ----------
-// 2.5D 도트 빌보드 스프라이트 (카메라 정면 + 바닥 그림자)
-export function makeMonster(THREE, def) {
-  return makeMonsterSprite(THREE, def);
+// ---------- 몬스터 3D ----------
+// 빌보드 스프라이트 대신 로우폴리 3D 모델 (주인공 휴머노이드와 같은 덩어리 스타일).
+// 지오메트리는 도형별로 공유(캐시)하고, 재질은 인형마다 새로 만든다
+// (피격 플래시·색상 틴트가 인형별로 동작해야 하기 때문).
+const MONSTER_H = {
+  slime: 0.92, goblin: 1.14, orc: 1.4, frog: 1.12, lizard: 1.42, scarab: 1.02, crab: 1.2,
+  scorpion: 1.24, mummy: 1.52, merfolk: 1.5, siren: 1.52, naga: 1.86, wraith: 1.62,
+  witch: 1.78, golem: 2.2, ent: 2.4, ogre: 2.15, anubis: 2.05, hydra: 2.0, kraken: 2.6,
+  dragon: 2.6, mushroom: 1.9, barbarian: 2.0, skeleton: 1.5,
+};
+
+export function makeMonster3D(THREE, def) {
+  const color = def.color != null ? def.color : 0x888888;
+  const dark = def.dark != null ? def.dark : 0x444444;
+  const shape = def.shape || 'goblin';
+  const bossMul = def.boss === 'field' ? 1.22 : def.boss === 'boss' ? 1.12 : def.boss === 'mid' ? 1.05 : def.elite ? 1.06 : 1;
+  const bounce = ['slime', 'frog', 'scarab', 'goblin', 'mushroom'].includes(shape);
+  const float = ['wraith', 'witch', 'siren', 'kraken', 'dragon'].includes(shape);
+  const baseY = float ? 0.2 : 0;
+  const tintMats = [];
+  const tm = (c) => { const m = mat(THREE, c); m.userData.base = new THREE.Color(c); tintMats.push(m); return m; };
+  const bm = (c) => new THREE.MeshBasicMaterial({ color: c });
+  const pBox = (w, h, d, m) => new THREE.Mesh(gBox(THREE, w, h, d), m);
+  const pSph = (r, m, w = 8, h = 6) => new THREE.Mesh(gSphere(THREE, r, w, h), m);
+  const pCon = (r, h, m, s = 6) => new THREE.Mesh(gCone(THREE, r, h, s), m);
+  const pCyl = (rt, rb, h, m, s = 6) => new THREE.Mesh(gCyl(THREE, rt, rb, h, s), m);
+  const bodyM = tm(color);
+  const darkM = tm(dark);
+  const eyeM = bm(0x1a1a22);
+
+  let g = new THREE.Group();
+  let body = new THREE.Group();
+  g.add(body);
+  g.add(blobShadow(THREE, 0.42));
+  let legL = null, legR = null, armL = null, armR = null, wingL = null, wingR = null, heads = null;
+  let top = MONSTER_H[shape] || 1.28;
+  let radius = 0.45;
+  const put = (mesh, x, y, z, parent) => { mesh.position.set(x, y, z); (parent || body).add(mesh); return mesh; };
+  const eyes = (y, xOff, z, r = 0.05) => {
+    put(pSph(r, eyeM, 6, 5), -xOff, y, z);
+    put(pSph(r, eyeM, 6, 5), xOff, y, z);
+  };
+
+  // ---- 휴머노이드형 (makeHumanoid3D 변형 + 도형별 특징) ----
+  const HUM = {
+    goblin: { scale: 0.6, weaponFam: 'dagger', bulk: 0.9 },
+    orc: { scale: 0.75, weaponFam: 'mace', bulk: 1.2 },
+    lizard: { scale: 0.75, weaponFam: 'sword', bulk: 0.95 },
+    mummy: { scale: 0.8, weaponFam: 'staff', bulk: 0.95 },
+    siren: { scale: 0.8, weaponFam: 'staff', bulk: 0.9, longHair: true, robe: true },
+    merfolk: { scale: 0.8, weaponFam: 'sword', bulk: 0.9, noLegs: true, tail: 'fish' },
+    naga: { scale: 1.0, weaponFam: 'sword', bulk: 0.95, noLegs: true, tail: 'snake' },
+    witch: { scale: 0.95, weaponFam: 'staff', bulk: 0.9, longHair: true, robe: true, hat: true },
+    anubis: { scale: 1.08, weaponFam: 'sword', bulk: 1.05 },
+    barbarian: { scale: 1.05, weaponFam: def.weapon || 'axe', bulk: 1.2 },
+    ogre: { scale: 1.13, weaponFam: 'mace', bulk: 1.25 },
+    skeleton: { scale: 0.8, weaponFam: 'sword', bulk: 0.9 },
+  };
+  if (HUM[shape]) {
+    const cfg = HUM[shape];
+    const av = (cfg.longHair || cfg.robe)
+      ? { skin: color, uniform: dark, hair: dark, pants: dark, hairStyle: 'long', skirt: !!cfg.robe, ribbon: 0, iris: (shape === 'skeleton' || shape === 'mummy') ? 0x1a1a22 : 0xffffff }
+      : null;
+    const hg = makeHumanoid3D(THREE, {
+      avatar: av, skin: color, uniform: dark, hair: dark, accent: color,
+      weaponFam: cfg.weaponFam, grade: 0, scale: cfg.scale * bossMul, bulk: cfg.bulk, robe: !!cfg.robe,
+    });
+    const head = hg.userData.head;
+    const hM = mat(THREE, dark);
+    if (shape === 'goblin') {
+      for (const s of [-1, 1]) {
+        const ear = new THREE.Mesh(gCone(THREE, 0.09, 0.22, 4), hM);
+        ear.position.set(0.32 * s, 0.12, 0); ear.rotation.z = s * -1.1; head.add(ear);
+      }
+    } else if (shape === 'orc') {
+      for (const s of [-1, 1]) {
+        const tusk = new THREE.Mesh(gCone(THREE, 0.035, 0.12, 4), mat(THREE, 0xf2ead0));
+        tusk.position.set(0.09 * s, -0.22, 0.26); head.add(tusk);
+      }
+    } else if (shape === 'lizard') {
+      const tail = new THREE.Mesh(gCone(THREE, 0.12, 0.7, 6), darkM);
+      tail.position.set(0, 0.5, -0.4); tail.rotation.x = 1.9; hg.add(tail);
+    } else if (shape === 'mummy') {
+      for (const s of [-1, 1]) {
+        const ge = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 5), bm(0xffc93c));
+        ge.position.set(0.11 * s, 0.02, 0.27); head.add(ge);
+      }
+    } else if (shape === 'witch') {
+      const hat = new THREE.Mesh(gCone(THREE, 0.3, 0.55, 8), hM);
+      hat.position.set(0, 0.42, -0.02); head.add(hat);
+      const brim = new THREE.Mesh(gCyl(THREE, 0.42, 0.42, 0.04, 12), hM);
+      brim.position.set(0, 0.16, 0); head.add(brim);
+    } else if (shape === 'anubis') {
+      const snout = new THREE.Mesh(gBox(THREE, 0.22, 0.16, 0.3), hM);
+      snout.position.set(0, -0.06, 0.3); head.add(snout);
+      for (const s of [-1, 1]) {
+        const ear = new THREE.Mesh(gCone(THREE, 0.09, 0.34, 4), hM);
+        ear.position.set(0.14 * s, 0.36, 0); head.add(ear);
+      }
+    } else if (shape === 'barbarian') {
+      for (const s of [-1, 1]) {
+        const horn = new THREE.Mesh(gCone(THREE, 0.07, 0.26, 4), mat(THREE, 0xf2ead0));
+        horn.position.set(0.3 * s, 0.22, 0); horn.rotation.z = s * -0.9; head.add(horn);
+      }
+    }
+    if (cfg.noLegs) {
+      hg.remove(hg.userData.legL); hg.remove(hg.userData.legR);
+      if (cfg.tail === 'fish') {
+        const tail = new THREE.Mesh(gCone(THREE, 0.34, 0.9, 6), tm(color));
+        tail.position.set(0, 0.35, -0.05); tail.rotation.x = Math.PI; hg.add(tail);
+        const fin = new THREE.Mesh(gBox(THREE, 0.5, 0.08, 0.3), tm(dark));
+        fin.position.set(0, 0.05, -0.15); hg.add(fin);
+      } else {
+        const s1 = new THREE.Mesh(gSphere(THREE, 0.34, 8, 6), tm(dark)); s1.position.set(0, 0.32, 0); hg.add(s1);
+        const s2 = new THREE.Mesh(gSphere(THREE, 0.26, 8, 6), tm(dark)); s2.position.set(0, 0.14, -0.08); hg.add(s2);
+        const tip = new THREE.Mesh(gCone(THREE, 0.16, 0.5, 6), tm(dark)); tip.position.set(0, 0.1, -0.3); tip.rotation.x = 1.4; hg.add(tip);
+      }
+    }
+    hg.traverse((o) => {
+      if (o.isMesh && o.material && o.material.isMeshLambertMaterial) {
+        if (!o.material.userData.base) o.material.userData.base = new THREE.Color(o.material.color.getHex());
+        if (!tintMats.includes(o.material)) tintMats.push(o.material);
+      }
+    });
+    g = hg;
+    body = hg.userData.body; legL = hg.userData.legL; legR = hg.userData.legR;
+    armL = hg.userData.armL; armR = hg.userData.armR;
+    if (cfg.noLegs) { legL = null; legR = null; }
+    top = 1.72 * cfg.scale * bossMul;
+    radius = 0.42 * cfg.scale * bossMul;
+    return finish({ scaled: true });
+  }
+
+  // ---- 비휴머노이드형 ----
+  if (shape === 'slime') {
+    // 통통한 키세스 물방울 (둥근 몸통 + 뾰족한 꼭지)
+    const blob = pSph(0.5, bodyM); blob.scale.set(1, 0.72, 1); put(blob, 0, 0.36, 0);
+    put(pCon(0.26, 0.32, bodyM), 0, 0.8, 0);
+    eyes(0.45, 0.18, 0.42, 0.06);
+    top = 0.96; radius = 0.5;
+  } else if (shape === 'frog') {
+    const b = pSph(0.6, bodyM); b.scale.set(1, 0.62, 1.1); put(b, 0, 0.34, 0);
+    put(pSph(0.2, bodyM), -0.22, 0.72, 0.3);
+    put(pSph(0.2, bodyM), 0.22, 0.72, 0.3);
+    put(pSph(0.08, eyeM, 6, 5), -0.22, 0.74, 0.46);
+    put(pSph(0.08, eyeM, 6, 5), 0.22, 0.74, 0.46);
+    put(pBox(0.3, 0.12, 0.42, darkM), -0.48, 0.08, 0.1);
+    put(pBox(0.3, 0.12, 0.42, darkM), 0.48, 0.08, 0.1);
+    top = 0.95; radius = 0.6;
+  } else if (shape === 'scarab') {
+    const dome = pSph(0.5, bodyM); dome.scale.set(1, 0.6, 1.25); put(dome, 0, 0.3, 0);
+    put(pSph(0.2, darkM), 0, 0.32, 0.55);
+    const horn = pCon(0.08, 0.25, darkM); horn.position.set(0, 0.5, 0.62); horn.rotation.x = 0.7; body.add(horn);
+    for (const s of [-1, 1]) for (let i = 0; i < 3; i++) {
+      put(pBox(0.08, 0.08, 0.25, darkM), 0.5 * s, 0.1, -0.2 + i * 0.25);
+    }
+    top = 0.7; radius = 0.55;
+  } else if (shape === 'crab') {
+    put(pBox(1.15, 0.32, 0.7, bodyM), 0, 0.32, 0);
+    for (const s of [-1, 1]) {
+      put(pSph(0.22, darkM), 0.72 * s, 0.35, 0.15);
+      const claw = pCon(0.12, 0.28, darkM); claw.position.set(0.72 * s, 0.35, 0.4); claw.rotation.x = Math.PI / 2; body.add(claw);
+      const stalk = pCyl(0.03, 0.03, 0.3, darkM, 5); put(stalk, 0.18 * s, 0.62, 0.25);
+      put(pSph(0.08, eyeM, 6, 5), 0.18 * s, 0.78, 0.25);
+      for (let i = 0; i < 3; i++) put(pBox(0.06, 0.06, 0.3, darkM), 0.6 * s, 0.12, -0.15 + i * 0.2);
+    }
+    top = 0.9; radius = 0.65;
+  } else if (shape === 'scorpion') {
+    put(pBox(0.55, 0.3, 0.5, bodyM), 0, 0.3, 0.25);
+    put(pBox(0.5, 0.28, 0.5, bodyM), 0, 0.28, -0.35);
+    const t1 = pSph(0.13, darkM); put(t1, 0, 0.45, -0.6);
+    const t2 = pSph(0.13, darkM); put(t2, 0, 0.65, -0.8);
+    const t3 = pSph(0.13, darkM); put(t3, 0, 0.85, -0.95);
+    const sting = pCon(0.09, 0.28, darkM); sting.position.set(0, 1.0, -1.0); sting.rotation.x = -0.5; body.add(sting);
+    for (const s of [-1, 1]) {
+      put(pSph(0.18, darkM), 0.45 * s, 0.3, 0.5);
+      for (let i = 0; i < 3; i++) put(pBox(0.06, 0.06, 0.28, darkM), 0.32 * s, 0.12, -0.3 + i * 0.25);
+    }
+    eyes(0.38, 0.14, 0.5, 0.045);
+    top = 1.05; radius = 0.6;
+  } else if (shape === 'golem') {
+    legL = new THREE.Group(); legL.position.set(-0.24, 0.55, 0); body.add(legL);
+    put(pBox(0.3, 0.55, 0.35, darkM), 0, -0.27, 0, legL);
+    legR = new THREE.Group(); legR.position.set(0.24, 0.55, 0); body.add(legR);
+    put(pBox(0.3, 0.55, 0.35, darkM), 0, -0.27, 0, legR);
+    put(pBox(1.0, 1.1, 0.65, bodyM), 0, 1.15, 0);
+    put(pBox(0.45, 0.4, 0.4, darkM), 0, 1.95, 0);
+    armL = new THREE.Group(); armL.position.set(-0.64, 1.5, 0); body.add(armL);
+    put(pBox(0.28, 0.9, 0.3, bodyM), 0, -0.4, 0, armL);
+    armR = new THREE.Group(); armR.position.set(0.64, 1.5, 0); body.add(armR);
+    put(pBox(0.28, 0.9, 0.3, bodyM), 0, -0.4, 0, armR);
+    put(pSph(0.25, darkM), -0.6, 1.62, 0);
+    put(pSph(0.25, darkM), 0.6, 1.62, 0);
+    for (const s of [-1, 1]) put(pSph(0.06, bm(0xffc93c), 6, 5), 0.11 * s, 1.95, 0.21);
+    top = 2.15; radius = 0.6;
+  } else if (shape === 'ent') {
+    put(pCyl(0.32, 0.42, 1.5, bodyM, 8), 0, 0.75, 0);
+    const brL = pCyl(0.08, 0.12, 0.9, darkM, 6); brL.position.set(-0.5, 1.5, 0); brL.rotation.z = 0.6; body.add(brL);
+    const brR = pCyl(0.08, 0.12, 0.9, darkM, 6); brR.position.set(0.5, 1.5, 0); brR.rotation.z = -0.6; body.add(brR);
+    put(pSph(0.5, darkM), 0, 1.95, 0);
+    put(pSph(0.42, darkM), -0.38, 1.75, 0.1);
+    put(pSph(0.38, darkM), 0.38, 1.78, -0.05);
+    eyes(1.2, 0.12, 0.36, 0.05);
+    top = 2.45; radius = 0.55;
+  } else if (shape === 'hydra') {
+    const bd = pSph(0.85, bodyM); bd.scale.set(1, 0.75, 1.1); put(bd, 0, 0.65, 0);
+    heads = [];
+    for (let i = -1; i <= 1; i++) {
+      const neck = new THREE.Group(); neck.position.set(0.38 * i, 1.25, 0.1); neck.rotation.z = -0.25 * i; body.add(neck);
+      put(pCyl(0.14, 0.2, 0.8, darkM, 6), 0, 0.35, 0, neck);
+      const hd = new THREE.Group(); hd.position.set(0, 0.8, 0); neck.add(hd);
+      const skull = pSph(0.3, bodyM); hd.add(skull);
+      const jaw = pCon(0.12, 0.3, darkM, 4); jaw.position.set(0, -0.12, 0.28); jaw.rotation.x = Math.PI / 2; hd.add(jaw);
+      const e1 = pSph(0.05, eyeM, 6, 5); e1.position.set(-0.11, 0.05, 0.26); hd.add(e1);
+      const e2 = pSph(0.05, eyeM, 6, 5); e2.position.set(0.11, 0.05, 0.26); hd.add(e2);
+      heads.push(hd);
+    }
+    const tail = pCon(0.2, 0.9, darkM); tail.position.set(0, 0.5, -0.95); tail.rotation.x = -1.9; body.add(tail);
+    top = 2.15; radius = 0.9;
+  } else if (shape === 'kraken') {
+    const dome = pSph(1.0, bodyM); dome.scale.set(1, 0.85, 1); put(dome, 0, 1.1, 0);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const tent = pCon(0.16, 1.0, darkM); tent.position.set(Math.cos(a) * 0.7, 0.55, Math.sin(a) * 0.7);
+      tent.rotation.z = Math.cos(a) * 0.35; tent.rotation.x = -Math.sin(a) * 0.35; body.add(tent);
+    }
+    for (const s of [-1, 1]) {
+      const up = pCon(0.18, 1.1, darkM); up.position.set(0.85 * s, 1.6, 0); up.rotation.z = s * -0.7; body.add(up);
+    }
+    put(pSph(0.14, eyeM, 6, 5), -0.3, 1.3, 0.82);
+    put(pSph(0.14, eyeM, 6, 5), 0.3, 1.3, 0.82);
+    top = 2.1; radius = 1.0;
+  } else if (shape === 'dragon') {
+    const bd = pSph(0.6, bodyM); bd.scale.set(1.4, 0.9, 0.9); put(bd, 0, 1.1, 0);
+    const neck = pCyl(0.16, 0.24, 0.8, darkM, 6); neck.position.set(0, 1.6, 0.55); neck.rotation.x = 0.5; body.add(neck);
+    put(pBox(0.4, 0.3, 0.55, darkM), 0, 2.0, 0.85);
+    put(pBox(0.22, 0.16, 0.3, darkM), 0, 1.94, 1.18);
+    for (const s of [-1, 1]) {
+      const horn = pCon(0.07, 0.3, tm(0xf2ead0)); horn.position.set(0.14 * s, 2.2, 0.7); horn.rotation.x = -0.5; body.add(horn);
+      const e = pSph(0.05, eyeM, 6, 5); e.position.set(0.12 * s, 2.04, 1.08); body.add(e);
+    }
+    wingL = new THREE.Group(); wingL.position.set(-0.35, 1.55, -0.1); body.add(wingL);
+    const wl = pBox(1.25, 0.05, 0.65, darkM); wl.position.set(-0.65, 0, 0); wingL.add(wl);
+    wingR = new THREE.Group(); wingR.position.set(0.35, 1.55, -0.1); body.add(wingR);
+    const wr = pBox(1.25, 0.05, 0.65, darkM); wr.position.set(0.65, 0, 0); wingR.add(wr);
+    const tl1 = pCon(0.2, 0.7, darkM); tl1.position.set(0, 1.0, -0.8); tl1.rotation.x = -1.9; body.add(tl1);
+    const tl2 = pCon(0.12, 0.6, darkM); tl2.position.set(0, 1.0, -1.3); tl2.rotation.x = -1.9; body.add(tl2);
+    put(pBox(0.22, 0.4, 0.25, darkM), -0.3, 0.5, 0.1);
+    put(pBox(0.22, 0.4, 0.25, darkM), 0.3, 0.5, 0.1);
+    top = 2.35; radius = 0.9;
+  } else if (shape === 'mushroom') {
+    const stemM = tm(0xf2ead0);
+    put(pCyl(0.28, 0.34, 1.0, stemM, 8), 0, 0.5, 0);
+    const cap = pSph(0.95, bodyM); cap.scale.set(1, 0.55, 1); put(cap, 0, 1.15, 0);
+    for (const [sx, sy, sz] of [[-0.4, 1.5, 0.5], [0.35, 1.55, 0.45], [0, 1.62, -0.3], [0.5, 1.35, -0.4]]) {
+      put(pSph(0.12, tm(0xffffff)), sx, sy, sz);
+    }
+    eyes(0.45, 0.12, 0.3, 0.05);
+    top = 1.7; radius = 0.7;
+  } else if (shape === 'wraith') {
+    put(pCon(0.55, 1.35, bodyM, 8), 0, 0.68, 0);
+    put(pSph(0.3, darkM), 0, 1.45, 0);
+    for (const s of [-1, 1]) {
+      const ge = pSph(0.05, bm(0x9fd8ff), 6, 5); put(ge, 0.1 * s, 1.45, 0.26);
+      const sleeve = pCon(0.09, 0.5, darkM); sleeve.position.set(0.5 * s, 0.9, 0.1); sleeve.rotation.z = s * 0.5; body.add(sleeve);
+    }
+    top = 1.75; radius = 0.5;
+  } else {
+    // 알 수 없는 도형은 고블린형 휴머노이드로 폴백
+    const hg = makeHumanoid3D(THREE, {
+      avatar: null, skin: color, uniform: dark, hair: dark, accent: color,
+      weaponFam: 'dagger', grade: 0, scale: 0.62 * bossMul, bulk: 0.9,
+    });
+    hg.traverse((o) => {
+      if (o.isMesh && o.material && o.material.isMeshLambertMaterial) {
+        if (!o.material.userData.base) o.material.userData.base = new THREE.Color(o.material.color.getHex());
+        if (!tintMats.includes(o.material)) tintMats.push(o.material);
+      }
+    });
+    g = hg;
+    body = hg.userData.body; legL = hg.userData.legL; legR = hg.userData.legR;
+    armL = hg.userData.armL; armR = hg.userData.armR;
+    top = 1.72 * 0.62 * bossMul;
+    radius = 0.42 * 0.62 * bossMul;
+    return finish({ scaled: true });
+  }
+  return finish({});
+
+  // ---- 마무리: 보스 스케일·보스 링·userData·애니메이션 ----
+  function finish(opts) {
+    const scaled = opts && opts.scaled;
+    const finalTop = top * (scaled ? 1 : bossMul);
+    const finalRadius = radius * (scaled ? 1 : bossMul);
+    if (!scaled) g.scale.setScalar(bossMul);
+    if (def.boss) {
+      const tierColor = def.boss === 'field' ? 0xff5566 : def.boss === 'boss' ? 0xb46cff : 0x4aa3ff;
+      const ring = new THREE.Mesh(
+        gRing(THREE, Math.round(finalRadius * 0.85 * 100) / 100, Math.round(finalRadius * 1.05 * 100) / 100),
+        new THREE.MeshBasicMaterial({ color: tierColor, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }));
+      ring.rotation.x = -Math.PI / 2; ring.position.y = 0.04; g.add(ring);
+    }
+    g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    const update = (time, e) => {
+      const ph = e ? (e.floatT || 0) : 0;
+      const moving = !!(e && e.moving);
+      let y = baseY;
+      if (float) y += Math.sin(time * 1.9 + ph) * 0.1;
+      if (bounce) {
+        const k = Math.abs(Math.sin(time * 3.4 + ph));
+        body.position.y = y + k * 0.11;
+        const sy = 1 + (0.5 - k) * 0.09, sx = 1 - (0.5 - k) * 0.07;
+        body.scale.set(sx, sy, sx);
+      } else {
+        body.position.y = y + (moving ? Math.abs(Math.sin(time * 9 + ph)) * 0.05 : 0);
+      }
+      if (legL && legR) {
+        const sw = moving ? Math.sin(time * 10 + ph) * 0.55 : 0;
+        legL.rotation.x = sw; legR.rotation.x = -sw;
+      }
+      if (armL && armR) {
+        const sw = moving ? Math.sin(time * 10 + ph) * 0.4 : 0;
+        armL.rotation.x = -sw; armR.rotation.x = sw;
+      }
+      body.rotation.z = (e && e.stunT > 0) ? Math.sin(time * 14) * 0.12 : 0;
+      if (wingL && wingR) {
+        const flying = !!(e && (e.flyY || 0) > 0.3);
+        const flap = Math.sin(time * (flying ? 9 : 2.5) + ph) * (flying ? 0.5 : 0.06);
+        const base = flying ? 0.25 : 0.95;
+        wingL.rotation.z = base + flap; wingR.rotation.z = -base - flap;
+      }
+      if (heads) heads.forEach((h, i) => { h.rotation.z = Math.sin(time * 1.6 + ph + i * 2.1) * 0.08; });
+    };
+    const setColorTint = (hex) => {
+      const tmp = new THREE.Color(hex);
+      for (const m of tintMats) {
+        if (hex === 0xffffff) m.color.copy(m.userData.base);
+        else m.color.copy(m.userData.base).multiply(tmp);
+      }
+    };
+    g.userData = {
+      isSprite: false, radius: finalRadius, headY: finalTop * 0.96, baseY, bounce, float,
+      update, hit() {}, setColorTint,
+    };
+    return g;
+  }
 }
 
+// ---------- 몬스터 · 동료 외형 ----------
+// 3D 로우폴리 몬스터 (2D 도트 스프라이트는 가방 미리보기용으로 sprites.js에 남는다)
+export function makeMonster(THREE, def) {
+  return makeMonster3D(THREE, def);
+}
+
+// ---------- 동료 ----------
+// 직업별 실루엣이 다르다 (색만 다른 게 아니라 생김새가 다르다):
+// 탱커 = 덩치 큼 + 투구 + 왼팔 방패 / 힐러 = 로브 + 후드 + 지팡이 빛
+// 근접 = 날씬 + 쌍단검 + 머리띠 / 마법사 = 로브 + 뾰족모자 + 지팡이 + 왼손 책
 export function makeCompanion(THREE, cls, gradeColor = 0xffffff) {
   const c = cls && cls.id ? cls : { id: 'melee', color: 0x6fcf97 };
-  const famByClass = { tank: 'sword', healer: 'staff', melee: 'dagger', mage: 'book' };
-  return makeHumanoid3D(THREE, {
+  const famByClass = { tank: 'sword', healer: 'staff', melee: 'dagger', mage: 'staff' };
+  const scaleByClass = { tank: 1.02, healer: 0.88, melee: 0.86, mage: 0.92 };
+  const bulkByClass = { tank: 1.32, healer: 0.9, melee: 0.85, mage: 0.9 };
+  const g = makeHumanoid3D(THREE, {
     avatar: null, skin: 0xf2c9a0, uniform: c.color, hair: c.color, accent: 0xffffff,
-    weaponFam: famByClass[c.id] || 'sword', grade: 2, scale: 0.92,
+    weaponFam: famByClass[c.id] || 'sword', grade: 2,
+    scale: scaleByClass[c.id] || 0.92, bulk: bulkByClass[c.id] || 1,
+    robe: c.id === 'healer' || c.id === 'mage',
   });
+  const u = g.userData;
+  const metalM = mat(THREE, 0xdfe7f2);
+  const uniM = mat(THREE, c.color);
+  if (c.id === 'tank') {
+    // 투구 (돔 + 코받이)
+    const helm = new THREE.Mesh(new THREE.SphereGeometry(0.32, 10, 8), metalM);
+    helm.scale.set(1, 0.62, 1); helm.position.set(0, 0.2, 0); u.head.add(helm);
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.2, 0.04), metalM);
+    guard.position.set(0, -0.02, 0.3); u.head.add(guard);
+    // 왼팔 방패 (원반 + 직업색 테두리)
+    const shield = new THREE.Group();
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.05, 12), metalM);
+    disc.rotation.x = Math.PI / 2; shield.add(disc);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.03, 6, 16), uniM);
+    shield.add(rim);
+    shield.position.set(0, -0.35, 0.14);
+    u.armL.add(shield);
+  } else if (c.id === 'healer') {
+    // 후드 (얼굴을 감싸는 구) + 지팡이 끝 빛
+    const hood = new THREE.Mesh(new THREE.SphereGeometry(0.34, 10, 8), uniM);
+    hood.scale.set(1, 1.05, 1); hood.position.set(0, 0.06, -0.12); u.head.add(hood);
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 6),
+      new THREE.MeshBasicMaterial({ color: 0x9ff0ff, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
+    glow.position.set(0, 0.48, 0); u.weaponGroup.add(glow);
+  } else if (c.id === 'melee') {
+    // 머리띠 + 왼손 단검 (쌍단검)
+    const band = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.07, 0.06), mat(THREE, 0xffffff));
+    band.position.set(0, 0.14, 0.24); u.head.add(band);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.22, 0.02), mat(THREE, 0xffffff));
+    tail.position.set(0.08, -0.06, -0.3); tail.rotation.z = 0.2; u.head.add(tail);
+    const off = new THREE.Group();
+    off.position.set(0, -0.48, 0.04);
+    off.add(buildWeaponMesh(THREE, 'dagger', { grade: mat(THREE, gradeColor), metal: metalM }));
+    u.armL.add(off);
+  } else if (c.id === 'mage') {
+    // 뾰족모자 (원뿔 + 챙) + 왼손 마법책 + 지팡이 끝 빛
+    const hat = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.62, 8), uniM);
+    hat.position.set(0, 0.44, -0.02); u.head.add(hat);
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.44, 0.04, 12), uniM);
+    brim.position.set(0, 0.14, 0); u.head.add(brim);
+    const off = new THREE.Group();
+    off.position.set(0, -0.48, 0.04);
+    off.add(buildWeaponMesh(THREE, 'book', { grade: mat(THREE, gradeColor), metal: metalM }));
+    u.armL.add(off);
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 6),
+      new THREE.MeshBasicMaterial({ color: 0xc9a4ff, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
+    glow.position.set(0, 0.48, 0); u.weaponGroup.add(glow);
+  }
+  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  return g;
 }
 
 export function makeChest(THREE) {
