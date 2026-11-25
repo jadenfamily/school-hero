@@ -7,9 +7,9 @@ import {
   COMPANION_SKILLS, COMPANION_SKILL_POOLS, SKILL_BOOK_SKILL, COMPANION_SKILL_MAX_LEVEL, COMPANION_DMG_FACTOR,
   COMPANION_LV_PER, COMPANION_LV_HIGH_PER, COMPANION_LV_FLAT_AFTER,
   BOSS_TIMER, BOSS_LABEL, EVOLVE_NEED, SOUL_KINDS, COSTUMES, COSTUME_MAP, COSTUME_PULL_COST, COSTUME_MAX_LEVEL, costumeLevelMult, COMPANION_PULL_COST,
-  ELEMENTS, ELEM_BEATS, EARTH_GATE,
+  ELEMENTS, ELEM_BEATS, EARTH_GATE, GYEONGGI_GATE,
 } from './data.js';
-import { buildWorld, makePlayer, makeMonster, makeCompanion, groundHeight, districtAt, worldPos, WORLD_HALF } from './world.js';
+import { buildWorld, makePlayer, makeMonster, makeCompanion, groundHeight, districtAt, worldPos, WORLD_BOUNDS } from './world.js';
 import { ASSET_URL, getTexture, aspectOf } from './assets.js';
 
 const SAVE_KEY = 'school-hero.save.v1';
@@ -127,6 +127,7 @@ export function createGame(THREE) {
     achClaimed: [],
     achBonusGranted: 0, // 이미 스탯 보너스를 지급한 업적 수 (중복 지급 방지)
     earthGateOpen: false, // 지구 귀환 게이트 열림 여부 (9구역 보스 처치 시)
+    gyeonggiGateOpen: false, // 마계 관문 열림 여부 (12구역 보스 처치 시)
   });
 
   function loadState() {
@@ -170,14 +171,16 @@ export function createGame(THREE) {
     }
     s.party = saved.party || [];
     s.unlocked = saved.unlocked && saved.unlocked.length ? saved.unlocked : [1];
-    // 3차 개편 마이그레이션 (v1 → v2, 분리 맵 → 하나의 서울 지도):
-    // 구역 id 1~4는 그대로 유지되므로 해금·보스 타이머·상자·퀘스트 키가 그대로 이어진다.
+    // 3차 개편 마이그레이션 (v1 → v2, 분리 맵 → 하나의 서울 지도) +
+    // 확장 마이그레이션 (v2 → v3, 서울 9구역 → 서울+인천+경기 18구역):
+    // 구역 id 1~9는 그대로 유지되므로 해금·보스 타이머·상자·퀘스트 키가 그대로 이어진다.
     // 위치는 저장하지 않으므로(항상 구역 스폰에서 시작) 현재 구역만 유효성 검사한다.
-    s.unlocked = s.unlocked.filter((id) => Number.isInteger(id) && id >= 1 && id <= 9);
+    s.unlocked = s.unlocked.filter((id) => Number.isInteger(id) && id >= 1 && id <= 18);
     if (!s.unlocked.includes(1)) s.unlocked.unshift(1);
     s.unlocked.sort((a, b) => a - b);
-    if (!Number.isInteger(s.zone) || s.zone < 1 || s.zone > 9 || !s.unlocked.includes(s.zone)) s.zone = 1;
+    if (!Number.isInteger(s.zone) || s.zone < 1 || s.zone > 18 || !s.unlocked.includes(s.zone)) s.zone = 1;
     s.earthGateOpen = !!saved.earthGateOpen;
+    s.gyeonggiGateOpen = !!saved.gyeonggiGateOpen;
     s.zoneKills = saved.zoneKills || {};
     s.chestOpened = saved.chestOpened || [];
     s.achClaimed = Array.isArray(saved.achClaimed) ? saved.achClaimed.filter((id) => typeof id === 'string') : [];
@@ -383,6 +386,7 @@ export function createGame(THREE) {
       bossTimers: s.bossTimers, bossKills: s.bossKills, evolutions: s.evolutions, appearance: s.appearance,
       achClaimed: s.achClaimed, achBonusGranted: s.achBonusGranted || 0,
       earthGateOpen: !!s.earthGateOpen,
+      gyeonggiGateOpen: !!s.gyeonggiGateOpen,
     };
   };
 
@@ -609,7 +613,7 @@ export function createGame(THREE) {
     });
   }
 
-  // ---------- 하나의 서울 지도 ----------
+  // ---------- 하나의 판타지 대륙 지도 (서울 9 + 마계 인천 3 + 경기 6) ----------
   // 월드는 한 번만 짓는다. 구역 이동은 setDistrict로 — 월드·플레이어·동료를 유지한 채
   // 현재 구역(안개/배경/몬스터/NPC 기준)만 바꾼다. 포탈 이동은 없다.
   function clearFieldEntities() {
@@ -643,7 +647,7 @@ export function createGame(THREE) {
     game.zone = zone;
     game.enemies = []; game.companions = []; game.projectiles = []; game.pickups = []; game.effects = []; game.telegraphs = []; game.bossGroups = {};
     if (game.world) { scene.remove(game.world.group); disposeGroup(game.world.group); }
-    game.world = buildWorld(THREE, PLAYABLE, game.state.chestOpened, !!game.state.earthGateOpen);
+    game.world = buildWorld(THREE, PLAYABLE, game.state.chestOpened, !!game.state.earthGateOpen, game.state.unlocked, !!game.state.gyeonggiGateOpen);
     scene.add(game.world.group);
     applyDistrictAtmosphere(zone);
 
@@ -715,10 +719,10 @@ export function createGame(THREE) {
     return true;
   };
 
-  // 구역 해금 (보스 처치·퀘스트 보상 공용) — 방벽 게이트도 함께 연다
+  // 구역 해금 (보스 처치·퀘스트 보상 공용) — 방벽 게이트도 함께 연다 (결계 완전 제거)
   game.unlockDistrict = function (zoneId, silent) {
     const s = game.state;
-    if (zoneId < 1 || zoneId > 9 || s.unlocked.includes(zoneId)) return false;
+    if (zoneId < 1 || zoneId > 18 || s.unlocked.includes(zoneId)) return false;
     s.unlocked.push(zoneId);
     s.unlocked.sort((a, b) => a - b);
     if (game.world) game.world.openGate(zoneId);
@@ -836,7 +840,7 @@ export function createGame(THREE) {
   const BOSS_PATTERN = {
     ogre: 'charge', golem: 'cannon', anubis: 'whirlwind',
     ent: 'nova', witch: 'necromancer', kraken: 'portal', siren: 'nova',
-    hydra: 'split',
+    hydra: 'split', dragon: 'dragon',
   };
 
   // 쌍둥이 보호막 표시 (쌍둥이 중 한 명에게만 씌우는 파란 구체)
@@ -1271,12 +1275,21 @@ export function createGame(THREE) {
     const s = game.state;
     const zone = game.zone;
     const next = zone.id + 1;
-    if (next <= 9) game.unlockDistrict(next);
-    else if (zone.id === 9 && !s.earthGateOpen) {
-      // 마지막 구역 보스 처치 — 지구 귀환 게이트가 열린다
+    if (zone.id === 9 && !s.earthGateOpen) {
+      // 9구역 보스 처치 — 지구 귀환 게이트가 열린다 (그 문은 집이 아니라 마계 인천으로 이어진다)
       s.earthGateOpen = true;
       if (game.world) game.world.setEarthGate(true);
       if (game.ui) game.ui.toast('지구 귀환 게이트가 열렸어요! 북한산 정상으로 가 보세요.', 'gold');
+    } else if (zone.id === 12 && !s.gyeonggiGateOpen) {
+      // 12구역 보스 처치 — 마계 관문이 열린다 (인천을 평정하고, 다음은 경기도)
+      s.gyeonggiGateOpen = true;
+      if (game.world) game.world.setGyeonggiGate(true);
+      if (game.ui) game.ui.toast('마계 관문이 열렸어요! 영종 마계섬 북쪽 끝으로 가 보세요.', 'gold');
+    } else if (zone.id === 18) {
+      // 마지막 구역 보스 처치 — 더 열릴 구역이 없다 (다음 확장은 추후)
+      if (game.ui) game.ui.toast('가평 산호수의 왕을 쓰러뜨렸어요! 판타지 대륙을 모두 평정했어요.', 'gold');
+    } else if (next <= 18) {
+      game.unlockDistrict(next);
     }
     game.save();
   }
@@ -1371,7 +1384,7 @@ export function createGame(THREE) {
           nz = pr.z + ((nz - pr.z) / dd) * min;
         }
       }
-      nx = clamp(nx, -WORLD_HALF + 2, WORLD_HALF - 2); nz = clamp(nz, -WORLD_HALF + 2, WORLD_HALF - 2);
+      nx = clamp(nx, WORLD_BOUNDS.minX + 2, WORLD_BOUNDS.maxX - 2); nz = clamp(nz, WORLD_BOUNDS.minZ + 2, WORLD_BOUNDS.maxZ - 2);
       // 잠긴 구역으로는 들어갈 수 없다 (방벽) — 경계에서 막고, 갈 수 있는 방향으로는 미끄러지듯 이동
       const target = districtAt(nx, nz);
       const blockedMsg = (msg) => {
@@ -1389,8 +1402,14 @@ export function createGame(THREE) {
       };
       if (!canEnter(nx, nz)) {
         const prev = PLAYABLE.find((z) => z.id === target.id - 1);
+        // 포탈로만 가는 구역(10 마계 인천항·13 수원 화성)은 방벽 메시지가 따로 있다
+        const portalMsg = target.id === 10
+          ? '마계 인천항은 걸어서 갈 수 없어요. 지구 귀환 게이트(북한산 정상 북쪽 끝)로 가야 해요.'
+          : target.id === 13
+            ? '수원 화성은 걸어서 갈 수 없어요. 마계 관문(영종 마계섬 북쪽 끝)으로 가야 해요.'
+            : null;
         blockedMsg(!game.state.unlocked.includes(target.id)
-          ? (prev ? `${prev.name} 보스를 처치해야 방벽이 열려요.` : '아직 갈 수 없는 구역이에요.')
+          ? (portalMsg || (prev ? `${prev.name} 보스를 처치해야 방벽이 열려요.` : '아직 갈 수 없는 구역이에요.'))
           : '한강 심해 유적에 들어가려면 수중호흡 아티팩트가 필요해요.');
         if (canEnter(nx, p.z)) p.x = nx;
         if (canEnter(p.x, nz)) p.z = nz;
@@ -2129,8 +2148,8 @@ export function createGame(THREE) {
 
   function moveEnemy(e, dx, dz) {
     if (dx || dz) e.moving = true;
-    e.x = clamp(e.x + dx, -WORLD_HALF + 2, WORLD_HALF - 2);
-    e.z = clamp(e.z + dz, -WORLD_HALF + 2, WORLD_HALF - 2);
+    e.x = clamp(e.x + dx, WORLD_BOUNDS.minX + 2, WORLD_BOUNDS.maxX - 2);
+    e.z = clamp(e.z + dz, WORLD_BOUNDS.minZ + 2, WORLD_BOUNDS.maxZ - 2);
     for (const pr of game.world.propsNear(e.x, e.z, 5)) {
       const dd = Math.hypot(e.x - pr.x, e.z - pr.z);
       const min = pr.r + e.radius * 0.7;
@@ -3456,6 +3475,43 @@ export function createGame(THREE) {
     }
   }
 
+  // 포탈 근접 감지 (상자 "📦 열기" 버튼과 같은 방식) — 열린 게이트에 다가가면 [들어가기] 버튼이 뜬다.
+  // 지구 귀환 게이트(9구역) → 마계 인천항(10구역), 마계 관문(12구역) → 수원 화성(13구역).
+  // 닫힌 게이트에는 버튼이 뜨지 않는다 (안내 문구도 없이 그냥 회색 고리만 보인다).
+  function updatePortals(dt) {
+    const p = game.player;
+    if (!p || !game.world) return;
+    let near = null;
+    if (game.state.earthGateOpen && game.world.earthGate) {
+      const dd = Math.hypot(p.x - EARTH_GATE.x, p.z - EARTH_GATE.z);
+      if (dd < 3.5) near = { gate: 'earth', x: EARTH_GATE.x, z: EARTH_GATE.z, target: 10 };
+    }
+    if (!near && game.state.gyeonggiGateOpen && game.world.gyeonggiGate) {
+      const dd = Math.hypot(p.x - GYEONGGI_GATE.x, p.z - GYEONGGI_GATE.z);
+      if (dd < 3.5) near = { gate: 'gyeonggi', x: GYEONGGI_GATE.x, z: GYEONGGI_GATE.z, target: 13 };
+    }
+    if (near !== game.nearPortal) {
+      game.nearPortal = near;
+      if (game.ui) game.ui.updatePortalPrompt(near);
+    }
+  }
+
+  // 포탈 진입: 스토리 한 장면 → 다음 지역 1구역 스폰으로 순간이동 (+ 해금)
+  game.enterPortal = function () {
+    const near = game.nearPortal;
+    if (!near) return false;
+    const target = PLAYABLE.find((z) => z.id === near.target);
+    if (!target) return false;
+    if (near.gate === 'earth') {
+      game.unlockDistrict(10, true);
+      if (game.ui) game.ui.showPortalStory('earth', () => game.returnToStart(10));
+    } else {
+      game.unlockDistrict(13, true);
+      if (game.ui) game.ui.showPortalStory('gyeonggi', () => game.returnToStart(13));
+    }
+    return true;
+  };
+
   game.openChest = function (c) {
     if (!c || c.opened) return false;
     c.opened = true;
@@ -3718,6 +3774,7 @@ export function createGame(THREE) {
     updateTelegraphs(dt);
     updateEffects(dt);
     updateChests(dt);
+    updatePortals(dt);
     updateRespawn(dt);
     updateGraves(dt);
     updateCamera(dt);
@@ -3756,6 +3813,11 @@ export function createGame(THREE) {
     if (game.ui && game.state._dedupMerged > 0) {
       game.ui.toast(`중복 동료 ${game.state._dedupMerged}명을 정리했어요`, 'gold');
       game.state._dedupMerged = 0;
+    }
+    // 지구 귀환 게이트가 이미 열려 있는 저장본(9구역 클리어 후)으로 들어오면
+    // 게이트가 이제 포탈이라는 것을 알려준다 (대비가 안 된 채로 지도를 헤매지 않게)
+    if (game.ui && game.state.earthGateOpen && game.state.zone === 9 && !game.state.unlocked.includes(10)) {
+      game.ui.toast('지구 귀환 게이트가 열려 있어요! 북한산 정상 북쪽 끝의 황금 고리로 가 보세요.', 'gold');
     }
     // 잃어버린 부적 되찾기 알림 (로드 시 1회): mergeState가 _charmRecovered에 되찾은 부적을 남겨둔다
     if (game.ui && game.state._charmRecovered && game.state._charmRecovered.length) {
@@ -4240,7 +4302,7 @@ export function createGame(THREE) {
       giveMp(n = 999) { game.player.mp = Math.min(game.derived().maxMp, n); return game.player.mp; },
       chest(i = 0) { const c = game.world.chests[i]; if (c) { game.player.x = c.x; game.player.z = c.z + 0.6; snapCompanions(); } },
       advance(sec, dt = 1 / 60) { const n = Math.min(3600, Math.round(sec / dt)); for (let i = 0; i < n; i++) step(dt); return game.time; },
-      unlockAll() { game.state.unlocked = [1, 2, 3, 4, 5, 6, 7, 8, 9]; game.grantCharm('aqua', true); if (game.world) for (let i = 2; i <= 9; i++) game.world.openGate(i); game.ui.markDirty(true); },
+      unlockAll() { game.state.unlocked = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]; game.state.earthGateOpen = true; game.state.gyeonggiGateOpen = true; game.grantCharm('aqua', true); if (game.world) { for (let i = 2; i <= 18; i++) game.world.openGate(i); game.world.setEarthGate(true); game.world.setGyeonggiGate(true); } game.ui.markDirty(true); },
       enter(id) { return game.enterZone(id); },
       killZone(n = 1) { const list = game.enemies.filter((e) => e.alive && !e.isBoss && !e.isMid); for (let i = 0; i < Math.min(n, list.length); i++) game.dealDamage(list[i], 999999, { canCrit: false }); },
       nearNpc() { const n = game.world.npcs[game.zone.id].position; game.player.x = n.x + 1.5; game.player.z = n.z + 0.5; snapCompanions(); },
