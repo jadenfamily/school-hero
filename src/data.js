@@ -254,7 +254,14 @@ export const SKILL_BOOK_SKILL = {
 // 동료 피해 계수 — 동료가 주인공보다 세서 돌아만 다녀도 몹이 다 죽던 문제를 잡는다.
 // 기본 공격·스킬 모두 companionAtk를 거치므로 이 한 곳만 바꾸면 둘 다 줄어든다.
 // (체력·치유·도발은 건드리지 않는다)
-export const COMPANION_DMG_FACTOR = 0.6;
+// 2026-11-25 2차 너프: 0.6 → 0.42. 고레벨에서 레벨 성장도 꺾인다 (아래 상수).
+// (Lv.30 신화 근접 동료가 스킬 포함 주인공 DPS의 50%를 넘지 않게 0.45에서 0.42로 한 번 더 낮췄다)
+export const COMPANION_DMG_FACTOR = 0.42;
+// 동료 레벨당 공격 성장 — 50레벨까지는 0.18/레벨, 그 이후는 0.05/레벨로 체감한다.
+// (선형 0.18을 그대로 두면 Lv.197에서 레벨 배율이 36배가 되어 주인공을 앞지른다)
+export const COMPANION_LV_PER = 0.18;
+export const COMPANION_LV_HIGH_PER = 0.05;
+export const COMPANION_LV_FLAT_AFTER = 50;
 
 export const GRADE_ADJ = ['낡은', '단단한', '빛나는', '에픽의', '전설의', '신화의'];
 export const WEAPON_BASE = {
