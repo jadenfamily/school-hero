@@ -1078,6 +1078,17 @@ export async function loadGlbHero(THREE, url) {
   const LoaderClass = await importGlTFLoader();
   const gltf = await loadGlbWithLoader(LoaderClass, url);
   const src = gltf.scene;
+  // [skin-brightness-fix] Tripo GLB의 baseColorFactor가 0.8이라 GLTFLoader가
+  // 재질 색을 (0.8, 0.8, 0.8)로 만들어 텍스처 전체를 0.8배로 어둡게 렌더링한다
+  // (피부 텍스처를 밝게 고쳐도 여전히 어둡게 보이는 원인). 로드 직후 색을
+  // 흰색(1, 1, 1)으로 되돌려 텍스처 본연의 밝기로 보이게 한다. 텍스처(map)는
+  // 그대로 두고 색만 되돌리므로 다른 부위 밝기도 함께 정상화된다.
+  src.traverse((o) => {
+    if (!o.isMesh) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of mats) { if (m && m.color) m.color.setRGB(1, 1, 1); }
+  });
+  // [/skin-brightness-fix]
   // 키 맞추기: GLB 원본 높이(약 99.84 단위, y=0 바닥)를 주인공 키 2.85m로
   const box = new THREE.Box3().setFromObject(src);
   const size = new THREE.Vector3();
