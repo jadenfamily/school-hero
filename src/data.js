@@ -376,7 +376,7 @@ export const ZONES = [
     theme: {
       ground: 0x3d8a32, ground2: '#24521f', grass: '#63bb4c', accent: 0x8fd06a,
       sky: 0x9fd8ff, fog: 0xbfe4ff, fogDensity: 0.012,
-      prop: ['tree', 'rock', 'bush', 'grass', 'flower'], ambient: 'firefly', ambientColor: 0xfff3a0,
+      prop: ['tree', 'rock', 'bush', 'grass', 'flower', 'mushroom'], wall: ['tree', 'rock', 'bush'], ambient: 'firefly', ambientColor: 0xfff3a0,
     },
     threat: 'slash',
     // 하나의 연결된 서울 지도에서의 위치 (월드 좌표 중심) — 로컬 좌표는 그대로 두고 중심만 더한다
@@ -412,7 +412,7 @@ export const ZONES = [
     theme: {
       ground: 0x35583f, ground2: '#1c2f22', grass: '#4f8f4a', accent: 0x9be08a,
       sky: 0x9fb8ad, fog: 0x9fc4ad, fogDensity: 0.028,
-      prop: ['deadTree', 'rock', 'reed', 'grass'], ambient: 'spore', ambientColor: 0xb9ff9a,
+      prop: ['deadTree', 'rock', 'reed', 'grass', 'mushroom'], wall: ['deadTree', 'rock', 'reed'], ambient: 'spore', ambientColor: 0xb9ff9a,
     },
     threat: 'magic',
     map: { cx: -96, cz: 0 },
@@ -463,7 +463,7 @@ export const ZONES = [
     theme: {
       ground: 0xcfa34c, ground2: '#99702c', grass: '#e6c779', accent: 0xf0dc9a,
       sky: 0xffd9a0, fog: 0xffe3b0, fogDensity: 0.016,
-      prop: ['cactus', 'sandRock', 'pillar', 'sandRock'], ambient: 'sand', ambientColor: 0xfff0c0,
+      prop: ['cactus', 'sandRock', 'rock', 'pillar'], wall: ['cactus', 'sandRock', 'rock'], ambient: 'sand', ambientColor: 0xfff0c0,
     },
     threat: 'ranged',
     map: { cx: -96, cz: -96 },
@@ -482,7 +482,7 @@ export const ZONES = [
       boss: E({ key: 'golem', name: '고대 모래 골렘', shape: 'golem', color: 0xc9a468, dark: 0x7a5a2c, hp: 4200, atk: 62, speed: 1.3, atkRange: 3.8, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
       field: E({ key: 'goldAnubis', name: '황금 아누비스', shape: 'anubis', color: 0xcaa03a, dark: 0x3a3020, hp: 8800, atk: 78, speed: 2.0, atkRange: 2.8, atkCd: 1.6, aggro: 12, style: 'melee', boss: 'field', soul: 'gold' }),
     },
-    chests: [{ x: -16, z: 8, hide: 'sandRock' }, { x: 18, z: 12, hide: 'pillar' }, { x: -9, z: -20, hide: 'sandRock' }],
+    chests: [{ x: -16, z: 8, hide: 'sandRock' }, { x: 18, z: 12, hide: 'cactus' }, { x: -9, z: -20, hide: 'sandRock' }],
     // 추가 보스 (2차 보스 패턴) — 각자 타이머가 지난 경우에만 등장
     extraBosses: [
       {
@@ -510,7 +510,7 @@ export const ZONES = [
     theme: {
       ground: 0x236b7c, ground2: '#103842', grass: '#3f9aab', accent: 0x7fe0e0,
       sky: 0x0e3f5a, fog: 0x1e6c86, fogDensity: 0.03,
-      prop: ['coral', 'ruinPillar', 'bubbleRock', 'coral'], ambient: 'bubble', ambientColor: 0x9fe8ff,
+      prop: ['coral', 'bubbleRock', 'rock', 'ruinPillar'], wall: ['coral', 'bubbleRock', 'rock'], ambient: 'bubble', ambientColor: 0x9fe8ff,
     },
     threat: 'blunt',
     map: { cx: 0, cz: -96 },
@@ -553,7 +553,7 @@ export const ZONES = [
     theme: {
       ground: 0x8fa3b8, ground2: '#46566a', grass: '#b8c8dc', accent: 0xd0e0f0,
       sky: 0xbfdcff, fog: 0xa8c8e8, fogDensity: 0.014,
-      prop: ['pillar', 'tree', 'rock', 'grass'], ambient: 'firefly', ambientColor: 0xfff3a0,
+      prop: ['pillar', 'tree', 'rock', 'grass'], wall: ['pillar', 'tree', 'rock'], ambient: 'firefly', ambientColor: 0xfff3a0,
     },
     threat: 'magic',
     map: { cx: 0, cz: 0 },
@@ -588,7 +588,7 @@ export const ZONES = [
     theme: {
       ground: 0x8a3a28, ground2: '#3a1a12', grass: '#c05a3a', accent: 0xffa060,
       sky: 0xff9a6a, fog: 0xd86a4a, fogDensity: 0.02,
-      prop: ['sandRock', 'pillar', 'rock', 'cactus'], ambient: 'sand', ambientColor: 0xffc080,
+      prop: ['lavaRock', 'rock', 'deadTree', 'brazier', 'sandRock'], wall: ['lavaRock', 'rock', 'deadTree'], ambient: 'sand', ambientColor: 0xffc080,
     },
     threat: 'blunt',
     map: { cx: 0, cz: 96 },
@@ -607,7 +607,7 @@ export const ZONES = [
       boss: E({ key: 'volcanoLord', name: '화산의 군주', shape: 'ogre', color: 0xb03a24, dark: 0x4a1810, hp: 12800, atk: 148, speed: 1.6, atkRange: 3.0, atkCd: 1.8, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
       field: E({ key: 'goldMagmaGolem', name: '황금 마그마 골렘', shape: 'golem', color: 0xc9a13a, dark: 0x5a3a10, hp: 27000, atk: 180, speed: 1.35, atkRange: 3.8, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold' }),
     },
-    chests: [{ x: -16, z: 6, hide: 'sandRock' }, { x: 14, z: 14, hide: 'pillar' }, { x: -8, z: -22, hide: 'rock' }],
+    chests: [{ x: -16, z: 6, hide: 'sandRock' }, { x: 14, z: 14, hide: 'lavaRock' }, { x: -8, z: -22, hide: 'rock' }],
     quests: {
       title: '타오르는 심장', npc: '화산의 대장장이',
       steps: [
@@ -623,7 +623,7 @@ export const ZONES = [
     theme: {
       ground: 0x8a8f96, ground2: '#4a4d55', grass: '#b9bec8', accent: 0xd0d8e8,
       sky: 0x2a2a3a, fog: 0x6a6a7a, fogDensity: 0.016,
-      prop: ['rock', 'pillar', 'sandRock'], ambient: 'spore', ambientColor: 0xc0c8ff,
+      prop: ['rock', 'sandRock', 'crystal'], wall: ['rock', 'sandRock', 'crystal'], ambient: 'spore', ambientColor: 0xc0c8ff,
     },
     threat: 'ranged',
     map: { cx: 96, cz: 96 },
@@ -642,7 +642,7 @@ export const ZONES = [
       boss: E({ key: 'moonQueen', name: '달의 여왕', shape: 'siren', color: 0xc8b8e8, dark: 0x4a3a6a, hp: 17000, atk: 178, speed: 1.7, atkRange: 7.8, atkCd: 1.9, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
       field: E({ key: 'goldMoonQueen', name: '황금 달의 여왕', shape: 'siren', color: 0xc9a13a, dark: 0x5a4a1a, hp: 36000, atk: 215, speed: 1.65, atkRange: 8.0, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold' }),
     },
-    chests: [{ x: 12, z: 12, hide: 'rock' }, { x: -18, z: -8, hide: 'pillar' }, { x: 6, z: -20, hide: 'sandRock' }],
+    chests: [{ x: 12, z: 12, hide: 'rock' }, { x: -18, z: -8, hide: 'crystal' }, { x: 6, z: -20, hide: 'sandRock' }],
     quests: {
       title: '달빛 황무지', npc: '달의 점쟁이',
       steps: [
@@ -658,7 +658,7 @@ export const ZONES = [
     theme: {
       ground: 0x9fd4e8, ground2: '#3a6a8a', grass: '#d0f0ff', accent: 0x7fe0f0,
       sky: 0xcfe8ff, fog: 0xa8d0e8, fogDensity: 0.018,
-      prop: ['rock', 'bubbleRock', 'pillar'], ambient: 'bubble', ambientColor: 0x9fe8ff,
+      prop: ['iceRock', 'crystal', 'rock'], wall: ['iceRock', 'crystal', 'rock'], ambient: 'bubble', ambientColor: 0x9fe8ff,
     },
     threat: 'slash',
     map: { cx: 96, cz: 0 },
@@ -677,7 +677,7 @@ export const ZONES = [
       boss: E({ key: 'glacierQueen', name: '빙하의 여왕', shape: 'witch', color: 0xa8d0e8, dark: 0x3a5a7a, hp: 23000, atk: 212, speed: 1.45, atkRange: 7.5, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
       field: E({ key: 'goldGlacierHydra', name: '황금 빙하 히드라', shape: 'hydra', color: 0xc9a13a, dark: 0x5a5a1a, hp: 48000, atk: 255, speed: 1.45, atkRange: 3.6, atkCd: 2.1, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold' }),
     },
-    chests: [{ x: -12, z: 14, hide: 'bubbleRock' }, { x: 18, z: -6, hide: 'rock' }, { x: -6, z: -24, hide: 'pillar' }],
+    chests: [{ x: -12, z: 14, hide: 'bubbleRock' }, { x: 18, z: -6, hide: 'rock' }, { x: -6, z: -24, hide: 'iceRock' }],
     quests: {
       title: '얼어붙은 수정', npc: '빙하의 탐험가',
       steps: [
@@ -693,7 +693,7 @@ export const ZONES = [
     theme: {
       ground: 0xe8eef2, ground2: '#8a97a8', grass: '#ffffff', accent: 0xffffff,
       sky: 0xd8ecff, fog: 0xc8d8e8, fogDensity: 0.014,
-      prop: ['tree', 'rock', 'pillar'], ambient: 'firefly', ambientColor: 0xffffff,
+      prop: ['pine', 'rock', 'iceRock', 'tree'], wall: ['pine', 'rock', 'iceRock'], ambient: 'firefly', ambientColor: 0xffffff,
     },
     threat: 'blunt',
     map: { cx: 96, cz: -96 },
@@ -712,7 +712,7 @@ export const ZONES = [
       boss: E({ key: 'snowKing', name: '설산의 왕', shape: 'ent', color: 0xf0f4f8, dark: 0x5a6a7a, hp: 31000, atk: 252, speed: 1.35, atkRange: 3.4, atkCd: 1.9, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
       field: E({ key: 'goldSnowKing', name: '황금 설산의 왕', shape: 'ent', color: 0xc9a13a, dark: 0x5a4a1a, hp: 65000, atk: 300, speed: 1.3, atkRange: 3.6, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold' }),
     },
-    chests: [{ x: 14, z: 8, hide: 'tree' }, { x: -16, z: -14, hide: 'rock' }, { x: 10, z: -26, hide: 'pillar' }],
+    chests: [{ x: 14, z: 8, hide: 'tree' }, { x: -16, z: -14, hide: 'rock' }, { x: 10, z: -26, hide: 'pine' }],
     quests: {
       title: '설산 정상의 문', npc: '설산의 은둔자',
       steps: [
@@ -729,7 +729,7 @@ export const ZONES = [
     theme: {
       ground: 0x2a2a44, ground2: '#14141f', grass: '#4a4a6a', accent: 0x9a7fff,
       sky: 0x1a1a2e, fog: 0x2a2a44, fogDensity: 0.02,
-      prop: ['deadTree', 'rock', 'pillar', 'coral'], ambient: 'spore', ambientColor: 0xb58cff,
+      prop: ['dock', 'crate', 'barrel', 'boat', 'anchor', 'buoy'], wall: ['dock', 'crate', 'barrel', 'boat'], ambient: 'spore', ambientColor: 0xb58cff,
     },
     threat: 'magic',
     map: { cx: -192, cz: 96 },
@@ -764,7 +764,7 @@ export const ZONES = [
     theme: {
       ground: 0x4a2a3a, ground2: '#241420', grass: '#6a3a4a', accent: 0xd06a8a,
       sky: 0x3a1a2a, fog: 0x4a2a3a, fogDensity: 0.02,
-      prop: ['pillar', 'rock', 'deadTree', 'wall'], ambient: 'spore', ambientColor: 0xff9a9a,
+      prop: ['wall', 'brazier', 'rock', 'pillar', 'deadTree'], wall: ['wall', 'pillar', 'rock'], ambient: 'spore', ambientColor: 0xff9a9a,
     },
     threat: 'blunt',
     map: { cx: -192, cz: 0 },
@@ -799,7 +799,7 @@ export const ZONES = [
     theme: {
       ground: 0x3a2a5a, ground2: '#1a1230', grass: '#5a4a8a', accent: 0xc9a8ff,
       sky: 0x241a3a, fog: 0x3a2a5a, fogDensity: 0.02,
-      prop: ['pillar', 'ruinPillar', 'rock', 'deadTree'], ambient: 'spore', ambientColor: 0xc9a8ff,
+      prop: ['lavaRock', 'deadTree', 'rock', 'brazier'], wall: ['lavaRock', 'rock', 'deadTree'], ambient: 'spore', ambientColor: 0xc9a8ff,
     },
     threat: 'magic',
     map: { cx: -192, cz: -96 },
@@ -818,7 +818,7 @@ export const ZONES = [
       boss: E({ key: 'islandEnt', name: '마계섬의 군주', shape: 'ent', color: 0x4a2a5a, dark: 0x2a1a3a, hp: 41000, atk: 322, speed: 1.35, atkRange: 3.4, atkCd: 1.9, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
       field: E({ key: 'goldIslandEnt', name: '황금 마계 군주', shape: 'ent', color: 0xc9a13a, dark: 0x5a4a1a, hp: 84000, atk: 385, speed: 1.3, atkRange: 3.6, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold', enrage: true }),
     },
-    chests: [{ x: 16, z: 10, hide: 'ruinPillar' }, { x: -14, z: -14, hide: 'pillar' }, { x: 12, z: -26, hide: 'rock' }],
+    chests: [{ x: 16, z: 10, hide: 'lavaRock' }, { x: -14, z: -14, hide: 'deadTree' }, { x: 12, z: -26, hide: 'rock' }],
     quests: {
       title: '마계섬의 관문', npc: '마계섬의 인도자',
       steps: [
@@ -836,7 +836,7 @@ export const ZONES = [
     theme: {
       ground: 0x9a7a4a, ground2: '#5a4226', grass: '#c9a468', accent: 0xffd257,
       sky: 0xffd9a0, fog: 0xe8c890, fogDensity: 0.014,
-      prop: ['wall', 'pillar', 'rock', 'tree'], ambient: 'firefly', ambientColor: 0xfff3a0,
+      prop: ['wall', 'tree', 'rock', 'pillar', 'brazier'], wall: ['wall', 'pillar', 'rock'], ambient: 'firefly', ambientColor: 0xfff3a0,
     },
     threat: 'slash',
     map: { cx: 192, cz: -96 },
@@ -871,7 +871,7 @@ export const ZONES = [
     theme: {
       ground: 0x2a3a5a, ground2: '#141a2a', grass: '#4a6a9a', accent: 0x7fe0f0,
       sky: 0x1a2a4a, fog: 0x2a3a5a, fogDensity: 0.018,
-      prop: ['pillar', 'ruinPillar', 'rock', 'bubbleRock'], ambient: 'bubble', ambientColor: 0x9fe8ff,
+      prop: ['ruinPillar', 'crystal', 'rock', 'wall'], wall: ['ruinPillar', 'rock', 'crystal'], ambient: 'bubble', ambientColor: 0x9fe8ff,
     },
     threat: 'ranged',
     map: { cx: 192, cz: 0 },
@@ -890,7 +890,7 @@ export const ZONES = [
       boss: E({ key: 'techWitch', name: '테크 유적의 지배자', shape: 'witch', color: 0x7a5ab0, dark: 0x2a1a4a, hp: 47000, atk: 360, speed: 1.45, atkRange: 7.5, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
       field: E({ key: 'goldTechWitch', name: '황금 테크 지배자', shape: 'witch', color: 0xc9a13a, dark: 0x5a3a1a, hp: 96000, atk: 430, speed: 1.45, atkRange: 7.5, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold', enrage: true }),
     },
-    chests: [{ x: 14, z: 14, hide: 'ruinPillar' }, { x: -20, z: -2, hide: 'bubbleRock' }, { x: 8, z: -24, hide: 'pillar' }],
+    chests: [{ x: 14, z: 14, hide: 'ruinPillar' }, { x: -20, z: -2, hide: 'bubbleRock' }, { x: 8, z: -24, hide: 'crystal' }],
     quests: {
       title: '테크 유적의 비밀', npc: '테크 유적의 해커',
       steps: [
@@ -906,7 +906,7 @@ export const ZONES = [
     theme: {
       ground: 0x3a7a6a, ground2: '#1c4a3a', grass: '#5aa888', accent: 0x9fe8c8,
       sky: 0x9fd8ff, fog: 0xa8d8c8, fogDensity: 0.016,
-      prop: ['reed', 'tree', 'rock', 'grass'], ambient: 'firefly', ambientColor: 0xb9ff9a,
+      prop: ['reed', 'tree', 'rock', 'grass', 'flower'], wall: ['reed', 'tree', 'rock'], ambient: 'firefly', ambientColor: 0xb9ff9a,
     },
     threat: 'magic',
     map: { cx: 192, cz: 96 },
@@ -941,7 +941,7 @@ export const ZONES = [
     theme: {
       ground: 0x8a6a8a, ground2: '#4a2a4a', grass: '#b08ab0', accent: 0xff9ec4,
       sky: 0xffc8d8, fog: 0xd8a8c8, fogDensity: 0.016,
-      prop: ['pillar', 'rock', 'tree', 'flower'], ambient: 'firefly', ambientColor: 0xffc8e8,
+      prop: ['tent', 'flower', 'tree', 'rock', 'pillar'], wall: ['tent', 'tree', 'rock'], ambient: 'firefly', ambientColor: 0xffc8e8,
     },
     threat: 'blunt',
     map: { cx: 192, cz: 192 },
@@ -960,7 +960,7 @@ export const ZONES = [
       boss: E({ key: 'parkEnt', name: '테마파크의 지배자', shape: 'ent', color: 0x6a4a6a, dark: 0x2a1a2a, hp: 53000, atk: 400, speed: 1.35, atkRange: 3.4, atkCd: 1.9, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
       field: E({ key: 'goldParkEnt', name: '황금 테마파크 지배자', shape: 'ent', color: 0xc9a13a, dark: 0x5a4a1a, hp: 108000, atk: 480, speed: 1.3, atkRange: 3.6, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold', enrage: true }),
     },
-    chests: [{ x: -16, z: 6, hide: 'pillar' }, { x: 14, z: 14, hide: 'tree' }, { x: -8, z: -22, hide: 'flower' }],
+    chests: [{ x: -16, z: 6, hide: 'tent' }, { x: 14, z: 14, hide: 'tree' }, { x: -8, z: -22, hide: 'flower' }],
     quests: {
       title: '테마파크의 유령', npc: '테마파크의 안내원',
       steps: [
@@ -976,7 +976,7 @@ export const ZONES = [
     theme: {
       ground: 0x5a6a4a, ground2: '#2a3a24', grass: '#7a8a5a', accent: 0xc9d68a,
       sky: 0x9aa88a, fog: 0x8a9a7a, fogDensity: 0.03,
-      prop: ['wall', 'deadTree', 'rock', 'reed'], ambient: 'spore', ambientColor: 0xc9d68a,
+      prop: ['wall', 'fence', 'deadTree', 'rock'], wall: ['wall', 'fence', 'deadTree'], ambient: 'spore', ambientColor: 0xc9d68a,
     },
     threat: 'ranged',
     map: { cx: 96, cz: 192 },
@@ -1011,7 +1011,7 @@ export const ZONES = [
     theme: {
       ground: 0x2a5a6a, ground2: '#122a3a', grass: '#4a8a7a', accent: 0x7fd0e0,
       sky: 0x9fd0e8, fog: 0x7ab0c8, fogDensity: 0.018,
-      prop: ['tree', 'rock', 'pillar', 'grass'], ambient: 'bubble', ambientColor: 0x9fe8ff,
+      prop: ['pine', 'rock', 'reed', 'tree'], wall: ['pine', 'rock', 'reed'], ambient: 'bubble', ambientColor: 0x9fe8ff,
     },
     threat: 'blunt',
     map: { cx: 0, cz: 192 },
@@ -1030,7 +1030,7 @@ export const ZONES = [
       boss: E({ key: 'lake2Kraken', name: '산호수의 왕', shape: 'kraken', color: 0x3a7a9a, dark: 0x0a2a4a, hp: 59000, atk: 440, speed: 1.4, atkRange: 4.2, atkCd: 1.9, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
       field: E({ key: 'goldLake2Kraken', name: '황금 산호수의 왕', shape: 'kraken', color: 0xc9a13a, dark: 0x5a4a1a, hp: 120000, atk: 525, speed: 1.35, atkRange: 4.4, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold', enrage: true }),
     },
-    chests: [{ x: 14, z: 8, hide: 'tree' }, { x: -16, z: -14, hide: 'pillar' }, { x: 10, z: -26, hide: 'rock' }],
+    chests: [{ x: 14, z: 8, hide: 'tree' }, { x: -16, z: -14, hide: 'pine' }, { x: 10, z: -26, hide: 'rock' }],
     quests: {
       title: '산호수의 왕', npc: '산호수의 어부',
       steps: [
