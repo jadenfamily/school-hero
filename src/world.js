@@ -1,7 +1,9 @@
-// 3D 월드 · 캐릭터 생성 (2.5D 도트 스프라이트 + 로우폴리 지형)
+// 3D 월드 · 캐릭터 생성 (입체감 있는 복셀/로우폴리 3D + 빽빽한 2D 지면 텍스처)
+// 캐릭터·몬스터·소품·상자·NPC는 모두 실제 부피가 있는 3D 모델이다 (평면 빌보드 금지 —
+// 종이 인형처럼 보인다는 피드백 반영). 지면만 2D 텍스처(표면이므로)이며 높낮이
+// 지형 + 높이 음영 + 강한 그림자로 입체감을 낸다.
 import { AVATAR_MAP, GRADES, ARMOR_KINDS, ZONES, EARTH_GATE, GYEONGGI_GATE, BORDERS, borderDistrictId } from './data.js';
-import { visualEquip, COSTUME_VISUAL, BILLBOARD_TILT, makeHeroSprite, makeMonsterSprite, makeCompanionSprite, makePropSprite, propTexture, PROP_SIZE, PROP_R } from './sprites.js';
-import { ASSET_URL, getTexture, aspectOf } from './assets.js';
+import { visualEquip, COSTUME_VISUAL, PROP_SIZE, PROP_R } from './sprites.js';
 const rand = (seed) => {
   let s = seed >>> 0;
   return () => {
@@ -274,12 +276,12 @@ function labelSprite(THREE, text, color = '#ffd257') {
 }
 
 // ---------- 지면 텍스처 (도트 스타일) ----------
-// 저해상도 캔버스(240×192 = 1픽셀 2m)에 구역별 평탄한 도트 색을 그리고,
-// NearestFilter로 확대해 땅이 굵은 픽셀 블록으로 보이게 한다.
-// 높이·경사 음영은 버텍스 컬러가 맡으므로(높은 곳 밝게, 웅덩이 어둡게) 입체감은 그대로 산다.
-// 구역 모양은 울퉁불퉁한 외곽선(districtOutline) 그대로 — 사각 격자는 없다.
+// 고해상도 캔버스(1920×1536 = 1픽셀 0.25m)에 구역별 빽빽한 도트 결을 그린다.
+// 큰 평평한 네모는 없고, 1px 스페클·풀잎·꽃·개별 자갈 + 전체 1px 노이즈로 어느 배율에서도
+// 빈 면이 안 보인다. 높이·경사 음영은 버텍스 컬러가 맡으므로(높은 곳 밝게, 웅덩이 어둡게)
+// 입체감은 그대로 산다. 구역 모양은 울퉁불퉁한 외곽선(districtOutline) 그대로 — 사각 격자는 없다.
 function groundTexture(THREE, zones, rnd) {
-  const TW = 960, TH = 768; // 1px = 0.5m (예전 2m/px의 4배 해상도 — 거대한 체커보드 타일 제거)
+  const TW = 1920, TH = 1536; // 1px = 0.25m (예전 0.5m/px의 2배 해상도 — 큰 네모 타일 제거)
   const c = document.createElement('canvas');
   c.width = TW; c.height = TH;
   const g = c.getContext('2d');
@@ -301,40 +303,49 @@ function groundTexture(THREE, zones, rnd) {
     g.fill();
     g.save();
     g.clip();
-    // 굵은 얼룩 90개 (도트 결)
-    for (let i = 0; i < 90; i++) {
-      const px = X(zn.map.cx) + (rnd() - 0.5) * 176, py = Y(zn.map.cz) + (rnd() - 0.5) * 176;
-      const r = 2 + rnd() * 6;
-      g.globalAlpha = 0.3 + rnd() * 0.4;
+    // 작은 색조 얼룩 — 예전 8×5.5m짜리 딱딱한 네모 대신 0.5~1.2m짜리 옅은 반점만
+    for (let i = 0; i < 30; i++) {
+      const px = X(zn.map.cx) + (rnd() - 0.5) * 352, py = Y(zn.map.cz) + (rnd() - 0.5) * 352;
+      const r = 2 + rnd() * 3;
+      g.globalAlpha = 0.10 + rnd() * 0.12;
       g.fillStyle = rnd() > 0.5 ? zn.theme.ground2 : (zn.theme.grass || hexOf(zn.theme.ground));
       g.fillRect(px - r, py - r * 0.7, r * 2, r * 1.4);
     }
     // 픽셀 스페클 — 구역 경계 안쪽에 1px 점을 빽빽하게 (모래·눈의 반점, 잔디의 결)
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const pt of outline) { minX = Math.min(minX, X(pt.x)); maxX = Math.max(maxX, X(pt.x)); minY = Math.min(minY, Y(pt.z)); maxY = Math.max(maxY, Y(pt.z)); }
-    minX += 8; maxX -= 8; minY += 8; maxY -= 8;
-    for (let i = 0; i < 9000; i++) {
+    minX += 16; maxX -= 16; minY += 16; maxY -= 16;
+    for (let i = 0; i < 12000; i++) {
       const px = minX + rnd() * (maxX - minX), py = minY + rnd() * (maxY - minY);
       const r = rnd();
-      if (r < 0.10) { g.globalAlpha = 0.16 + rnd() * 0.08; g.fillStyle = '#000000'; g.fillRect(px, py, 1.6, 1.6); }
-      else if (r < 0.18) { g.globalAlpha = 0.12 + rnd() * 0.06; g.fillStyle = '#ffffff'; g.fillRect(px, py, 1.4, 1.4); }
+      if (r < 0.12) { g.globalAlpha = 0.22 + rnd() * 0.13; g.fillStyle = '#000000'; g.fillRect(px, py, 1, 1); }
+      else if (r < 0.24) { g.globalAlpha = 0.18 + rnd() * 0.12; g.fillStyle = '#ffffff'; g.fillRect(px, py, 1, 1); }
+      else if (r < 0.30) { g.globalAlpha = 0.2 + rnd() * 0.12; g.fillStyle = zn.theme.ground2; g.fillRect(px, py, 1, 1); }
     }
-    // 풀잎 — 잔디 구역에만 작은 풀 무늬
+    // 풀잎 — 잔디 구역에만 작은 풀 무늬 (촘촘하게)
     if (zn.theme.grass) {
-      g.globalAlpha = 0.5;
       g.strokeStyle = zn.theme.grass;
       g.lineWidth = 1;
-      for (let i = 0; i < 260; i++) {
-        const px = X(zn.map.cx) + (rnd() - 0.5) * 176, py = Y(zn.map.cz) + (rnd() - 0.5) * 176;
+      for (let i = 0; i < 500; i++) {
+        const px = X(zn.map.cx) + (rnd() - 0.5) * 352, py = Y(zn.map.cz) + (rnd() - 0.5) * 352;
+        g.globalAlpha = 0.45 + rnd() * 0.3;
         g.beginPath(); g.moveTo(px, py); g.lineTo(px - 1, py - 3); g.moveTo(px + 1.4, py); g.lineTo(px + 2.4, py - 3); g.stroke();
+      }
+      // 꽃 — 잔디 구역 곳곳에 2px 꽃점
+      const FLOWER_COLS = ['#ff9ec4', '#ffd257', '#ffffff', '#ff7a6a'];
+      for (let i = 0; i < 120; i++) {
+        const px = X(zn.map.cx) + (rnd() - 0.5) * 352, py = Y(zn.map.cz) + (rnd() - 0.5) * 352;
+        g.globalAlpha = 0.75 + rnd() * 0.25;
+        g.fillStyle = FLOWER_COLS[Math.floor(rnd() * FLOWER_COLS.length)];
+        g.fillRect(px, py, 2, 2);
       }
     }
     g.restore();
     g.globalAlpha = 1;
     // 경계선 — 어두운 겹선 + 밝은 속선 (층층이 쌓인 절벽 느낌)
-    g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 4;
+    g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 8;
     g.stroke();
-    g.strokeStyle = 'rgba(255,255,255,.12)'; g.lineWidth = 1.6;
+    g.strokeStyle = 'rgba(255,255,255,.12)'; g.lineWidth = 3;
     g.stroke();
   }
   // 한강 물줄기 (z=-96 라인, 가로 전체) — 굵은 도트 밴드 + 파도 디더링
@@ -342,9 +353,9 @@ function groundTexture(THREE, zones, rnd) {
   g.fillStyle = '#2a7a96';
   g.fillRect(0, ry0, TW, ry1 - ry0);
   g.fillStyle = 'rgba(168,232,238,.5)';
-  for (let i = 0; i < 320; i++) g.fillRect(rnd() * TW, ry0 + rnd() * (ry1 - ry0), 3, 1.4);
+  for (let i = 0; i < 700; i++) g.fillRect(rnd() * TW, ry0 + rnd() * (ry1 - ry0), 2, 1);
   g.fillStyle = 'rgba(0,40,60,.4)';
-  for (let i = 0; i < 200; i++) g.fillRect(rnd() * TW, ry0 + rnd() * (ry1 - ry0), 4, 1.2);
+  for (let i = 0; i < 400; i++) g.fillRect(rnd() * TW, ry0 + rnd() * (ry1 - ry0), 3, 1);
   // 메인 길: 구역 중심을 잇는 돌길 (포탈 구간은 끊긴다) — 자갈이 박힌 굵은 길
   const traceChain = (ids) => {
     g.beginPath();
@@ -360,14 +371,14 @@ function groundTexture(THREE, zones, rnd) {
     });
   };
   g.lineCap = 'square';
-  g.strokeStyle = 'rgba(0,0,0,.18)'; g.lineWidth = 20;
+  g.strokeStyle = 'rgba(0,0,0,.18)'; g.lineWidth = 40;
   traceChain([1, 2, 3, 4, 5, 6, 7, 8, 9]); traceChain([10, 11, 12]); traceChain([13, 14, 15, 16, 17, 18]);
   g.stroke();
-  g.strokeStyle = '#9c8a63'; g.lineWidth = 13;
+  g.strokeStyle = '#9c8a63'; g.lineWidth = 26;
   traceChain([1, 2, 3, 4, 5, 6, 7, 8, 9]); traceChain([10, 11, 12]); traceChain([13, 14, 15, 16, 17, 18]);
   g.stroke();
   // 길 위 자갈 — 낱개 돌멩이를 촘촘하게
-  for (let i = 0; i < 750; i++) {
+  for (let i = 0; i < 1600; i++) {
     const seg = PATH_SEGS[Math.floor(rnd() * PATH_SEGS.length)];
     if (!seg) break;
     const t = rnd();
@@ -375,14 +386,24 @@ function groundTexture(THREE, zones, rnd) {
     const wz = seg[0].z + (seg[1].z - seg[0].z) * t + (rnd() - 0.5) * 5;
     g.globalAlpha = 0.35 + rnd() * 0.45;
     g.fillStyle = rnd() > 0.5 ? '#f2e6c8' : '#5a4a2e';
-    g.fillRect(X(wx), Y(wz), 2.4, 2.4);
+    g.fillRect(X(wx), Y(wz), 1.4, 1.4);
   }
   g.globalAlpha = 1;
+  // 1px 입자 노이즈 — 지면 전체에 고운 결을 입혀 어느 배율에서도 평평한 면이 없게 한다
+  try {
+    const img = g.getImageData(0, 0, TW, TH);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const n = (rnd() - 0.5) * 18;
+      d[i] += n; d[i + 1] += n; d[i + 2] += n;
+    }
+    g.putImageData(img, 0, 0);
+  } catch (e) { /* 스텁 환경에서는 무시 */ }
   const tex = new THREE.CanvasTexture(c);
   tex.magFilter = THREE.NearestFilter; // 확대 시 픽셀이 뭉개지지 않고 굵은 블록으로 보인다
   tex.minFilter = THREE.LinearFilter;
   tex.generateMipmaps = false;
-  tex.anisotropy = 1;
+  tex.anisotropy = 4; // 낮은 시선각에서도 지면이 흐릿해지지 않게
   return tex;
 }
 
@@ -843,8 +864,18 @@ export function makeHumanoid3D(THREE, opts = {}) {
 
   g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   if (opts.scale) g.scale.setScalar(opts.scale);
+  if (P) {
+    // 컨셉 시트의 굵은 어두운 아웃라인 — 뒤집은 껍질(inverted hull)로 머리·몸통 실루엣에
+    // 어두운 테를 두른다 (종이 인형이 아니라 입체감 있는 윤곽). 그림자는 만들지 않는다.
+    const hullM = new THREE.MeshBasicMaterial({ color: 0x1e2230, side: THREE.BackSide });
+    const headHull = new THREE.Mesh(new THREE.SphereGeometry(0.31, 10, 8), hullM);
+    headHull.castShadow = false; head.add(headHull);
+    const torsoHull = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.64, 0.32), hullM);
+    torsoHull.scale.x = bulk; torsoHull.castShadow = false; torsoHull.position.set(0, 0.85, 0); body.add(torsoHull);
+  }
+  const sc = opts.scale || 1; // 반경·머리 높이는 모델 스케일과 함께 커진다 (판정과 모델 일치)
   g.userData = {
-    avatar: av, height: 1.9, headY: 1.6, radius: 0.42,
+    avatar: av, height: 1.9 * sc, headY: 1.6 * sc, radius: 0.42 * sc,
     armR, armL, legL, legR, body, head, weapon, weaponGroup,
     isHeroSprite: false,
   };
@@ -853,12 +884,20 @@ export function makeHumanoid3D(THREE, opts = {}) {
 
 // ---------- 캐릭터 ----------
 // 3D 로우폴리 휴머노이드. 장착 무기·방어구가 외형에 반영된다.
+// 주인공 — 3D 로우폴리 휴머노이드 (입체감). 초상화처럼 다듬은 비율·얼굴(polish),
+// 장착 무기·방어구·코스튬이 그대로 보인다. 화면에서 크게 보이도록 1.5배로 키운다.
+export const PLAYER_SCALE = 1.5;
 export function makePlayer(THREE, family = 'sword', av = null, equip = null, appearance = null) {
-  // 2D 탑뷰: 주인공은 전신 캔버스 빌보드 (무기·방어구·코스튬이 그대로 보인다).
-  // 3D makeHumanoid3D는 더 이상 쓰지 않는다 (파일 하단에 레거시로 남는다).
   const A = av || AVATAR_MAP.boyA;
   const eq = visualEquip(equip, appearance);
-  return makeHeroSprite(THREE, A, eq);
+  const armor = eq.armor || null;
+  return makeHumanoid3D(THREE, {
+    avatar: A, weaponFam: family || 'sword', polish: true, scale: PLAYER_SCALE,
+    armorFam: armor ? armor.fam : null,
+    capeColor: armor && armor.capeColor ? armor.capeColor : null,
+    trimColor: armor && armor.trimColor ? armor.trimColor : null,
+    costumeId: eq.costumeId, grade: eq.weapon ? (eq.weapon.grade || 0) : 0,
+  });
 }
 // ---------- 도트(복셀) 스타일 몬스터 도우미 ----------
 // 몬스터는 구·원뿔·원기둥·토러스를 쓰지 않고 상자(복셀)만으로 만든다.
@@ -1048,12 +1087,16 @@ function makeVoxelHumanoid3D(THREE, opts = {}) {
   // 머리 (상자 + 박스 눈·코·입 — 도트 얼굴)
   const head = new THREE.Group(); head.position.y = 1.42; body.add(head);
   add(new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.48, 0.48), skinM), 0, 0, 0, head);
+  // 어두운 아웃라인 (뒤집은 껍질) — 머리 실루엣에 테가 보인다
+  add(new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.54, 0.54), new THREE.MeshBasicMaterial({ color: 0x1e2230, side: THREE.BackSide })), 0, 0, 0, head);
   add(new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.2, 0.5), hairM), 0, 0.24, -0.02, head);
   if (opts.longHair) {
     add(new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.52, 0.1), hairM), 0, -0.2, -0.26, head);
   }
   for (const s of [-1, 1]) {
-    add(new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.04), eyeM), 0.11 * s, 0.02, 0.26, head);
+    // 컨셉 시트처럼 크고 또렷한 눈 — 흰자 박스 + 어두운 동공
+    add(new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.13, 0.04), eyeM), 0.11 * s, 0.02, 0.26, head);
+    add(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.07, 0.02), darkM), 0.11 * s, 0.02, 0.285, head);
     add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.03, 0.02), hairM), 0.11 * s, 0.14, 0.26, head);
   }
   add(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 0.04), skinM), 0, -0.03, 0.28, head);
@@ -1082,8 +1125,9 @@ function makeVoxelHumanoid3D(THREE, opts = {}) {
 
   g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   if (opts.scale) g.scale.setScalar(opts.scale);
+  const vsc = opts.scale || 1; // 반경·머리 높이는 모델 스케일과 함께 커진다 (판정과 모델 일치)
   g.userData = {
-    avatar: null, height: 1.9, headY: 1.6, radius: 0.42,
+    avatar: null, height: 1.9 * vsc, headY: 1.6 * vsc, radius: 0.42 * vsc,
     armR, armL, legL, legR, body, head, weapon, weaponGroup,
     isHeroSprite: false,
   };
@@ -1100,6 +1144,9 @@ const MONSTER_H = {
   witch: 1.78, golem: 2.2, ent: 2.4, ogre: 2.15, anubis: 2.05, hydra: 2.0, kraken: 2.6,
   dragon: 2.6, mushroom: 1.9, barbarian: 2.0, skeleton: 1.5,
 };
+// 2D 빌보드 시절과 같은 화면 크기 — 3D 모델을 1.5배로 키워 주인공(1.5배)과 같은 비율로 보인다.
+// (반경·머리 높이도 함께 커져 공격 판정과 모델이 일치한다.)
+const MONSTER_SCALE = 1.5;
 
 export function makeMonster3D(THREE, def) {
   const color = def.color != null ? def.color : 0x888888;
@@ -1129,7 +1176,7 @@ export function makeMonster3D(THREE, def) {
   let top = MONSTER_H[shape] || 1.28;
   let radius = 0.45;
   const put = (mesh, x, y, z, parent) => { mesh.position.set(x, y, z); (parent || body).add(mesh); return mesh; };
-  const eyes = (y, xOff, z, r = 0.05) => {
+  const eyes = (y, xOff, z, r = 0.07) => { // 컨셉 시트처럼 크고 또렷한 눈
     put(pSph(r, eyeM, 6, 5), -xOff, y, z);
     put(pSph(r, eyeM, 6, 5), xOff, y, z);
   };
@@ -1153,7 +1200,7 @@ export function makeMonster3D(THREE, def) {
     const cfg = HUM[shape];
     const hg = makeVoxelHumanoid3D(THREE, {
       skin: color, uniform: dark, hair: dark, accent: color,
-      weaponFam: cfg.weaponFam, scale: cfg.scale * bossMul, bulk: cfg.bulk,
+      weaponFam: cfg.weaponFam, scale: cfg.scale * bossMul * MONSTER_SCALE, bulk: cfg.bulk,
       robe: !!cfg.robe, longHair: !!cfg.longHair,
       eyeColor: shape === 'skeleton' ? 0x9fe8ff : shape === 'mummy' ? 0x1a1a22 : 0xffffff,
     });
@@ -1279,8 +1326,8 @@ export function makeMonster3D(THREE, def) {
     body = hg.userData.body; legL = hg.userData.legL; legR = hg.userData.legR;
     armL = hg.userData.armL; armR = hg.userData.armR;
     if (cfg.noLegs) { legL = null; legR = null; }
-    top = 1.72 * cfg.scale * bossMul;
-    radius = 0.42 * cfg.scale * bossMul;
+    top = 1.72 * cfg.scale * bossMul * MONSTER_SCALE;
+    radius = 0.42 * cfg.scale * bossMul * MONSTER_SCALE;
     return finish({ scaled: true });
   }
 
@@ -1479,7 +1526,7 @@ export function makeMonster3D(THREE, def) {
     // 알 수 없는 도형은 고블린형 복셀 휴머노이드로 폴백
     const hg = makeVoxelHumanoid3D(THREE, {
       skin: color, uniform: dark, hair: dark, accent: color,
-      weaponFam: 'dagger', scale: 0.62 * bossMul, bulk: 0.9,
+      weaponFam: 'dagger', scale: 0.62 * bossMul * MONSTER_SCALE, bulk: 0.9,
     });
     hg.traverse((o) => {
       if (o.isMesh && o.material && o.material.isMeshLambertMaterial) {
@@ -1490,8 +1537,8 @@ export function makeMonster3D(THREE, def) {
     g = hg;
     body = hg.userData.body; legL = hg.userData.legL; legR = hg.userData.legR;
     armL = hg.userData.armL; armR = hg.userData.armR;
-    top = 1.72 * 0.62 * bossMul;
-    radius = 0.42 * 0.62 * bossMul;
+    top = 1.72 * 0.62 * bossMul * MONSTER_SCALE;
+    radius = 0.42 * 0.62 * bossMul * MONSTER_SCALE;
     return finish({ scaled: true });
   }
   return finish({});
@@ -1499,9 +1546,9 @@ export function makeMonster3D(THREE, def) {
   // ---- 마무리: 보스 스케일·보스 링·userData·애니메이션 ----
   function finish(opts) {
     const scaled = opts && opts.scaled;
-    const finalTop = top * (scaled ? 1 : bossMul);
-    const finalRadius = radius * (scaled ? 1 : bossMul);
-    if (!scaled) g.scale.setScalar(bossMul);
+    const finalTop = top * (scaled ? 1 : bossMul * MONSTER_SCALE);
+    const finalRadius = radius * (scaled ? 1 : bossMul * MONSTER_SCALE);
+    if (!scaled) g.scale.setScalar(bossMul * MONSTER_SCALE);
     if (def.boss) {
       const tierColor = def.boss === 'field' ? 0xff5566 : def.boss === 'boss' ? 0xb46cff : 0x4aa3ff;
       const ring = new THREE.Mesh(
@@ -1560,57 +1607,321 @@ export function makeMonster3D(THREE, def) {
 
 // ---------- 몬스터 · 동료 외형 ----------
 // 3D 로우폴리 몬스터 (2D 도트 스프라이트는 가방 미리보기용으로 sprites.js에 남는다)
+// 3D 복셀 몬스터 (입체감). 2D 도트 스프라이트는 가방 미리보기·도감용으로 sprites.js에 남는다.
 export function makeMonster(THREE, def) {
-  // 2D 탑뷰: 몬스터는 도트 빌보드 (sprites.js의 기존 2D 스프라이트로 회귀).
-  return makeMonsterSprite(THREE, def);
+  return makeMonster3D(THREE, def);
 }
 
 // ---------- 동료 ----------
 // 직업별 실루엣이 다르다 (색만 다른 게 아니라 생김새가 다르다):
 // 탱커 = 덩치 큼 + 투구 + 왼팔 방패 / 힐러 = 로브 + 후드 + 지팡이 빛
 // 근접 = 날씬 + 쌍단검 + 머리띠 / 마법사 = 로브 + 뾰족모자 + 지팡이 + 왼손 책
+// 동료 — 3D 휴머노이드 + 직업별 실루엣 (색만 다른 게 아니라 생김새가 다르다):
+// 탱커 = 덩치 큼 + 투구 + 왼팔 방패 / 힐러 = 로브 + 후드 + 지팡이
+// 근접 = 날씬 + 쌍단검 + 머리띠 / 마법사 = 로브 + 뾰족모자 + 지팡이 + 왼손 책
+// 주인공(1.5배)보다 살짝 작게 1.35배. 벨트는 등급 색(gradeColor)으로 띠를 두른다.
+export const COMPANION_SCALE = 1.35;
+const COMPANION_WEAPON = { tank: 'sword', healer: 'staff', melee: 'dagger', mage: 'staff' };
+const COMPANION_BULK = { tank: 1.32, healer: 1, melee: 0.85, mage: 1 };
 export function makeCompanion(THREE, cls, gradeColor = 0xffffff) {
-  // 2D 탑뷰: 동료는 직업별 전신 캔버스 빌보드 (탱커·힐러·근접·마법 생김새가 다르다).
   const c = cls && cls.id ? cls : { id: 'melee', color: 0x6fcf97 };
-  return makeCompanionSprite(THREE, c, gradeColor);
+  const g = makeHumanoid3D(THREE, {
+    avatar: null, skin: 0xf2c9a0, uniform: c.color, hair: 0x2a2f45, accent: c.color,
+    weaponFam: COMPANION_WEAPON[c.id] || 'dagger', polish: true, scale: COMPANION_SCALE,
+    bulk: COMPANION_BULK[c.id] || 1, grade: 0, trimColor: gradeColor,
+    robe: c.id === 'healer' || c.id === 'mage',
+  });
+  addCompanionExtras(THREE, g, c.id, c.color);
+  return g;
+}
+// 직업별 장식 파츠 (userData.companionPiece 태그 — 스모크 테스트 확인용)
+function addCompanionExtras(THREE, g, clsId, clsColor) {
+  const ud = g.userData;
+  const metalM = mat(THREE, 0xdfe7f2);
+  const goldM = mat(THREE, 0xffd257);
+  const tag = (m, name) => { m.userData.companionPiece = name; return m; };
+  const head = ud.head, body = ud.body, armL = ud.armL;
+  if (clsId === 'tank') {
+    // 투구 (뿔 2개 + 깃) + 왼팔 원형 방패
+    const helm = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8), metalM);
+    helm.scale.set(1, 0.6, 1); helm.position.set(0, 0.22, -0.02); head.add(tag(helm, 'helmet'));
+    for (const s of [-1, 1]) {
+      const horn = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.22, 4), metalM);
+      horn.position.set(0.28 * s, 0.3, 0); horn.rotation.z = -s * 0.8; head.add(tag(horn, 'helmet'));
+    }
+    const plume = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.2, 4), mat(THREE, 0xc03050));
+    plume.position.set(0, 0.42, 0); head.add(tag(plume, 'helmet'));
+    const shield = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.06, 12), metalM);
+    shield.rotation.x = Math.PI / 2; shield.position.set(0, -0.3, 0.12); armL.add(tag(shield, 'shield'));
+    const boss = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), goldM);
+    boss.position.set(0, -0.3, 0.18); armL.add(tag(boss, 'shield'));
+  } else if (clsId === 'healer') {
+    // 후드 + 허리 약주머니 (지팡이는 이미 빛나는 오브가 있다)
+    const hood = new THREE.Mesh(new THREE.SphereGeometry(0.34, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.62), mat(THREE, clsColor));
+    hood.position.set(0, 0.1, -0.08); head.add(tag(hood, 'hood'));
+    const pouch = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.2, 0.08), mat(THREE, 0x8a6a3a));
+    pouch.position.set(0.2, 0.62, 0.14); body.add(tag(pouch, 'satchel'));
+  } else if (clsId === 'melee') {
+    // 머리띠 + 목 스카프 + 왼손 단검 (쌍검)
+    const band = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.06, 0.5), mat(THREE, 0xc03050));
+    band.position.set(0, 0.2, 0); head.add(tag(band, 'headband'));
+    const scarf = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.1, 0.3), mat(THREE, 0xc03050));
+    scarf.position.set(0, 1.32, 0); body.add(tag(scarf, 'scarf'));
+    const off = buildVoxelWeapon(THREE, 'dagger', 0x6fcf97);
+    off.scale.setScalar(0.8); off.position.set(0, -0.48, 0.04); armL.add(tag(off, 'offhand'));
+  } else if (clsId === 'mage') {
+    // 뾰족 모자 + 금별 + 왼손 책
+    const hat = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.5, 8), mat(THREE, clsColor));
+    hat.position.set(0, 0.45, -0.02); head.add(tag(hat, 'hat'));
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.04, 12), mat(THREE, clsColor));
+    brim.position.set(0, 0.22, 0); head.add(tag(brim, 'hat'));
+    const star = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 5), goldM);
+    star.position.set(0, 0.62, 0.1); head.add(tag(star, 'hat'));
+    const book = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.3, 0.06), mat(THREE, 0x7a4a9a));
+    book.position.set(0, -0.45, 0.1); armL.add(tag(book, 'book'));
+  }
 }
 
+// 보관함 — 3D 나무 상자 (경첩 달린 뚜껑이 실제로 열린다). userData.lid는 진짜 경첩 그룹이다.
+// (updateChests가 lid.rotation.x를 돌리고, buildWorld가 이미 열린 상자의 뚜껑을 젖혀 둔다.)
 export function makeChest(THREE) {
-  const url = ASSET_URL.prop('chest');
   const g = new THREE.Group();
-  const h = 1.5, w = h * (aspectOf(THREE, url) || 1.2); // 2D 탑뷰에서 크게 보이게
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: getTexture(THREE, url), transparent: true, alphaTest: 0.4, depthWrite: true }));
-  mesh.scale.set(w, h, 1);
-  mesh.position.y = h / 2;
-  const art = new THREE.Group();
-  const tilt = new THREE.Group();         // 시선에 수직이 되도록 눕힌다 (2D 탑뷰)
-  tilt.rotation.x = -BILLBOARD_TILT;
-  tilt.add(mesh);
-  art.add(tilt);
-  g.add(art);
-  const shadow = new THREE.Mesh(new THREE.CircleGeometry(w * 0.34, 14), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.26, depthWrite: false }));
-  shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.03; g.add(shadow);
+  const woodM = mat(THREE, 0x8a5a2a);
+  const woodD = mat(THREE, 0x6a4218);
+  const goldM = mat(THREE, 0xffd257);
+  const ironM = mat(THREE, 0x5a5f6a);
+  // 본체
+  const base = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.62, 0.8), woodM);
+  base.position.y = 0.31; g.add(base);
+  // 금테 (본체 앞뒤)
+  for (const z of [-0.41, 0.41]) {
+    const band = new THREE.Mesh(new THREE.BoxGeometry(1.12, 0.1, 0.04), goldM);
+    band.position.set(0, 0.31, z); g.add(band);
+  }
+  // 뚜껑 — 뒷면 위쪽 경첩 기준 (열리면 뒤로 젖혀진다)
+  const lid = new THREE.Group();
+  lid.position.set(0, 0.62, -0.4);
+  const lidBox = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.3, 0.8), woodD);
+  lidBox.position.set(0, 0.15, 0.4); lid.add(lidBox);
+  const lidBand = new THREE.Mesh(new THREE.BoxGeometry(1.12, 0.08, 0.04), goldM);
+  lidBand.position.set(0, 0.15, 0.81); lid.add(lidBand);
+  const lock = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.14, 0.06), goldM);
+  lock.position.set(0, 0.02, 0.8); lid.add(lock);
+  g.add(lid);
+  // 자물쇠 걸쇠 (본체 앞면)
+  const clasp = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.2, 0.05), ironM);
+  clasp.position.set(0, 0.55, 0.42); g.add(clasp);
+  g.add(blobShadow(THREE, 0.7));
   const glowS = new THREE.Mesh(new THREE.CircleGeometry(0.7, 18), new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.0, depthWrite: false, blending: THREE.AdditiveBlending }));
   glowS.rotation.x = -Math.PI / 2; glowS.position.y = 0.05; g.add(glowS);
-  g.userData = { lid: { rotation: { x: 0 }, position: { z: 0 } }, mesh, art, opened: false, url, h };
+  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  g.userData = { lid, art: g, opened: false, h: 1.0 };
   return g;
 }
 
+// NPC — 3D 로브 노인 (지팡이 + 회색 수염). '!' 마커는 그대로 (buildWorld의 update가 marker를 흔든다).
 export function makeNpc(THREE, icon) {
-  // 2D 탑뷰: 로브를 두른 노인 빌보드 + '!' 마커 (기존 userData 형태 유지)
-  const g = makePropSprite(THREE, 'npc');
+  const g = makeHumanoid3D(THREE, {
+    avatar: null, skin: 0xe8c090, uniform: 0x3a4a6a, hair: 0xd8d8d8, accent: 0x3a4a6a,
+    weaponFam: 'staff', polish: false, scale: 1.35, robe: true, grade: 0,
+  });
+  // 회색 수염 (머리 그룹에 붙여 머리와 함께 움직인다)
+  const beard = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.22, 0.06), mat(THREE, 0xd8d8d8));
+  beard.position.set(0, -0.14, 0.27); g.userData.head.add(beard);
   const marker = labelSprite(THREE, '!', '#ffd257');
   marker.position.set(0, 2.3, 0);
   g.add(marker);
   g.userData.marker = marker;
-  g.userData.body = g.userData.mesh;
   return g;
 }
 
-// ---------- 소품 ----------
-function propMesh(THREE, kind, rnd) {
-  // 소품은 2D 픽셀아트 빌보드 (sprites.js). 3D propMesh는 2D 전환으로 제거했다.
-  return makePropSprite(THREE, kind, rnd);
+// ---------- 3D 소품 ----------
+// 소품은 상자·원뿔·원기둥 등을 합친(mergeGeometryParts) 하나의 지오메트리로 만든다.
+// 색은 버텍스 컬러로 구워 넣고, 재질은 모든 소품이 공유한다 (드로우콜·메모리 절약).
+// 지오메트리 크기는 PROP_SIZE(빌보드 시절 크기)와 같아 기존 스케일(t.s)이 그대로 통한다.
+let PROP_MAT = null;
+function propMaterial(THREE) {
+  if (!PROP_MAT) PROP_MAT = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide });
+  return PROP_MAT;
+}
+const PROP_GEO_CACHE = new Map();
+export function buildPropGeometry(THREE, kind) {
+  if (PROP_GEO_CACHE.has(kind)) return PROP_GEO_CACHE.get(kind);
+  const parts = [];
+  // P(지오메트리, 색, x, y, z, rx, ry, rz) — 임시 조각 메시 (합친 뒤 버린다)
+  const P = (geo, color, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) => {
+    const m = new THREE.Mesh(geo, mat(THREE, color));
+    m.position.set(x, y, z); m.rotation.set(rx, ry, rz);
+    parts.push(m); return m;
+  };
+  const B = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+  const C = (rt, rb, h, s = 6) => new THREE.CylinderGeometry(rt, rb, h, s);
+  const K = (r, h, s = 6) => new THREE.ConeGeometry(r, h, s);
+  const S = (r, w = 8, h = 6) => new THREE.SphereGeometry(r, w, h);
+  const [w0, h0] = PROP_SIZE[kind] || [1.2, 1.2];
+  switch (kind) {
+    case 'tree': // 층층 나뭇잎 + 줄기 (컨셉 시트의 겹겹 소나무)
+      P(C(0.16, 0.24, 1.2), 0x6a4a22, 0, 0.6, 0);
+      P(K(1.0, 1.4), 0x2a7a3a, 0, 1.8, 0);
+      P(K(0.8, 1.2), 0x358a44, 0, 2.5, 0);
+      P(K(0.55, 1.0), 0x46a354, 0, 3.1, 0);
+      break;
+    case 'pine': // 소나무 (짙은 초록 + 눈 얹은 꼭대기)
+      P(C(0.14, 0.22, 1.2), 0x4a3423, 0, 0.6, 0);
+      P(K(0.9, 1.3), 0x1e5a2e, 0, 1.7, 0);
+      P(K(0.7, 1.1), 0x276b38, 0, 2.4, 0);
+      P(K(0.5, 0.9), 0xe8f0f8, 0, 3.0, 0);
+      break;
+    case 'deadTree': // 앙상한 고목 + 가지
+      P(C(0.14, 0.22, 1.6), 0x4a3a28, 0, 0.8, 0);
+      P(B(0.12, 1.0, 0.12), 0x4a3a28, 0.5, 2.0, 0, 0, 0, -0.7);
+      P(B(0.1, 0.8, 0.1), 0x4a3a28, -0.45, 2.1, 0, 0, 0, 0.7);
+      P(B(0.1, 0.7, 0.1), 0x4a3a28, 0.1, 2.5, 0, 0.5, 0, 0.2);
+      break;
+    case 'rock': // 회색 바위
+      P(B(1.4, 0.9, 1.1), 0x8d929c, 0, 0.45, 0, 0, 0.3, 0);
+      P(B(0.7, 0.5, 0.6), 0xa8adb8, -0.3, 0.95, 0.1, 0, 0.6, 0);
+      P(B(0.5, 0.3, 0.4), 0x6a6f78, 0.45, 0.2, -0.2, 0, -0.4, 0);
+      break;
+    case 'sandRock': // 모래 바위
+      P(B(1.5, 0.9, 1.1), 0xc8a86a, 0, 0.45, 0, 0, 0.3, 0);
+      P(B(0.8, 0.5, 0.6), 0xd8b878, -0.3, 0.95, 0, 0, 0.6, 0);
+      break;
+    case 'bubbleRock': // 푸른 바위 (심해)
+      P(B(1.4, 0.9, 1.1), 0x5a7a9a, 0, 0.45, 0, 0, 0.3, 0);
+      P(S(0.4), 0x7aa8c8, 0.3, 0.9, 0.1);
+      break;
+    case 'lavaRock': // 용암 바위 + 주황 균열
+      P(B(1.5, 1.0, 1.2), 0x3a2a2a, 0, 0.5, 0, 0, 0.3, 0);
+      P(B(0.9, 0.12, 0.5), 0xff6a2a, 0, 1.02, 0, 0, 0.3, 0);
+      P(B(0.5, 0.4, 0.4), 0x4a3434, -0.4, 0.3, 0.3, 0, 0.6, 0);
+      break;
+    case 'iceRock': // 얼음 바위
+      P(B(1.4, 0.9, 1.1), 0xa8d8e8, 0, 0.45, 0, 0, 0.3, 0);
+      P(B(0.7, 0.5, 0.6), 0xc8e8f8, -0.3, 0.95, 0.1, 0, 0.6, 0);
+      break;
+    case 'grass': // 풀잎 다발
+      for (let i = -1; i <= 1; i++) P(K(0.14, 0.7), i % 2 ? 0x6fbf58 : 0x4f9a42, i * 0.25, 0.35, 0, 0, 0, i * 0.25);
+      break;
+    case 'flower': // 꽃 4송이
+      for (let i = 0; i < 4; i++) {
+        const x = -0.3 + i * 0.2;
+        P(C(0.02, 0.02, 0.4), 0x4f9a42, x, 0.2, 0);
+        P(S(0.09), ['#ffe066', '#ff9ec4', '#b9a6ff', '#ff7a6a'][i], x, 0.45, 0);
+      }
+      break;
+    case 'bush': // 덤불
+      P(S(0.55), 0x3f8a3a, -0.25, 0.4, 0);
+      P(S(0.5), 0x4f9a42, 0.3, 0.35, 0.1);
+      P(S(0.4), 0x5fa84c, 0, 0.65, -0.1);
+      break;
+    case 'reed': // 갈대
+      for (let i = -1; i <= 1; i++) P(C(0.05, 0.07, 1.3), 0x8a9a5a, i * 0.28, 0.65, 0, 0, 0, i * 0.12);
+      P(K(0.08, 0.3), 0xc8b878, 0.28, 1.45, 0);
+      break;
+    case 'cactus': // 선인장
+      P(C(0.22, 0.26, 1.5), 0x3f8a3a, 0, 0.75, 0);
+      P(C(0.12, 0.12, 0.5), 0x3f8a3a, -0.35, 0.7, 0, 0, 0, 0.5);
+      P(C(0.12, 0.12, 0.5), 0x3f8a3a, 0.35, 0.9, 0, 0, 0, -0.5);
+      P(S(0.1), 0xff9ec4, 0, 1.6, 0);
+      break;
+    case 'pillar': // 돌기둥 (밑단 + 기둥 + 머리)
+      P(B(0.9, 0.3, 0.9), 0x9a9a9a, 0, 0.15, 0);
+      P(B(0.6, 3.0, 0.6), 0xb8b8b8, 0, 1.8, 0);
+      P(B(0.9, 0.3, 0.9), 0x9a9a9a, 0, 3.45, 0);
+      P(B(0.7, 0.2, 0.7), 0x8a8a8a, 0, 3.7, 0);
+      break;
+    case 'ruinPillar': // 부서진 기둥 (기울어진 윗조각)
+      P(B(0.9, 0.3, 0.9), 0x8a8578, 0, 0.15, 0);
+      P(B(0.6, 2.2, 0.6), 0xa8a294, 0, 1.25, 0);
+      P(B(0.6, 0.5, 0.6), 0x8a8578, 0.25, 2.5, 0, 0, 0, -0.3);
+      break;
+    case 'coral': // 산호 가지
+      for (let i = -1; i <= 1; i++) P(C(0.08, 0.12, 1.1), 0xff7a8a, i * 0.35, 0.55, 0, 0, 0, -i * 0.4);
+      P(C(0.07, 0.1, 0.9), 0xffa04a, 0, 0.7, 0.2, 0.3, 0, 0);
+      P(S(0.12), 0xffd257, 0.35, 1.2, 0);
+      break;
+    case 'wall': // 돌담
+      P(B(2.2, 1.5, 0.5), 0x8d8578, 0, 0.75, 0);
+      P(B(2.3, 0.25, 0.6), 0x6a6258, 0, 1.6, 0);
+      P(B(0.4, 0.5, 0.55), 0x7a7268, -0.7, 1.0, 0);
+      break;
+    case 'dock': // 나무 부두 (판자 + 말뚝)
+      for (let i = -1; i <= 1; i++) P(B(2.4, 0.12, 0.5), 0x8a6a3a, 0, 0.55, i * 0.55);
+      for (const x of [-1.0, 1.0]) for (const z of [-0.55, 0.55]) P(C(0.09, 0.11, 0.9), 0x6a4a22, x, 0.45, z);
+      break;
+    case 'crate': // 나무 상자 + 테두리
+      P(B(1.0, 1.0, 1.0), 0x9a7040, 0, 0.5, 0);
+      P(B(1.05, 0.12, 1.05), 0x6a4a22, 0, 0.95, 0);
+      P(B(1.05, 0.12, 1.05), 0x6a4a22, 0, 0.12, 0);
+      break;
+    case 'barrel': // 술통 + 쇠테
+      P(C(0.42, 0.38, 1.0), 0x8a5a2a, 0, 0.5, 0);
+      P(C(0.44, 0.44, 0.08), 0x4a4a4a, 0, 0.85, 0);
+      P(C(0.44, 0.44, 0.08), 0x4a4a4a, 0, 0.18, 0);
+      break;
+    case 'anchor': // 닻
+      P(B(0.12, 1.3, 0.12), 0x3a3f4a, 0, 0.65, 0);
+      P(B(0.8, 0.12, 0.12), 0x3a3f4a, 0, 1.2, 0);
+      P(B(0.7, 0.12, 0.12), 0x3a3f4a, 0, 0.25, 0);
+      for (const s of [-1, 1]) P(K(0.14, 0.35), 0x3a3f4a, s * 0.4, 0.15, 0, 0, 0, s * 0.9);
+      break;
+    case 'buoy': // 부표 (빨강·흰 줄무늬)
+      P(C(0.3, 0.42, 0.5), 0xc03030, 0, 0.25, 0);
+      P(C(0.36, 0.3, 0.35), 0xf2f2f2, 0, 0.65, 0);
+      P(K(0.3, 0.4), 0xc03030, 0, 1.0, 0);
+      P(S(0.08), 0xffd257, 0, 1.25, 0);
+      break;
+    case 'boat': // 배 (선체 + 돛대 + 돛)
+      P(B(2.4, 0.5, 0.9), 0x6a4a22, 0, 0.35, 0);
+      P(B(1.8, 0.4, 0.7), 0x8a6a3a, 0, 0.7, 0);
+      P(C(0.06, 0.08, 1.4), 0x4a3423, 0, 1.4, 0);
+      P(B(0.9, 1.0, 0.04), 0xf2e6c8, 0, 1.5, 0.3, 0, 0.3, 0);
+      break;
+    case 'brazier': // 화로 (받침 + 불꽃)
+      P(C(0.3, 0.4, 0.4), 0x3a3f4a, 0, 0.2, 0);
+      P(C(0.08, 0.12, 0.8), 0x3a3f4a, 0, 0.8, 0);
+      P(C(0.35, 0.15, 0.35), 0x2a2f3a, 0, 1.3, 0);
+      P(K(0.22, 0.5), 0xff8a2a, 0, 1.65, 0);
+      P(S(0.1), 0xffd257, 0, 1.5, 0);
+      break;
+    case 'mushroom': // 버섯 (줄기 + 빨간 갓 + 흰 점)
+      P(C(0.22, 0.3, 0.8), 0xf2ead0, 0, 0.4, 0);
+      P(S(0.55), 0xc03030, 0, 0.95, 0);
+      P(S(0.09), 0xffffff, -0.25, 1.25, 0.3);
+      P(S(0.07), 0xffffff, 0.2, 1.3, 0.35);
+      P(S(0.07), 0xffffff, 0.05, 1.1, -0.4);
+      break;
+    case 'crystal': // 수정 (기울어진 결정 3개)
+      P(K(0.28, 1.4), 0x7fd8ff, -0.25, 0.7, 0, 0, 0, 0.25);
+      P(K(0.24, 1.1), 0x9fe8ff, 0.25, 0.55, 0.1, 0, 0, -0.2);
+      P(K(0.18, 0.8), 0x5ab8e8, 0, 0.4, -0.15, 0.2, 0, 0);
+      break;
+    case 'tent': // 천막 (원뿔 + 기둥)
+      P(K(1.2, 1.6), 0xc8b878, 0, 1.1, 0);
+      P(C(0.06, 0.06, 0.6), 0x6a4a22, 0, 2.1, 0);
+      P(B(2.2, 0.15, 1.6), 0x8a7a5a, 0, 0.08, 0);
+      break;
+    case 'fence': // 울타리 (말뚝 2개 + 가로대)
+      for (const x of [-0.9, 0.9]) P(B(0.12, 1.2, 0.12), 0x8a6a3a, x, 0.6, 0);
+      P(B(2.0, 0.12, 0.08), 0x8a6a3a, 0, 1.0, 0);
+      P(B(2.0, 0.12, 0.08), 0x8a6a3a, 0, 0.55, 0);
+      break;
+    default: // 알 수 없는 종류는 회색 상자
+      P(B(w0, h0 * 0.7, w0), 0x8a8a8a, 0, h0 * 0.35, 0);
+      break;
+  }
+  const geo = parts.length ? mergeGeometryParts(THREE, parts) : new THREE.BoxGeometry(1, 1, 1);
+  for (const m of parts) { m.geometry.dispose(); m.material.dispose(); }
+  PROP_GEO_CACHE.set(kind, geo);
+  return geo;
+}
+export function propMesh(THREE, kind, rnd) {
+  // 낱개 3D 소품 (게이트 기둥·보관함 가림막 등 — 필드 소품은 buildWorld에서 인스턴싱한다)
+  const m = new THREE.Mesh(buildPropGeometry(THREE, kind), propMaterial(THREE));
+  m.castShadow = true;
+  m.userData.r = PROP_R[kind] || 0.5;
+  return m;
 }
 
 
@@ -1647,8 +1958,9 @@ function mergeGeometryParts(THREE, meshes) {
 }
 
 // ---------- 하나의 판타지 지도 전체를 짓는다 ----------
-// 480×384 지면 1장 + 구역별 소품(인스턴싱) + 경계 자연물 벽 + 상자 55개 + NPC 18명
-// + 방벽 게이트(통로마다) + 지구 귀환 게이트 + 마계 관문.
+// 480×384 지면 1장(빽빽한 2D 텍스처 + 3D 높낮이) + 구역별 3D 소품(인스턴싱)
+// + 경계 자연물 벽 + 3D 상자 55개 + 3D NPC 18명 + 방벽 게이트(통로마다)
+// + 지구 귀환 게이트 + 마계 관문.
 // 포탈은 걷는 길이 아니라, 게이트에 다가가 [들어가기]를 눌러 이동한다.
 export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = false, unlockedIds = [], gyeonggiGateOpen = false) {
   const unlocked = new Set(unlockedIds || []);
@@ -1705,13 +2017,9 @@ export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = fals
   // ---------- 소품 배치 (인스턴싱) ----------
   const scatter = [];
   const protoCache = {};
-  // 2D 빌보드 소품 프로토타입: 밑변이 원점에 닿은 평면 + 종류별 픽셀 텍스처
-  const billboardGeo = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
+  // 소품 충돌 반경 (3D 지오메트리 크기는 PROP_SIZE와 같다)
   function protoFor(kind) {
-    if (!protoCache[kind]) {
-      const [w0, h0] = PROP_SIZE[kind] || [1.2, 1.2];
-      protoCache[kind] = { geo: billboardGeo, tex: propTexture(THREE, kind), w: w0, h: h0, r: PROP_R[kind] || 0.5 };
-    }
+    if (!protoCache[kind]) protoCache[kind] = { r: PROP_R[kind] || 0.5 };
     return protoCache[kind];
   }
   function addProp(kind, x, z, scl, rot) {
@@ -1808,19 +2116,19 @@ export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = fals
     addProp(kind, x, z, 2.4 + rnd() * 1.4, rnd() * 6.28);
   }
 
-  // 인스턴스 메시 생성
+  // 인스턴스 메시 생성 — 3D 소품 (합친 지오메트리 + 버텍스 컬러, 종류별 1개 메시).
+  // 2D 빌보드 시절과 같은 크기로 보인다 (지오메트리가 PROP_SIZE 크기라 t.s 배율이 그대로 통한다).
   const byKind = {};
   for (const t of scatter) (byKind[t.kind] = byKind[t.kind] || []).push(t);
   const dummy = new THREE.Object3D();
+  const propMat = propMaterial(THREE);
   for (const [kind, arr] of Object.entries(byKind)) {
-    const pr = protoFor(kind);
-    const mat = new THREE.MeshBasicMaterial({ map: pr.tex, transparent: true, alphaTest: 0.4, side: THREE.DoubleSide });
-    const inst = new THREE.InstancedMesh(pr.geo, mat, arr.length);
+    const geo = buildPropGeometry(THREE, kind);
+    const inst = new THREE.InstancedMesh(geo, propMat, arr.length);
     arr.forEach((t, i) => {
       dummy.position.set(t.x, groundHeight(t.x, t.z), t.z);
-      dummy.rotation.set(-BILLBOARD_TILT, 0, 0); // 시선에 수직 (2D 탑뷰)
-      const mir = (i % 2 === 0) ? 1 : -1; // 좌우 반전으로 다양성
-      dummy.scale.set(pr.w * t.s * mir, pr.h * t.s, 1);
+      dummy.rotation.set(0, t.r, 0); // 3D 소품은 Y축으로만 돌린다 (눕히지 않는다)
+      dummy.scale.setScalar(t.s);
       dummy.updateMatrix();
       inst.setMatrixAt(i, dummy.matrix);
     });
@@ -1828,8 +2136,6 @@ export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = fals
     inst.castShadow = true;
     inst.receiveShadow = true;
     inst.frustumCulled = false;
-    // 그림자가 소품 모양(알파)을 따르게 한다
-    inst.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: pr.tex, alphaTest: 0.4 });
     group.add(inst);
   }
 
@@ -1866,14 +2172,14 @@ export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = fals
       const hx = wp.x + (rnd() - 0.5) * 0.5, hz = wp.z + hd;
       hide.position.set(hx, groundHeight(hx, hz), hz);
       hide.scale.setScalar(spec.hide === 'rock' || spec.hide === 'sandRock' || spec.hide === 'bubbleRock' ? 1.9 : spec.hide === 'wall' ? 1.25 : 1.5);
-      hide.rotation.y = 0; // 빌보드는 카메라를 바라본다 (무작위 회전 금지)
+      hide.rotation.y = 0; // 3D 가림막은 회전 없이 둔다 (상자를 가리는 방향 고정)
       group.add(hide);
       props.push({ x: hide.position.x, z: hide.position.z, r: hide.userData.r * 1.2 || 1, kind: spec.hide });
       const gkey = `${Math.floor(hide.position.x / CELL)},${Math.floor(hide.position.z / CELL)}`;
       if (!grid.has(gkey)) grid.set(gkey, []);
       grid.get(gkey).push(props[props.length - 1]);
       const opened = openedChests.includes(`${zn.id}:${idx}`);
-      if (opened) { chest.userData.lid.rotation.x = -1.9; chest.userData.lid.position.z = -0.3; }
+      if (opened) { chest.userData.lid.rotation.x = -1.9; } // 3D 뚜껑은 경첩으로만 열린다
       chests.push({ id: `${zn.id}:${idx}`, mesh: chest, x: wp.x, z: wp.z, opened });
     });
   }
@@ -1884,7 +2190,7 @@ export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = fals
     const wp = worldPos(zn, zn.npc.x, zn.npc.z);
     const npc = makeNpc(THREE, zn.npc.icon);
     npc.position.set(wp.x, groundHeight(wp.x, wp.z), wp.z);
-    npc.rotation.y = Math.PI;
+    npc.rotation.y = 0; // 3D NPC는 카메라(남쪽)를 향한다 (예전 빌보드는 뒤집어 보였다)
     group.add(npc);
     npcs[zn.id] = npc;
   }
