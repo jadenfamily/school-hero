@@ -1093,7 +1093,7 @@ export async function loadGlbHero(THREE, url) {
     const mats = Array.isArray(o.material) ? o.material : [o.material];
     for (const m of mats) {
       if (m && m.color) m.color.setRGB(1, 1, 1);
-      if (m && m.emissive) { m.emissive.setRGB(0.28, 0.25, 0.21); m.emissiveIntensity = 1.0; }
+      if (m && m.emissive) { m.emissive.setRGB(0.28, 0.25, 0.21); m.emissiveIntensity = 1.5; }
     }
   });
   // [/skin-brightness-fix]
