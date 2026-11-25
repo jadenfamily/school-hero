@@ -27,7 +27,7 @@ function portrait(av) {
   return portraitCache.get(av.id);
 }
 const fullCache = new Map();
-function fullBody(av, equip, appearance, size = 150) {
+function fullBody(av, equip, appearance, size = 200) { // 가방 아바타를 크게 (150 -> 200)
   const ap = appearance || { mode: 'armor' };
   const key = `${av.id}|${equip.weapon ? equip.weapon.fam + equip.weapon.grade : '-'}|${equip.armor ? equip.armor.fam + equip.armor.grade : '-'}|${ap.mode}|${ap.costumeId || '-'}|${size}`;
   if (!fullCache.has(key)) fullCache.set(key, heroFullCanvasDataUrl(av, visualEquip(equip, ap), size));
@@ -374,6 +374,31 @@ export function createUI(game, THREE) {
       } else if (k === 'wall' || k === 'pillar' || k === 'ruinPillar') {
         g.fillStyle = k === 'wall' ? '#6a6355' : k === 'ruinPillar' ? '#7fa4ac' : '#c9ad74';
         g.fillRect(x - r, y - r * 0.7, r * 2, r * 1.4);
+      } else if (k === 'pine' || k === 'mushroom') {
+        // 소나무·버섯 (식물)
+        g.fillStyle = 'rgba(0,0,0,.18)'; g.fillRect(x - r * 0.9, y - r * 0.7, r * 2.1, r * 2.1);
+        g.fillStyle = k === 'mushroom' ? '#c94a4a' : '#1f5a2a';
+        g.fillRect(x - r, y - r, r * 2, r * 2);
+        g.fillStyle = k === 'mushroom' ? '#f2e6c8' : '#4fae4a';
+        g.fillRect(x - r * 0.9, y - r * 0.9, r * 0.9, r * 0.9);
+      } else if (k === 'lavaRock' || k === 'iceRock') {
+        // 용암석·얼음바위
+        g.fillStyle = k === 'lavaRock' ? '#5a2a1a' : '#7ab8c8';
+        g.fillRect(x - r * 0.9, y - r * 0.7, r * 1.8, r * 1.4);
+        g.fillStyle = k === 'lavaRock' ? '#ff8a3c' : 'rgba(255,255,255,.5)';
+        g.fillRect(x - r * 0.6, y - r * 0.55, r * 0.7, r * 0.5);
+      } else if (k === 'dock' || k === 'crate' || k === 'barrel' || k === 'boat' || k === 'tent' || k === 'fence') {
+        // 항구 목재·천막·울타리
+        g.fillStyle = k === 'tent' ? '#c94a4a' : k === 'boat' ? '#6a4a2a' : '#8a6a3a';
+        g.fillRect(x - r * 0.9, y - r * 0.7, r * 1.8, r * 1.4);
+        g.fillStyle = 'rgba(255,255,255,.22)';
+        g.fillRect(x - r * 0.6, y - r * 0.55, r * 0.7, r * 0.5);
+      } else if (k === 'anchor' || k === 'brazier' || k === 'crystal' || k === 'buoy') {
+        // 닻·화로·수정·부표 (금속·발광)
+        g.fillStyle = k === 'anchor' ? '#4a5058' : k === 'brazier' ? '#ff8a3c' : k === 'crystal' ? '#7fd0ff' : '#e07840';
+        g.fillRect(x - r, y - r, r * 1.6, r * 1.6);
+        g.fillStyle = 'rgba(255,255,255,.35)';
+        g.fillRect(x - r * 0.6, y - r * 0.6, r * 0.6, r * 0.6);
       } else {
         g.fillStyle = 'rgba(30,70,30,.5)';
         g.fillRect(x - r * 0.7, y - r * 0.7, r * 1.4, r * 1.4);
@@ -947,7 +972,7 @@ export function createUI(game, THREE) {
     const html = `${head('🎒 가방', `Lv.${s.level} · ${A.name}`, 'bag')}
       <div class="bag-hero">
         <div class="bag-preview">
-          <img src="${fullBody(A, s.equip, s.appearance, 150)}" alt="내 캐릭터">
+          <img src="${fullBody(A, s.equip, s.appearance, 200)}" alt="내 캐릭터">
         </div>
         <div class="bag-hero-info">
           <div class="bh-top">
