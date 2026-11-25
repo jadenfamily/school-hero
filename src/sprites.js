@@ -1706,11 +1706,13 @@ function roundRect(g, x, y, w, h, r) {
 function drawFace(g, av, cx, cy, s, opts = {}) {
   const hair = hex(av.hair), skin = hex(av.skin), uni = hex(av.uniform), accent = hex(av.accent || av.uniform);
   const style = av.hairStyle || 'short';
+  // 초상화 비율: 얼굴이 크고 눈이 큰 애니메 얼굴 (초상화 PNG와 같은 캐릭터로 읽히게)
+  // faceW/H는 얼굴 타원, 눈은 그 안에서 크게.
   const faceW = 26 * s, faceH = 30 * s;
   // 목
   g.fillStyle = shade(skin, -0.12);
   g.fillRect(cx - 6 * s, cy + faceH * 0.42, 12 * s, 12 * s);
-  // 뒷머리
+  // 뒷머리 (얼굴보다 넓고 길게 — 초상화의 풍성한 머리)
   g.fillStyle = shade(hair, -0.18);
   g.beginPath();
   g.ellipse(cx, cy + 2 * s, faceW * 0.72, faceH * 0.74, 0, 0, TAU);
@@ -1720,7 +1722,7 @@ function drawFace(g, av, cx, cy, s, opts = {}) {
     g.ellipse(cx, cy + faceH * 0.85, faceW * 0.78, faceH * 0.95, 0, 0, TAU);
     g.fill();
   }
-  // 얼굴
+  // 얼굴 (피부 그라데이션 + 아래쪽 그림자)
   const grd = g.createLinearGradient(cx, cy - faceH * 0.5, cx, cy + faceH * 0.6);
   grd.addColorStop(0, shade(skin, 0.14));
   grd.addColorStop(1, shade(skin, -0.12));
@@ -1728,36 +1730,11 @@ function drawFace(g, av, cx, cy, s, opts = {}) {
   g.beginPath();
   g.ellipse(cx, cy, faceW * 0.5, faceH * 0.52, 0, 0, TAU);
   g.fill();
-  // 볼
-  g.fillStyle = 'rgba(255,130,130,.22)';
-  g.beginPath(); g.ellipse(cx - faceW * 0.3, cy + faceH * 0.14, 4.6 * s, 3 * s, 0, 0, TAU); g.fill();
-  g.beginPath(); g.ellipse(cx + faceW * 0.3, cy + faceH * 0.14, 4.6 * s, 3 * s, 0, 0, TAU); g.fill();
-  // 눈
-  const eyeY = cy + faceH * 0.04, eyeDX = faceW * 0.24, eyeW = 4.4 * s, eyeH = 5.6 * s;
-  const iris = opts.iris || accent;
-  for (const sd of [-1, 1]) {
-    g.fillStyle = '#ffffff';
-    g.beginPath(); g.ellipse(cx + sd * eyeDX, eyeY, eyeW, eyeH, 0, 0, TAU); g.fill();
-    g.fillStyle = shade(iris, -0.15);
-    g.beginPath(); g.ellipse(cx + sd * eyeDX, eyeY + 0.4 * s, eyeW * 0.66, eyeH * 0.74, 0, 0, TAU); g.fill();
-    g.fillStyle = '#12141c';
-    g.beginPath(); g.ellipse(cx + sd * eyeDX, eyeY + 0.6 * s, eyeW * 0.34, eyeH * 0.46, 0, 0, TAU); g.fill();
-    g.fillStyle = '#ffffff';
-    g.beginPath(); g.arc(cx + sd * eyeDX - 1.6 * s, eyeY - 1.8 * s, 1.3 * s, 0, TAU); g.fill();
-    // 눈꼬리
-    g.strokeStyle = '#2a2230'; g.lineWidth = 1.2 * s; g.lineCap = 'round';
-    g.beginPath(); g.moveTo(cx + sd * (eyeDX - eyeW), eyeY - eyeH * 0.75); g.lineTo(cx + sd * (eyeDX + eyeW), eyeY - eyeH * 0.55); g.stroke();
-  }
-  // 눈썹
-  g.strokeStyle = shade(hair, -0.05); g.lineWidth = 1.6 * s;
-  g.beginPath(); g.moveTo(cx - eyeDX - eyeW * 0.9, eyeY - eyeH * 1.3); g.lineTo(cx - eyeDX + eyeW * 0.7, eyeY - eyeH * 1.55); g.stroke();
-  g.beginPath(); g.moveTo(cx + eyeDX + eyeW * 0.9, eyeY - eyeH * 1.3); g.lineTo(cx + eyeDX - eyeW * 0.7, eyeY - eyeH * 1.55); g.stroke();
-  // 코 · 입
-  g.fillStyle = shade(skin, -0.28);
-  g.beginPath(); g.ellipse(cx, cy + faceH * 0.16, 1.4 * s, 1 * s, 0, 0, TAU); g.fill();
-  g.strokeStyle = '#b8545e'; g.lineWidth = 1.5 * s;
-  g.beginPath(); g.arc(cx, cy + faceH * 0.26, 3.4 * s, 0.15 * Math.PI, 0.85 * Math.PI); g.stroke();
-  // 앞머리
+  // 얼굴 아래쪽 그림자 (턱선 입체감)
+  g.fillStyle = 'rgba(120,70,60,.10)';
+  g.beginPath(); g.ellipse(cx, cy + faceH * 0.34, faceW * 0.34, faceH * 0.16, 0, 0, Math.PI, TAU); g.fill();
+  drawFaceFeatures(g, av, cx, cy, s, opts);
+  // 앞머리 (이마를 덮되 눈은 가리지 않게 — 아래쪽 가장자리가 눈썹 바로 위)
   g.fillStyle = hair;
   g.beginPath();
   g.moveTo(cx - faceW * 0.62, cy - faceH * 0.16);
@@ -1766,6 +1743,19 @@ function drawFace(g, av, cx, cy, s, opts = {}) {
   g.quadraticCurveTo(cx + faceW * 0.52, cy - faceH * 0.3, cx + faceW * 0.18, cy - faceH * 0.38);
   g.quadraticCurveTo(cx - faceW * 0.1, cy - faceH * 0.2, cx - faceW * 0.22, cy - faceH * 0.34);
   g.quadraticCurveTo(cx - faceW * 0.5, cy - faceH * 0.26, cx - faceW * 0.62, cy - faceH * 0.16);
+  g.fill();
+  // 앞머리 가닥 (3톤: 기본 + 밝은 가닥 + 어두운 가닥 — 은은하게)
+  g.fillStyle = shade(hair, 0.12);
+  g.beginPath();
+  g.moveTo(cx - faceW * 0.34, cy - faceH * 0.62);
+  g.quadraticCurveTo(cx - faceW * 0.2, cy - faceH * 0.3, cx - faceW * 0.08, cy - faceH * 0.42);
+  g.quadraticCurveTo(cx - faceW * 0.16, cy - faceH * 0.66, cx - faceW * 0.34, cy - faceH * 0.62);
+  g.fill();
+  g.fillStyle = shade(hair, -0.2);
+  g.beginPath();
+  g.moveTo(cx + faceW * 0.3, cy - faceH * 0.6);
+  g.quadraticCurveTo(cx + faceW * 0.42, cy - faceH * 0.3, cx + faceW * 0.26, cy - faceH * 0.36);
+  g.quadraticCurveTo(cx + faceW * 0.2, cy - faceH * 0.62, cx + faceW * 0.3, cy - faceH * 0.6);
   g.fill();
   if (style === 'messy') {
     for (let i = 0; i < 5; i++) {
@@ -1785,9 +1775,11 @@ function drawFace(g, av, cx, cy, s, opts = {}) {
     g.beginPath(); g.ellipse(cx - faceW * 0.62, cy + faceH * 0.36, faceW * 0.18, faceH * 0.6, 0.08, 0, TAU); g.fill();
     g.beginPath(); g.ellipse(cx + faceW * 0.62, cy + faceH * 0.36, faceW * 0.18, faceH * 0.6, -0.08, 0, TAU); g.fill();
   }
-  // 머리 광택
-  g.fillStyle = 'rgba(255,255,255,.22)';
+  // 머리 광택 (2개 — 초상화의 윤기, 은은하게)
+  g.fillStyle = 'rgba(255,255,255,.10)';
   g.beginPath(); g.ellipse(cx - faceW * 0.2, cy - faceH * 0.46, faceW * 0.22, faceH * 0.09, -0.3, 0, TAU); g.fill();
+  g.fillStyle = 'rgba(255,255,255,.07)';
+  g.beginPath(); g.ellipse(cx + faceW * 0.24, cy - faceH * 0.4, faceW * 0.12, faceH * 0.06, -0.3, 0, TAU); g.fill();
   // 리본 / 장식
   if (opts.ribbon || av.ribbon && (style === 'long' || style === 'bob')) {
     const rb = hex(av.ribbon || 0xff9ec4);
@@ -1799,28 +1791,96 @@ function drawFace(g, av, cx, cy, s, opts = {}) {
       g.beginPath(); g.arc(cx + faceW * 0.5, cy - faceH * 0.44, 1.4 * s, 0, TAU); g.fill();
     }
   }
-  // 교복 깃
+  // 교복 깃 (턱 아래, 어깨 위 — 얼굴을 가리지 않게 턱 아래부터)
   if (opts.collar !== false) {
     g.fillStyle = uni;
     g.beginPath();
-    g.moveTo(cx - 15 * s, cy + 32 * s);
-    g.lineTo(cx - 6 * s, cy + 21 * s);
-    g.lineTo(cx + 6 * s, cy + 21 * s);
-    g.lineTo(cx + 15 * s, cy + 32 * s);
+    g.moveTo(cx - 15 * s, cy + 58 * s);
+    g.lineTo(cx - 6 * s, cy + 44 * s);
+    g.lineTo(cx + 6 * s, cy + 44 * s);
+    g.lineTo(cx + 15 * s, cy + 58 * s);
     g.closePath(); g.fill();
     g.fillStyle = '#f4f7ff';
     g.beginPath();
-    g.moveTo(cx - 7 * s, cy + 21 * s); g.lineTo(cx, cy + 26 * s); g.lineTo(cx + 7 * s, cy + 21 * s);
-    g.lineTo(cx + 4 * s, cy + 20 * s); g.lineTo(cx, cy + 23.4 * s); g.lineTo(cx - 4 * s, cy + 20 * s);
+    g.moveTo(cx - 7 * s, cy + 44 * s); g.lineTo(cx, cy + 52 * s); g.lineTo(cx + 7 * s, cy + 44 * s);
+    g.lineTo(cx + 4 * s, cy + 43 * s); g.lineTo(cx, cy + 48 * s); g.lineTo(cx - 4 * s, cy + 43 * s);
     g.closePath(); g.fill();
     g.fillStyle = style === 'long' || style === 'bob' ? hex(av.ribbon || 0xd04848) : '#3d6fd6';
-    g.beginPath(); g.moveTo(cx, cy + 24 * s); g.lineTo(cx + 3.4 * s, cy + 27 * s); g.lineTo(cx, cy + 34 * s); g.lineTo(cx - 3.4 * s, cy + 27 * s); g.closePath(); g.fill();
+    g.beginPath(); g.moveTo(cx, cy + 50 * s); g.lineTo(cx + 3.4 * s, cy + 55 * s); g.lineTo(cx, cy + 64 * s); g.lineTo(cx - 3.4 * s, cy + 55 * s); g.closePath(); g.fill();
   }
   // 후드
   if (av.hood) {
     g.strokeStyle = shade(uni, -0.1); g.lineWidth = 5 * s;
     g.beginPath(); g.ellipse(cx, cy - faceH * 0.1, faceW * 0.82, faceH * 0.86, 0, Math.PI * 0.15, Math.PI * 0.85, true); g.stroke();
   }
+}
+
+// 얼굴 특징만 그린다 (볼·눈·눈썹·코·입) — drawFace와 3D 얼굴 텍스처가 공유한다.
+// (cx, cy)는 얼굴 중심, s는 drawFace와 같은 스케일 단위.
+export function drawFaceFeatures(g, av, cx, cy, s, opts = {}) {
+  const hair = hex(av.hair), skin = hex(av.skin), accent = hex(av.accent || av.uniform);
+  const faceW = 26 * s, faceH = 30 * s;
+  // 볼 터치 (눈 아래, 볼 중심)
+  g.fillStyle = 'rgba(255,130,130,.26)';
+  g.beginPath(); g.ellipse(cx - faceW * 0.34, cy + faceH * 0.18, 4.6 * s, 3 * s, 0, 0, TAU); g.fill();
+  g.beginPath(); g.ellipse(cx + faceW * 0.34, cy + faceH * 0.18, 4.6 * s, 3 * s, 0, 0, TAU); g.fill();
+  // 눈 — 초상화처럼 크고 또렷하게 (공막 + 홍채 링 + 동공 + 하이라이트 2개 + 속눈썹)
+  // 얼굴 안에 여유 있게 (양쪽 눈 사이·얼굴 가장자리와 간격 확보)
+  const eyeY = cy + faceH * 0.04, eyeDX = faceW * 0.26, eyeW = 4.8 * s, eyeH = 6.4 * s;
+  const iris = opts.iris || accent;
+  for (const sd of [-1, 1]) {
+    const ex = cx + sd * eyeDX;
+    g.fillStyle = '#ffffff';
+    g.beginPath(); g.ellipse(ex, eyeY, eyeW, eyeH, 0, 0, TAU); g.fill();
+    const ig = g.createLinearGradient(ex, eyeY - eyeH * 0.8, ex, eyeY + eyeH * 0.8);
+    ig.addColorStop(0, shade(iris, -0.35));
+    ig.addColorStop(0.55, hex(iris));
+    ig.addColorStop(1, shade(iris, 0.25));
+    g.fillStyle = ig;
+    g.beginPath(); g.ellipse(ex, eyeY + 0.4 * s, eyeW * 0.66, eyeH * 0.74, 0, 0, TAU); g.fill();
+    g.strokeStyle = shade(iris, -0.5); g.lineWidth = 1.1 * s;
+    g.beginPath(); g.ellipse(ex, eyeY + 0.4 * s, eyeW * 0.66, eyeH * 0.74, 0, 0, TAU); g.stroke();
+    g.fillStyle = '#12141c';
+    g.beginPath(); g.ellipse(ex, eyeY + 0.6 * s, eyeW * 0.34, eyeH * 0.46, 0, 0, TAU); g.fill();
+    g.fillStyle = '#ffffff';
+    g.beginPath(); g.arc(ex - 1.6 * s, eyeY - 1.8 * s, 1.3 * s, 0, TAU); g.fill();
+    g.beginPath(); g.arc(ex + 1.8 * s, eyeY + 2 * s, 0.8 * s, 0, TAU); g.fill();
+    g.strokeStyle = '#2a2230'; g.lineWidth = 1.2 * s; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(ex - eyeW, eyeY - eyeH * 0.75); g.lineTo(ex + eyeW, eyeY - eyeH * 0.55); g.stroke();
+    g.lineWidth = 1.4 * s;
+    g.beginPath();
+    g.moveTo(cx + sd * (eyeDX + eyeW * 0.9), eyeY - eyeH * 0.75);
+    g.lineTo(cx + sd * (eyeDX + eyeW * 1.25), eyeY - eyeH * 1.05);
+    g.stroke();
+    g.strokeStyle = 'rgba(120,70,60,.45)'; g.lineWidth = 0.9 * s;
+    g.beginPath(); g.arc(ex, eyeY + 0.4 * s, eyeH * 0.78, 0.25 * Math.PI, 0.75 * Math.PI); g.stroke();
+  }
+  // 눈썹 (앞머리 아래·눈 바로 위 — 앞머리 가장자리와 눈 사이에 들어가게)
+  g.strokeStyle = shade(hair, -0.05); g.lineWidth = 2 * s; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(cx - eyeDX - eyeW * 0.9, eyeY - eyeH * 0.95); g.lineTo(cx - eyeDX + eyeW * 0.7, eyeY - eyeH * 1.25); g.stroke();
+  g.beginPath(); g.moveTo(cx + eyeDX + eyeW * 0.9, eyeY - eyeH * 0.95); g.lineTo(cx + eyeDX - eyeW * 0.7, eyeY - eyeH * 1.25); g.stroke();
+  // 코 · 입
+  g.fillStyle = shade(skin, -0.28);
+  g.beginPath(); g.ellipse(cx, cy + faceH * 0.16, 1.4 * s, 1 * s, 0, 0, TAU); g.fill();
+  g.strokeStyle = '#b8545e'; g.lineWidth = 1.5 * s; g.lineCap = 'round';
+  g.beginPath(); g.arc(cx, cy + faceH * 0.26, 3.4 * s, 0.15 * Math.PI, 0.85 * Math.PI); g.stroke();
+}
+
+// 3D 머리 앞면에 붙는 구면 캡용 얼굴 텍스처 (투명 배경, 특징만).
+// 캡 UV: u 0..1 ↔ phi ±0.75rad (앞면), v 0..1 ↔ theta 0.85..2.05rad.
+// 눈이 캡 중앙(x=±0.21u, y=0.39v)에 오도록 drawFaceFeatures 좌표를 맞춘다.
+export function faceTextureFor3D(av, size = 256) {
+  const { c, g } = makeCanvas(size, size);
+  drawFaceFeatures(g, av, size / 2, size * 0.35, size / 31.5, { iris: av.iris });
+  return c;
+}
+
+// 초상화 스타일 얼굴만 그린 캔버스 (검증용 — 가방/3D와 같은 특징을 쓰는지 확인)
+// 머리 전체가 캔버스 안에 들어오도록 s=size/52, cy=size*0.41.
+export function portraitFaceCanvas(av, size = 256) {
+  const { c, g } = makeCanvas(size, size);
+  drawFace(g, av, size / 2, size * 0.41, size / 52, { iris: av.iris, collar: false });
+  return c;
 }
 
 export function heroPortraitDataUrl(av) {
@@ -1924,9 +1984,11 @@ export function heroFullCanvas(av, eq, size = 150, opts = {}) {
     g.beginPath(); g.moveTo(cx - 26, 288); g.lineTo(cx + 26, 288); g.lineTo(cx + 36, 346); g.lineTo(cx - 36, 346); g.closePath(); g.fill();
   }
 
-  // 몸통
-  el(g, cx, 225, 44, 62, shade(outfit, -0.14));
-  el(g, cx, 225, 40, 58, outfit);
+  // 몸통 (가슴 → 허리 테이퍼 + 옆면 그림자로 입체감 — 망토보다 밝게 해서 몸이 읽히게)
+  el(g, cx, 228, 40, 56, shade(outfit, -0.14));
+  el(g, cx, 228, 36, 52, shade(outfit, 0.28));
+  el(g, cx - 26, 228, 8, 44, shade(outfit, -0.35)); // 왼쪽 옆면 그림자
+  el(g, cx + 26, 228, 8, 44, shade(outfit, 0.55)); // 오른쪽 하이라이트
   if (aFam === 'blunt' || aFam === 'ranged') {
     el(g, cx, 222, 34, 48, aFam === 'ranged' ? '#c8d3e2' : '#a8b3c4');
     el(g, cx, 216, 20, 28, shade(aFam === 'ranged' ? '#c8d3e2' : '#a8b3c4', 0.28));
@@ -1978,7 +2040,9 @@ export function heroFullCanvas(av, eq, size = 150, opts = {}) {
   g.beginPath(); g.moveTo(cx - 32, 146); g.lineTo(cx + 32, 146); g.lineTo(cx + 44, 178); g.lineTo(cx - 44, 178); g.closePath(); g.fill();
 
   // 얼굴 (초상화와 같은 anime 얼굴 — 큰 눈·눈썹·아바타 머리·리본)
-  drawFace(g, A, cx, 100, 1.65, { iris: A.iris });
+  // s=2.6: 얼굴이 몸통보다 크게 (초상화 비율), 눈은 더 크게
+  // collar:false — 깃·넥타이는 전신 쪽(셔츠 깃 + 넥타이)이 그리므로 얼굴 쪽 깃은 끈다
+  drawFace(g, A, cx, 100, 2.6, { iris: A.iris, collar: false });
 
   // 아바타별 머리 추가 (drawFace는 hairStyle만 보므로 hair3d 차이를 여기서 보완)
   if (hs3 === 'twin') {
@@ -1992,39 +2056,39 @@ export function heroFullCanvas(av, eq, size = 150, opts = {}) {
     el(g, cx, 72, 6, 4, rb);
   }
 
-  // 코스튬 머리 장식 (얼굴 위에 그린다)
+  // 코스튬 머리 장식 (얼굴 위에 그린다 — 큰 얼굴(s=2.6)에 맞춘 크기)
   if (vis) {
     if (vis.head === 'hood') {
-      g.strokeStyle = shade(cape, 0.12); g.lineWidth = 7;
-      g.beginPath(); g.ellipse(cx, 99, 40, 42, 0, 0, TAU); g.stroke();
+      g.strokeStyle = shade(cape, 0.12); g.lineWidth = 5;
+      g.beginPath(); g.ellipse(cx, 99, 54, 56, 0, 0, TAU); g.stroke();
       if (vis.rim) { // 후드 안쪽 밝은 테두리 — 얼굴이 후드에 묻히지 않게
         g.strokeStyle = vis.rim; g.lineWidth = 2; g.globalAlpha = 0.85;
-        g.beginPath(); g.ellipse(cx, 99, 35, 37, 0, 0, TAU); g.stroke(); g.globalAlpha = 1;
+        g.beginPath(); g.ellipse(cx, 99, 49, 51, 0, 0, TAU); g.stroke(); g.globalAlpha = 1;
       }
-      tri(g, cx - 12, 66, cx + 12, 66, cx, 50, shade(cape, 0.12));
+      tri(g, cx - 13, 62, cx + 13, 62, cx, 44, shade(cape, 0.12));
     } else if (vis.head === 'tricorn') {
-      el(g, cx, 66, 44, 11, '#2b2b33'); el(g, cx, 60, 20, 12, '#2b2b33');
-      ln(g, cx - 40, 66, cx + 40, 66, '#ffd257', 2);
-      tri(g, cx - 42, 66, cx - 32, 66, cx - 42, 52, '#2b2b33'); tri(g, cx + 42, 66, cx + 32, 66, cx + 42, 52, '#2b2b33');
+      el(g, cx, 64, 52, 12, '#2b2b33'); el(g, cx, 58, 22, 13, '#2b2b33');
+      ln(g, cx - 48, 64, cx + 48, 64, '#ffd257', 2);
+      tri(g, cx - 48, 64, cx - 38, 64, cx - 48, 50, '#2b2b33'); tri(g, cx + 48, 64, cx + 38, 64, cx + 48, 50, '#2b2b33');
     } else if (vis.head === 'kabuto') {
-      el(g, cx, 68, 30, 20, '#8c1f28');
-      tri(g, cx - 28, 64, cx - 50, 42, cx - 22, 56, '#dfe7f2'); tri(g, cx + 28, 64, cx + 50, 42, cx + 22, 56, '#dfe7f2');
-      el(g, cx, 60, 6, 6, '#ffd257');
+      el(g, cx, 64, 34, 22, '#8c1f28');
+      tri(g, cx - 30, 62, cx - 56, 38, cx - 24, 54, '#dfe7f2'); tri(g, cx + 30, 62, cx + 56, 38, cx + 24, 54, '#dfe7f2');
+      el(g, cx, 56, 7, 7, '#ffd257');
     } else if (vis.head === 'crown') {
-      rct(g, cx - 22, 56, 44, 12, '#ffd257');
-      tri(g, cx - 22, 56, cx - 16, 44, cx - 10, 56, '#ffd257');
-      tri(g, cx - 6, 56, cx, 42, cx + 6, 56, '#ffd257');
-      tri(g, cx + 10, 56, cx + 16, 44, cx + 22, 56, '#ffd257');
+      rct(g, cx - 24, 50, 48, 13, '#ffd257');
+      tri(g, cx - 24, 50, cx - 17, 36, cx - 9, 50, '#ffd257');
+      tri(g, cx - 7, 50, cx, 34, cx + 7, 50, '#ffd257');
+      tri(g, cx + 9, 50, cx + 17, 36, cx + 24, 50, '#ffd257');
     } else if (vis.head === 'halo') {
       g.strokeStyle = '#ffd257'; g.lineWidth = 3;
-      g.beginPath(); g.ellipse(cx, 50, 24, 7, 0, 0, TAU); g.stroke();
+      g.beginPath(); g.ellipse(cx, 44, 27, 8, 0, 0, TAU); g.stroke();
     } else if (vis.head === 'antler') {
-      ln(g, cx - 24, 74, cx - 38, 44, '#8a6a3a', 4); ln(g, cx - 32, 58, cx - 44, 52, '#8a6a3a', 3);
-      ln(g, cx + 24, 74, cx + 38, 44, '#8a6a3a', 4); ln(g, cx + 32, 58, cx + 44, 52, '#8a6a3a', 3);
+      ln(g, cx - 26, 70, cx - 42, 40, '#8a6a3a', 4); ln(g, cx - 34, 54, cx - 48, 46, '#8a6a3a', 3);
+      ln(g, cx + 26, 70, cx + 42, 40, '#8a6a3a', 4); ln(g, cx + 34, 54, cx + 48, 46, '#8a6a3a', 3);
     } else if (vis.head === 'crest') {
-      tri(g, cx - 6, 64, cx + 6, 64, cx, 38, '#ffd257');
+      tri(g, cx - 7, 58, cx + 7, 58, cx, 32, '#ffd257');
     }
-    if (vis.mask) rct(g, cx - 22, 104, 44, 17, '#20242e'); // 복면 (눈만 보이게)
+    if (vis.mask) rct(g, cx - 26, 112, 52, 20, '#20242e'); // 복면 (눈만 보이게)
   }
 
   // 무기 (치켜든 오른손)
