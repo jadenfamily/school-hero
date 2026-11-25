@@ -1020,6 +1020,98 @@ export function makePlayer(THREE, family = 'sword', av = null, equip = null, app
     costumeId: eq.costumeId, grade: eq.weapon ? (eq.weapon.grade || 0) : 0,
   });
 }
+// ---------- GLB 주인공 테스트 (?hero=glb) ----------
+// Tripo에서 만든 시우 GLB(assets/siwoo.glb)를 플레이어 대신 쓴다. 이 함수를 부르는 곳은
+// game.js의 GLB 분기뿐이라, 플래그가 없으면 절차적 makeHumanoid3D 주인공이 그대로다.
+// GLB는 뼈대·애니메이션이 없는 정적 메쉬라서 팔다리 애니메이션은 하지 않고 전신만
+// 움직인다 (걷기 바운스 + 공격 돌진). 코스튬·무기 교체도 GLB에 반영되지 않는다.
+// 얼굴은 +Z를 향한다 (절차적 플레이어의 앞면과 같은 방향 — UV/정점 분석으로 확인됨).
+export const GLB_HERO_TARGET_HEIGHT = 2.85; // 절차적 주인공과 같은 키 (makePlayer 1.9 × 1.5)
+const GLTF_LOADER_URLS = [
+  '../vendor/loaders/GLTFLoader.js',
+  '../vendor/GLTFLoader.js',
+  'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js',
+  'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js',
+];
+
+async function importGlTFLoader() {
+  let lastErr = null;
+  for (const u of GLTF_LOADER_URLS) {
+    try {
+      const m = await import(u);
+      if (m && m.GLTFLoader) return m.GLTFLoader;
+    } catch (e) { lastErr = e; }
+  }
+  throw new Error('gltf-loader-unavailable' + (lastErr && lastErr.message ? ': ' + lastErr.message : ''));
+}
+
+function loadGlbWithLoader(LoaderClass, url) {
+  return new Promise((resolve, reject) => {
+    const loader = new LoaderClass();
+    loader.load(url, resolve, undefined, (err) => reject(err instanceof Error ? err : new Error('glb-load-failed')));
+  });
+}
+
+// GLB 전신 애니메이션: 팔다리는 건드리지 않고 몸 전체만 움직인다.
+// (게임 루프가 매 프레임 mesh.position을 플레이어 위치로 다시 맞추므로 += 보정이다.)
+function makeGlbHeroAnimator(outer, inner) {
+  let t = 0;
+  return (p, dt) => {
+    t += dt;
+    const on = p.atkAnim > 0;
+    const k = on ? Math.min(1, 1 - p.atkAnim / (p.atkAnimMax || 0.22)) : 1;
+    const bobY = (p.moving && !on) ? Math.abs(Math.sin(p.walkT)) * 0.05 : Math.sin(t * 2.1) * 0.012;
+    outer.position.y += bobY;
+    if (on) {
+      // 공격 돌진: 빠르게 나가서 돌아온다 (전신만)
+      const s = Math.sin(k * Math.PI);
+      outer.position.x += Math.sin(p.facing) * 0.3 * s;
+      outer.position.z += Math.cos(p.facing) * 0.3 * s;
+      inner.rotation.x = 0.08 * s; // 살짝 앞으로 숙이기
+    } else {
+      inner.rotation.x = 0;
+    }
+  };
+}
+
+export async function loadGlbHero(THREE, url) {
+  const LoaderClass = await importGlTFLoader();
+  const gltf = await loadGlbWithLoader(LoaderClass, url);
+  const src = gltf.scene;
+  // 키 맞추기: GLB 원본 높이(약 99.84 단위, y=0 바닥)를 주인공 키 2.85m로
+  const box = new THREE.Box3().setFromObject(src);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  if (!isFinite(size.y) || size.y <= 0) throw new Error('glb-bad-bounds');
+  const scale = GLB_HERO_TARGET_HEIGHT / size.y;
+  const inner = new THREE.Group();
+  src.position.y -= box.min.y * scale;
+  src.scale.setScalar(scale);
+  inner.add(src);
+  inner.add(blobShadow(THREE, 0.42));
+  // 그림자 (절차적 주인공과 같은 방식)
+  inner.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+
+  const outer = new THREE.Group();
+  outer.add(inner);
+  // 팔다리 피벗 스텁 — 빈 Object3D라서 돌려도 보이는 부분은 움직이지 않는다.
+  // animateArm 등 기존 코드가 userData.armR/armL/legL/legR/head를 찾아도 크래시가 나지 않는다.
+  // (실제 모션은 userData.animate가 전신만 움직인다.)
+  const stub = (x, y, z) => { const o = new THREE.Object3D(); o.position.set(x, y, z); inner.add(o); return o; };
+  const armR = stub(0.28, 1.08, 0);
+  const armL = stub(-0.28, 1.08, 0);
+  const legL = stub(-0.11, 0.55, 0);
+  const legR = stub(0.11, 0.55, 0);
+  const head = stub(0, 1.44, 0);
+  outer.userData = {
+    avatar: null, height: GLB_HERO_TARGET_HEIGHT, headY: 2.4, radius: 0.63,
+    armR, armL, legL, legR, body: inner, head, weapon: null, weaponGroup: null,
+    isHeroSprite: false, glbHero: true,
+  };
+  outer.userData.animate = makeGlbHeroAnimator(outer, inner);
+  return outer;
+}
+
 // ---------- 도트(복셀) 스타일 몬스터 도우미 ----------
 // 몬스터는 구·원뿔·원기둥·토러스를 쓰지 않고 상자(복셀)만으로 만든다.
 // 치수는 0.04m 복셀 격자에 맞춰져 도트 스타일 지도 텍스처와 같은 결을 낸다.
