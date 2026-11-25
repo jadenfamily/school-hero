@@ -5,6 +5,7 @@ import {
   itemOptions, defaultBalance, MOB_REWARD, OPT_LABEL,
   AVATARS, AVATAR_MAP, avatarOf, SKILLS,
   COMPANION_SKILLS, COMPANION_SKILL_POOLS, SKILL_BOOK_SKILL, COMPANION_SKILL_MAX_LEVEL, COMPANION_DMG_FACTOR,
+  COMPANION_LV_PER, COMPANION_LV_HIGH_PER, COMPANION_LV_FLAT_AFTER,
   BOSS_TIMER, BOSS_LABEL, EVOLVE_NEED, SOUL_KINDS, COSTUMES, COSTUME_MAP, COSTUME_PULL_COST, COSTUME_MAX_LEVEL, costumeLevelMult, COMPANION_PULL_COST,
   ELEMENTS, ELEM_BEATS, EARTH_GATE,
 } from './data.js';
@@ -105,8 +106,6 @@ export function createGame(THREE) {
     talents: [],
     companions: [],
     party: [],
-    slotLv: [1, 1, 1], // 파티 슬롯별 동료 레벨 (동료 개개인이 아니라 슬롯에 매겨진다)
-    slotXp: [0, 0, 0], // 파티 슬롯별 동료 경험치
     unlocked: [1],
     zoneKills: {},
     chestOpened: [],
@@ -268,10 +267,9 @@ export function createGame(THREE) {
     // 다시 로드해도 아무 일도 일어나지 않는다 (멱등).
     // 생존자: 가장 높은 레벨 (동점이면 가장 높은 등급, 그래도 동점이면 목록의 첫 번째).
     // 복사본마다 가챠 중복 규칙을 적용한다: 생존자 등급이 5 미만이면 등급 +1,
-    // 스킬 보너스도 +1. 이미 신화(5등급)면 스킬 보너스만 +1 (레벨은 슬롯에 산다).
+    // 스킬 보너스도 +1. 이미 신화(5등급)면 스킬 보너스만 +1 (동료 레벨은 주인공 레벨을
+    // 따라가므로 레벨 보상은 없다 — 생존자 lv는 기록용으로만 남는다).
     // 파티에 있던 복사본 자리는 생존자가 한 번만 이어받는다.
-    // (레벨은 슬롯에 살지만, 여기서 정한 생존자 레벨은 뒤의 슬롯 마이그레이션이
-    // 파티 기준으로 가져가므로, 정리된 레벨이 슬롯에 그대로 이어진다.)
     {
       const groups = new Map();
       for (const c of s.companions) {
@@ -318,31 +316,9 @@ export function createGame(THREE) {
       s.tutorial = { step: 3, done: true };
       s.introSeen = true;
     }
-    // 슬롯 레벨 정리 (동료 개편): 중복 정리보다 나중에 실행하므로 정리된 파티 기준으로 가져온다.
-    migrateSlotLevels(s, saved);
+    // (동료 레벨은 주인공 레벨을 그대로 따라간다 — 슬롯 레벨은 2026-11-25에 폐지.
+    //  예전 저장본의 slotLv/slotXp는 읽지 않고 버린다.)
     return s;
-  }
-
-  // 슬롯 레벨 마이그레이션 (동료 개편): 레벨은 파티 슬롯(0~2)에 산다.
-  // 저장본에 유효한 slotLv가 있으면 그대로 쓰고, 없으면 현재 파티 동료의
-  // 레벨/경험치를 슬롯으로 가져온다 (빈 슬롯은 Lv.1). 한 번 저장되면 다시 안 건드린다 (멱등).
-  // 중복 정리가 남긴 생존자 레벨(그룹 최대 + 신화 복사본 +5)도 이 단계에서 슬롯으로 이어진다.
-  function migrateSlotLevels(s, saved) {
-    const had = Array.isArray(saved.slotLv);
-    s.slotLv = [0, 1, 2].map((i) => {
-      const sv = had ? Number(saved.slotLv[i]) : NaN;
-      if (Number.isFinite(sv) && sv >= 1) return Math.min(999, Math.floor(sv));
-      const pid = (s.party || [])[i];
-      const pc = pid ? (s.companions || []).find((c) => c.id === pid) : null;
-      return Math.max(1, Math.floor(Number(pc && pc.lv) || 1));
-    });
-    s.slotXp = [0, 1, 2].map((i) => {
-      const sx = Array.isArray(saved.slotXp) ? Number(saved.slotXp[i]) : NaN;
-      if (Number.isFinite(sx) && sx >= 0) return Math.floor(sx);
-      const pid = (s.party || [])[i];
-      const pc = pid ? (s.companions || []).find((c) => c.id === pid) : null;
-      return Math.max(0, Math.floor(Number(pc && pc.xp) || 0));
-    });
   }
 
   game.setAvatar = function (id) {
@@ -400,7 +376,7 @@ export function createGame(THREE) {
       hp: Math.round(game.player ? game.player.hp : 0),
       avatar: s.avatar, avatarPicked: s.avatarPicked, heroName: s.heroName,
       bag: s.bag, equip: s.equip, charms: s.charms || [], souls: s.souls, talents: s.talents,
-      companions: s.companions, party: s.party, slotLv: s.slotLv, slotXp: s.slotXp, unlocked: s.unlocked,
+      companions: s.companions, party: s.party, unlocked: s.unlocked,
       zoneKills: s.zoneKills, chestOpened: s.chestOpened, chestsFound: s.chestsFound,
       quests: s.quests, zone: s.zone, kills: s.kills, pulls: s.pulls, balance: s.balance,
       skillbooks: s.skillbooks, skills: s.skills, tutorial: s.tutorial, introSeen: s.introSeen,
@@ -696,7 +672,7 @@ export function createGame(THREE) {
       const cls = COMPANION_CLASSES[c.cls];
       const mesh = makeCompanion(THREE, cls, GRADES[c.grade].color);
       scene.add(mesh);
-      const o = makeCompanionObj(c, cls, mesh, game.player.x - 1.6 + i * 1.6, game.player.z + 1.8, game.slotLevel(i));
+      const o = makeCompanionObj(c, cls, mesh, game.player.x - 1.6 + i * 1.6, game.player.z + 1.8);
       game.compObjects.push(o);
       game.companions.push(o);
       if (cls.id === 'tank' && !game.tank) game.tank = o;
@@ -1259,7 +1235,6 @@ export function createGame(THREE) {
     const ov = game.mobStats(zone.id, e.def);
     const xp = Math.round(ov.xp);
     game.gainXp(xp);
-    game.gainCompanionXp(Math.round(xp * 0.6));
     game.save();
     const normal = !e.elite && !e.isMid && !e.isBoss && !e.isField;
     if (game.ui) game.ui.rewardText(e.x, e.headY + 0.3, e.z, (normal || !lastOfGroup) ? `+${fmtNum(xp)} XP` : `+${fmtNum(xp)} XP  +${fmtNum(ov.gold)} G`);
@@ -1344,77 +1319,27 @@ export function createGame(THREE) {
     if (game.ui) game.ui.markDirty();
   };
 
-  // ---------- 동료 슬롯 레벨 ----------
-  // 레벨은 동료 개개인이 아니라 파티 슬롯(0~2)에 매겨진다. 동료를 바꾸면
-  // 새로 들어온 동료가 그 슬롯의 레벨로 싸운다. 동료 기록에 남는 lv/xp는
-  // 마이그레이션용으로만 쓰고 전투·표시에는 쓰지 않는다.
+  // ---------- 동료 레벨·피해 ----------
+  // 동료 레벨 = 주인공 레벨. 동료를 바꾸면 새로 들어온 동료도 즉시 주인공 레벨로 싸운다.
+  // 동료 기록에 남는 lv/xp는 쓰지 않는다 (기록용으로만 유지).
   function companionMaxHp(cls, grade, lv) {
     return Math.round(cls.hp * (1 + (grade || 0) * 0.15) * (1 + ((lv || 1) - 1) * 0.08));
   }
-  // 동료 피해: 레벨당 성장 0.18 + 전체 계수 0.6 (동료가 주인공보다 세지 않게).
+  // 동료 피해: 레벨 성장에 체감을 둔다 (50레벨까지 0.18/레벨, 이후 0.05/레벨) + 전체 계수 0.42.
   // 기본 공격·스킬 모두 이 함수를 거치므로 피해만 줄고, 체력·치유·도발은 그대로다.
+  // (선형 0.18로는 Lv.197에서 레벨 배율이 36배가 되어 동료가 주인공을 앞질렀다)
   function companionAtk(cls, grade, lv) {
-    return cls.atk * (1 + ((lv || 1) - 1) * 0.18) * (1 + (grade || 0) * 0.20) * COMPANION_DMG_FACTOR;
+    const L = Math.max(1, Math.floor(lv || 1));
+    const fac = 1 + COMPANION_LV_PER * Math.min(L - 1, COMPANION_LV_FLAT_AFTER - 1)
+      + COMPANION_LV_HIGH_PER * Math.max(0, L - COMPANION_LV_FLAT_AFTER);
+    return cls.atk * fac * (1 + (grade || 0) * 0.20) * COMPANION_DMG_FACTOR;
   }
   game.companionMaxHp = companionMaxHp;
   game.companionAtk = companionAtk;
-  game.slotLevel = function (i) {
-    const s = game.state;
-    if (!s || !Array.isArray(s.slotLv)) return 1;
-    return Math.max(1, Math.floor(Number(s.slotLv[i]) || 1));
-  };
-  // 동료 기록이 실제로 싸우는 레벨: 동행 중이면 자기 슬롯, 대기 중이면
-  // 배치될 슬롯(빈 슬롯이 있으면 그 슬롯, 없으면 가장 낮은 슬롯)의 레벨을 미리 보여준다.
-  game.effectiveCompanionLv = function (c) {
-    const s = game.state;
-    if (!s || !c) return 1;
-    const i = (s.party || []).indexOf(c.id);
-    if (i >= 0) return game.slotLevel(i);
-    const free = (s.party || []).length < 3 ? (s.party || []).length : -1;
-    if (free >= 0) return game.slotLevel(free);
-    return Math.min(game.slotLevel(0), game.slotLevel(1), game.slotLevel(2));
-  };
-  // 동료가 배치될 슬롯 번호 (0-based). 동행 중이면 자기 슬롯, 파티가 꽉 찼으면 -1.
-  game.previewSlotIndex = function (c) {
-    const s = game.state;
-    if (!s || !c) return -1;
-    const i = (s.party || []).indexOf(c.id);
-    if (i >= 0) return i;
-    return (s.party || []).length < 3 ? (s.party || []).length : -1;
-  };
-
-  // 슬롯에 경험치를 넣고 레벨업을 처리한다. 올랐으면 true.
-  function addSlotXp(s, i, n) {
-    s.slotXp[i] = (s.slotXp[i] || 0) + n;
-    let need = 60 + (s.slotLv[i] || 1) * 40;
-    let up = false;
-    while (s.slotXp[i] >= need) {
-      s.slotXp[i] -= need;
-      s.slotLv[i] = (s.slotLv[i] || 1) + 1;
-      need = 60 + s.slotLv[i] * 40;
-      up = true;
-    }
-    return up;
-  }
-
-  game.gainCompanionXp = function (n) {
-    // 경험치는 동행 중인 파티 슬롯(최대 3개)에 쌓인다. 빈 슬롯은 성장하지 않는다.
-    const s = game.state;
-    if (!s) return;
-    for (let i = 0; i < 3; i++) {
-      if (i >= (s.party || []).length) continue;
-      if (!addSlotXp(s, i, n)) continue;
-      // 살아 있는 동료의 최대 체력도 새 슬롯 레벨에 맞춘다 (늘어난 만큼 현재 체력도 채운다)
-      const pid = s.party[i];
-      const live = pid ? (game.companions || []).find((x) => x.data && x.data.id === pid) : null;
-      if (live) {
-        const old = live.maxHp;
-        live.maxHp = companionMaxHp(live.cls, live.data.grade, s.slotLv[i]);
-        live.slotLv = s.slotLv[i];
-        live.hp = Math.min(live.maxHp, live.hp + Math.max(0, live.maxHp - old));
-      }
-      if (game.ui) game.ui.toast(`동료 슬롯 ${i + 1} Lv.${s.slotLv[i]} 달성!`, 'good');
-    }
+  // 동료 레벨 = 주인공 레벨. 동료는 따로 경험치를 얻지 않는다 (슬롯 레벨 폐지, 2026-11-25).
+  // 동료를 바꾸면 새 동료도 즉시 주인공 레벨로 싸운다.
+  game.effectiveCompanionLv = function () {
+    return Math.max(1, Math.floor(Number(game.state && game.state.level) || 1));
   };
 
   // ---------- 플레이어 ----------
@@ -1500,6 +1425,17 @@ export function createGame(THREE) {
   // 무기별 공격 모션: 검 가로 베기 · 단검 찌르기 · 도끼/둔기 내려찍기 · 활/석궁 조준 · 지팡이/책 시전
   // — 모션이 작아 폰에서 안 보인다는 피드백을 받아, 무기마다 크게 다르게 과장했다.
   // — 무기를 바꿔 들면 0.45초간 플러리시(무기 들어올려 한 바퀴 돌리기)가 뜬다 (p.switchT).
+  //
+  // 휘두르기 재설계 (2026-11-25): 예전 모션은 세 가지가 어색했다.
+  //  1) 시작·끝 자세가 휴식 자세(0,0)가 아니라서 휘두르기 첫 프레임과 마지막 프레임에 팔이 텔레포트했다
+  //     (검 rx -0.3/rz -1.1, 도끼 rx -2.9, 지팡이 rx -1.2, 활 rx -1.45에서 시작).
+  //  2) Math.sin(k*PI) 대칭 범프라 나갔다가 정확히 같은 길을 되돌아왔다 — 팔로우스루가 없어 휘두른 게 아니라
+  //     휘젓는 것처럼 보였다.
+  //  3) 데미지·이펙트는 k=0에 나가는데 시각적 타격은 k=0.5에 정점을 찍어 어긋났다.
+  // 그래서 모든 곡선은 휴식 자세에서 시작해 휴식 자세로 끝나고,
+  // 타격 → 팔로우스루(같은 방향으로 계속) → 회복 순서의 3단계 키프레임으로 바꿨다.
+  // 데미지·이펙트가 k=0에 나가므로 타격 단계는 앞쪽에 몰아 빠르게 친다.
+  // 공격 중에는 다리를 멈추고 디딤 자세를 잡는다 (걷기 스윙이 휘두르는 동안 계속되지 않게).
   function animateArm(p, m, dt) {
     const armR = m.userData.armR;
     const armL = m.userData.armL;
@@ -1509,31 +1445,54 @@ export function createGame(THREE) {
     const on = p.atkAnim > 0;
     const sw = p.switchT > 0 ? 1 - p.switchT / 0.45 : 0; // 무기 교체 플러리시 진행도 (0→1)
     const swOn = sw > 0 && sw < 1;
+    // 구간 이징: eoc 빠르게 시작해 느리게 끝 (타격), eiq 느리게 시작해 가속 (내려찍기), sm 부드러운 회복
+    const eoc = (t) => 1 - Math.pow(1 - t, 3);
+    const eiq = (t) => t * t;
+    const sm = (t) => t * t * (3 - 2 * t);
+    // 키프레임 보간: stops = [진행도, 값, 구간 이징]. 첫 값과 마지막 값은 항상 0(휴식 자세)이다.
+    const kf = (stops) => {
+      if (k <= stops[0][0]) return stops[0][1];
+      for (let i = 1; i < stops.length; i++) {
+        if (k <= stops[i][0]) {
+          const t0 = stops[i - 1][0], v0 = stops[i - 1][1];
+          const t1 = stops[i][0], v1 = stops[i][1];
+          const e = stops[i][2] || sm;
+          return v0 + (v1 - v0) * e((k - t0) / (t1 - t0));
+        }
+      }
+      return stops[stops.length - 1][1];
+    };
     let rx = 0, rz = 0, lx = 0;
     if (swOn) {
-      // 플러리시: 오른팔을 높이 들고 무기를 한 바퀴 돌린다
+      // 플러리시: 오른팔을 높이 들고 무기를 한 바퀴 돌린다 (그대로 유지)
       rx = -2.3 * Math.sin(sw * Math.PI);
       rz = -0.6 * Math.sin(sw * Math.PI);
       lx = -0.5 * Math.sin(sw * Math.PI);
     } else if (on) {
       if (fam === 'dagger') {
-        rx = -0.2 - Math.sin(k * Math.PI) * 1.5;
-        rz = Math.sin(k * Math.PI) * 0.2;
+        // 찌르기: 빠르게 전진 찌르기 → 뻗은 채 잠깐 유지 → 거두기
+        rx = kf([[0, 0], [0.28, -0.5, eoc], [0.55, -0.5, sm], [1, 0, sm]]);
+        rz = kf([[0, 0], [0.28, 0.15, eoc], [0.55, 0.15, sm], [1, 0, sm]]);
       } else if (fam === 'axe' || fam === 'mace') {
-        rx = k < 0.45 ? -2.9 + k * 1.4 : 1.2 - (k - 0.45) * 1.6;
+        // 내려찍기: 빠르게 들어올리기 → 가속하며 내리찍기 → 팔로우스루 → 회복
+        rx = kf([[0, 0], [0.18, -2.4, eoc], [0.45, 0.9, eiq], [0.7, 0.5, sm], [1, 0, sm]]);
         rz = 0;
       } else if (fam === 'bow') {
-        rx = -1.45 - Math.sin(k * Math.PI) * 0.25; // 당겼다가 놓는 반동
-        lx = -1.15 - Math.sin(k * Math.PI) * 0.2;
+        // 활: 빠르게 당기기 → 놓는 반동 → 내리기 (화살은 k=0에 이미 나간다)
+        rx = kf([[0, 0], [0.2, -1.45, eoc], [0.35, -1.25, eoc], [1, 0, sm]]);
+        lx = kf([[0, 0], [0.2, -1.15, eoc], [0.35, -1.0, eoc], [1, 0, sm]]);
       } else if (fam === 'crossbow') {
-        rx = -1.3 - Math.sin(k * Math.PI) * 0.35; // 연사 반동
-        lx = -1.0;
+        // 석궁: 활보다 빠르게 당기고 놓기 (연사)
+        rx = kf([[0, 0], [0.25, -1.3, eoc], [0.4, -1.05, eoc], [1, 0, sm]]);
+        lx = kf([[0, 0], [0.25, -1.0, eoc], [0.4, -0.9, eoc], [1, 0, sm]]);
       } else if (fam === 'staff' || fam === 'book') {
-        rx = -1.2 - Math.sin(k * Math.PI) * 0.9;
-        rz = Math.sin(k * Math.PI) * 0.45;
+        // 시전: 지팡이/책을 빠르게 들어올리기 → 시전 맥박 → 내리기
+        rx = kf([[0, 0], [0.25, -1.6, eoc], [0.45, -1.2, eoc], [1, 0, sm]]);
+        rz = kf([[0, 0], [0.25, 0.35, eoc], [0.45, 0.15, eoc], [1, 0, sm]]);
       } else {
-        rx = -0.3 - Math.sin(k * Math.PI) * 2.2;
-        rz = -1.1 + Math.sin(k * Math.PI) * 2.4;
+        // 검: 빠르게 가로 베기 → 반대쪽으로 더 넘어가는 팔로우스루 → 회복
+        rx = kf([[0, 0], [0.32, -1.1, eoc], [0.62, -0.7, sm], [1, 0, sm]]);
+        rz = kf([[0, 0], [0.32, 1.5, eoc], [0.62, 1.75, sm], [1, 0, sm]]);
       }
     }
     armR.rotation.x = rx + (p.moving && !on ? Math.sin(p.walkT) * 0.2 : 0);
@@ -1542,31 +1501,34 @@ export function createGame(THREE) {
     // 3D 휴머노이드 걷기·공격 모션 (userData에 다리·몸통·무기그룹이 있을 때만)
     const legL = m.userData.legL, legR = m.userData.legR;
     const body = m.userData.body, weaponGroup = m.userData.weaponGroup;
-    const walkSwing = p.moving ? Math.sin(p.walkT) * 0.6 : 0;
-    if (legL) legL.rotation.x = walkSwing;
-    if (legR) legR.rotation.x = -walkSwing;
-    let bobY = p.moving ? Math.abs(Math.sin(p.walkT)) * 0.05 : Math.sin(game.time * 2.1) * 0.012;
+    // 공격 중에는 다리를 디딤 자세로 고정한다 (휘두르는 동안 걷기 스윙이 계속되면 어색하다)
+    const walkSwing = (p.moving && !on) ? Math.sin(p.walkT) * 0.6 : 0;
+    if (legL) legL.rotation.x = on ? 0.12 : walkSwing;
+    if (legR) legR.rotation.x = on ? -0.12 : -walkSwing;
+    let bobY = (p.moving && !on) ? Math.abs(Math.sin(p.walkT)) * 0.05 : Math.sin(game.time * 2.1) * 0.012;
     let lungeZ = 0, leanX = 0, wgX = 0, wgZ = 0, wgY = 0, twistY = 0, wgSpin = 0, dropY = 0;
     if (swOn && weaponGroup) {
       wgY = Math.sin(sw * Math.PI) * 0.3;
       wgSpin = sw * Math.PI * 2;
     } else if (on && weaponGroup) {
       if (fam === 'dagger') {
-        // 찌르기: 몸통 깊게 돌진 + 무기 전진 + 몸 비틀기
-        const lunge = Math.sin(k * Math.PI);
-        lungeZ = lunge * 0.45; wgZ = lunge * 0.6; twistY = lunge * 0.3;
+        // 찌르기: 몸통 깊게 돌진 + 무기 전진 + 몸 비틀기 (타격 → 유지 → 회복)
+        lungeZ = kf([[0, 0], [0.28, 0.45, eoc], [0.55, 0.45, sm], [1, 0, sm]]);
+        wgZ = kf([[0, 0], [0.28, 0.6, eoc], [0.55, 0.6, sm], [1, 0, sm]]);
+        twistY = kf([[0, 0], [0.28, 0.3, eoc], [0.55, 0.3, sm], [1, 0, sm]]);
       } else if (fam === 'axe' || fam === 'mace') {
-        // 들어올렸다 내리찍기: 무기 뒤로 젖혔다 앞으로 휘두르기 + 몸통 깊게 숙이기 + 내려앉기
-        if (k < 0.45) { wgX = 1.0 * (1 - k / 0.45); leanX = -0.14; }
-        else { const s = (k - 0.45) / 0.55; wgX = -1.2 * Math.sin(s * Math.PI); leanX = 0.3 * Math.sin(s * Math.PI); dropY = 0.09 * Math.sin(s * Math.PI); }
+        // 내려찍기: 무기 뒤로 젖혔다 앞으로 휘두르기 + 몸통 깊게 숙이기 + 내려앉기
+        wgX = kf([[0, 0], [0.18, 0.9, eoc], [0.45, -1.2, eiq], [0.7, -0.6, sm], [1, 0, sm]]);
+        leanX = kf([[0, 0], [0.18, -0.12, eoc], [0.45, 0.3, eiq], [0.7, 0.15, sm], [1, 0, sm]]);
+        dropY = kf([[0, 0], [0.18, 0, sm], [0.45, 0.09, eiq], [0.7, 0.04, sm], [1, 0, sm]]);
       } else if (fam === 'staff' || fam === 'book') {
         // 시전: 무기 높이 들어올리기
-        wgY = Math.sin(k * Math.PI) * 0.35;
+        wgY = kf([[0, 0], [0.25, 0.35, eoc], [0.45, 0.2, eoc], [1, 0, sm]]);
       } else if (fam === 'sword') {
-        // 베기: 무기 크게 가로 휘두르기 + 몸통 비틀기 + 살짝 돌진
-        wgZ = Math.sin(k * Math.PI) * 0.85;
-        twistY = Math.sin(k * Math.PI) * 0.55;
-        lungeZ = Math.sin(k * Math.PI) * 0.14;
+        // 베기: 무기 크게 가로 휘두르기 + 몸통 비틀기 + 살짝 돌진 (팔로우스루까지)
+        wgZ = kf([[0, 0], [0.32, 0.95, eoc], [0.62, 1.1, sm], [1, 0, sm]]);
+        twistY = kf([[0, 0], [0.32, 0.55, eoc], [0.62, 0.35, sm], [1, 0, sm]]);
+        lungeZ = kf([[0, 0], [0.32, 0.15, eoc], [0.62, 0.05, sm], [1, 0, sm]]);
       }
     }
     if (body) {
@@ -2745,12 +2707,13 @@ export function createGame(THREE) {
   }
 
   // ---------- 동료 ----------
-  function makeCompanionObj(c, cls, mesh, x, z, slotLv) {
-    const lv = Math.max(1, Math.floor(slotLv || 1));
+  function makeCompanionObj(c, cls, mesh, x, z) {
+    // 동료 레벨 = 주인공 레벨 (슬롯 레벨 폐지). 교체해도 즉시 주인공 레벨로 싸운다.
+    const lv = game.effectiveCompanionLv();
     const maxHp = companionMaxHp(cls, c.grade, lv);
     return {
       data: c, cls, mesh, x, z, atkCd: Math.random(), healCd: 2, skillCd: 4, skillCheckT: 0,
-      slotLv: lv,
+      lv,
       maxHp, hp: maxHp, tauntCd: 0.2, downT: 0, hitT: 0,
     };
   }
@@ -2809,7 +2772,7 @@ export function createGame(THREE) {
     const def = COMPANION_SKILLS[c.data.skillId] || COMPANION_SKILLS[(COMPANION_SKILL_POOLS[c.cls.id] || [])[0]];
     if (!def) return false;
     const p = game.player;
-    const atk = companionAtk(c.cls, c.data.grade, c.slotLv);
+    const atk = companionAtk(c.cls, c.data.grade, c.lv);
     const dmgOf = (mult) => atk * mult;
     // 주변 AoE: 주인공이 인식한 몹만 맞힌다. 맞힌 수를 돌려준다.
     const aoeHit = (radius, dmg, onHit) => {
@@ -3193,8 +3156,8 @@ export function createGame(THREE) {
       c.skillCd -= dt;
       c.healCd -= dt;
       c.skillCheckT = (c.skillCheckT || 0) - dt;
-      const scale = 1 + ((c.slotLv || 1) - 1) * 0.22;
-      const atk = companionAtk(c.cls, c.data.grade, c.slotLv);
+      const scale = 1 + ((c.lv || 1) - 1) * 0.22;
+      const atk = companionAtk(c.cls, c.data.grade, c.lv);
       // 동료 고유 스킬 (자동 사용, 전투 중에만 — castCompanionSkill이 조건을 본다)
       // skillCd는 진짜 쿨다운만 담는다. 조건이 안 맞아 못 쓰면 재확인 타이머만 따로 돈다
       // (예전엔 재확인 0.5초를 skillCd에 넣어 하단 바에 "1"이 영원히 떴다).
@@ -4082,7 +4045,7 @@ export function createGame(THREE) {
       const cls = COMPANION_CLASSES[c.cls];
       const mesh = makeCompanion(THREE, cls, GRADES[c.grade].color);
       scene.add(mesh);
-      const o = makeCompanionObj(c, cls, mesh, game.player.x - 1.6 + i * 1.6, game.player.z + 1.8, game.slotLevel(i));
+      const o = makeCompanionObj(c, cls, mesh, game.player.x - 1.6 + i * 1.6, game.player.z + 1.8);
       game.compObjects.push(o); game.companions.push(o);
       if (cls.id === 'tank' && !game.tank) game.tank = o;
     });
