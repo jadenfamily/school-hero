@@ -334,6 +334,16 @@ const SCALE = {
   7: { xp: 28.0, gold: 30.0, lvl: 39 },
   8: { xp: 38.0, gold: 40.0, lvl: 45 },
   9: { xp: 50.0, gold: 53.0, lvl: 52 },
+  // 마계 인천 (10~12) · 경기도 (13~18) — 서울 이후 확장
+  10: { xp: 64, gold: 68, lvl: 55 },
+  11: { xp: 80, gold: 86, lvl: 60 },
+  12: { xp: 98, gold: 106, lvl: 66 },
+  13: { xp: 118, gold: 128, lvl: 70 },
+  14: { xp: 140, gold: 152, lvl: 74 },
+  15: { xp: 165, gold: 180, lvl: 78 },
+  16: { xp: 192, gold: 210, lvl: 82 },
+  17: { xp: 220, gold: 242, lvl: 86 },
+  18: { xp: 250, gold: 275, lvl: 90 },
 };
 
 const DROP_W = {
@@ -346,6 +356,15 @@ const DROP_W = {
   7: [4, 12, 28, 30, 20, 6],
   8: [3, 10, 24, 32, 24, 7],
   9: [2, 8, 20, 32, 28, 10],
+  10: [2, 6, 16, 30, 32, 14],
+  11: [1, 5, 14, 28, 34, 18],
+  12: [1, 4, 12, 26, 36, 21],
+  13: [1, 3, 10, 24, 38, 24],
+  14: [0, 3, 9, 22, 40, 26],
+  15: [0, 2, 8, 20, 42, 28],
+  16: [0, 2, 7, 18, 44, 29],
+  17: [0, 1, 6, 16, 45, 32],
+  18: [0, 1, 5, 14, 46, 34],
 };
 
 const E = (o) => o;
@@ -397,8 +416,6 @@ export const ZONES = [
     },
     threat: 'magic',
     map: { cx: -96, cz: 0 },
-    // 이 구역으로 들어오는 방벽(게이트) 위치 — 이전 구역 보스를 처치하면 열린다
-    gate: { x: -96, z: 48, along: 'x' },
     npc: { name: '늪지 약초꾼', x: -5, z: 22, icon: '🧝‍♀️' },
     spawn: { x: 0, z: 23 }, boss: { x: 2, z: -32 }, mid: { x: 20, z: -8 }, field: { x: -30, z: -26 },
     scale: SCALE[2], dropW: DROP_W[2],
@@ -450,7 +467,6 @@ export const ZONES = [
     },
     threat: 'ranged',
     map: { cx: -96, cz: -96 },
-    gate: { x: -96, z: -48, along: 'x' },
     npc: { name: '사막 대상인', x: 5, z: 22, icon: '🧕' },
     spawn: { x: 0, z: 23 }, boss: { x: -2, z: -32 }, mid: { x: 18, z: -4 }, field: { x: 30, z: 24 },
     scale: SCALE[3], dropW: DROP_W[3],
@@ -498,7 +514,6 @@ export const ZONES = [
     },
     threat: 'blunt',
     map: { cx: 0, cz: -96 },
-    gate: { x: -48, z: -96, along: 'z' },
     npc: { name: '심해의 기록관', x: 6, z: 22, icon: '🧜' },
     spawn: { x: 0, z: 23 }, boss: { x: 0, z: -33 }, mid: { x: -20, z: -5 }, field: { x: 30, z: 22 },
     scale: SCALE[4], dropW: DROP_W[4],
@@ -542,7 +557,6 @@ export const ZONES = [
     },
     threat: 'magic',
     map: { cx: 0, cz: 0 },
-    gate: { x: 0, z: -48, along: 'x' },
     npc: { name: '하늘의 파수꾼', x: 5, z: 22, icon: '🧝' },
     spawn: { x: 0, z: 23 }, boss: { x: 0, z: -32 }, mid: { x: -19, z: -6 }, field: { x: 30, z: -24 },
     scale: SCALE[5], dropW: DROP_W[5],
@@ -578,7 +592,6 @@ export const ZONES = [
     },
     threat: 'blunt',
     map: { cx: 0, cz: 96 },
-    gate: { x: 0, z: 48, along: 'x' },
     npc: { name: '화산의 대장장이', x: -5, z: 22, icon: '🧑‍🏭' },
     spawn: { x: 0, z: 23 }, boss: { x: 2, z: -32 }, mid: { x: 18, z: -4 }, field: { x: -30, z: 24 },
     scale: SCALE[6], dropW: DROP_W[6],
@@ -614,7 +627,6 @@ export const ZONES = [
     },
     threat: 'ranged',
     map: { cx: 96, cz: 96 },
-    gate: { x: 48, z: 96, along: 'z' },
     npc: { name: '달의 점쟁이', x: 6, z: 22, icon: '🧙‍♀️' },
     spawn: { x: 0, z: 23 }, boss: { x: -2, z: -32 }, mid: { x: -18, z: 6 }, field: { x: 28, z: 22 },
     scale: SCALE[7], dropW: DROP_W[7],
@@ -650,7 +662,6 @@ export const ZONES = [
     },
     threat: 'slash',
     map: { cx: 96, cz: 0 },
-    gate: { x: 96, z: 48, along: 'x' },
     npc: { name: '빙하의 탐험가', x: -6, z: 22, icon: '🧑‍🚀' },
     spawn: { x: 0, z: 23 }, boss: { x: 0, z: -32 }, mid: { x: 20, z: -8 }, field: { x: -30, z: -24 },
     scale: SCALE[8], dropW: DROP_W[8],
@@ -686,7 +697,6 @@ export const ZONES = [
     },
     threat: 'blunt',
     map: { cx: 96, cz: -96 },
-    gate: { x: 96, z: -48, along: 'x' },
     npc: { name: '설산의 은둔자', x: 4, z: 22, icon: '🧓' },
     spawn: { x: 0, z: 23 }, boss: { x: 0, z: -32 }, mid: { x: -20, z: -5 }, field: { x: 30, z: 22 },
     scale: SCALE[9], dropW: DROP_W[9],
@@ -709,6 +719,324 @@ export const ZONES = [
         { text: '설산 몬스터 처치', type: 'kill', n: 22, reward: { gold: 3600, pt: 3, xp: 7000 } },
         { text: '설산의 수호자 처치', type: 'mid', n: 1, reward: { gold: 4600, item: 5, xp: 9200 } },
         { text: '설산의 왕 처치', type: 'boss', n: 1, reward: { gold: 6400, soul: 'gold', soulN: 4, xp: 12000 } },
+      ],
+    },
+  },
+  // ---- 마계 인천 (10~12): 지구 귀환 게이트 너머의 뒤틀린 인천. 서울 서쪽 바닷가 ----
+  {
+    id: 10, key: 'incheonPort', name: '마계 인천항', short: '인천항', icon: '⚓',
+    sub: '보랏빛 안개에 잠긴 마계의 부두',
+    theme: {
+      ground: 0x2a2a44, ground2: '#14141f', grass: '#4a4a6a', accent: 0x9a7fff,
+      sky: 0x1a1a2e, fog: 0x2a2a44, fogDensity: 0.02,
+      prop: ['deadTree', 'rock', 'pillar', 'coral'], ambient: 'spore', ambientColor: 0xb58cff,
+    },
+    threat: 'magic',
+    map: { cx: -192, cz: 96 },
+    npc: { name: '마계 항구의 선장', x: 5, z: 22, icon: '🧑‍✈️' },
+    spawn: { x: 0, z: 23 }, boss: { x: 0, z: -32 }, mid: { x: -19, z: -6 }, field: { x: 30, z: -24 },
+    scale: SCALE[10], dropW: DROP_W[10],
+    mobs: {
+      normal: [
+        E({ key: 'portWraith', name: '항구 망령', shape: 'wraith', color: 0x8f7fc4, dark: 0x3b2f5e, hp: 1850, atk: 140, speed: 1.7, atkRange: 7.0, atkCd: 2.3, aggro: 6.5, style: 'ranged', soul: 'gray' }),
+        E({ key: 'dockGoblin', name: '마계 부두원', shape: 'goblin', color: 0x7a5a9a, dark: 0x3a2450, hp: 1950, atk: 148, speed: 2.1, atkRange: 1.7, atkCd: 1.25, aggro: 5.5, style: 'melee', soul: 'gray' }),
+      ],
+      elite: [
+        E({ key: 'portOrc', name: '마계 감시자', shape: 'orc', color: 0x6a4a8a, dark: 0x2a1a4a, hp: 4600, atk: 178, speed: 1.9, atkRange: 2.0, atkCd: 1.5, aggro: 7, style: 'melee', elite: true, soul: 'green' }),
+      ],
+      mid: E({ key: 'dockCrab', name: '부두의 거대 게', shape: 'crab', color: 0xa03a6a, dark: 0x4a1a3a, hp: 18500, atk: 228, speed: 2.2, atkRange: 2.3, atkCd: 1.3, aggro: 11, style: 'melee', elite: true, boss: 'mid', soul: 'blue' }),
+      boss: E({ key: 'portKraken', name: '마계 항구의 주인', shape: 'kraken', color: 0x5a2a7a, dark: 0x24103a, hp: 34000, atk: 272, speed: 1.4, atkRange: 4.2, atkCd: 1.9, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
+      field: E({ key: 'goldPortKraken', name: '황금 마계 항구주', shape: 'kraken', color: 0xc9a13a, dark: 0x5a3a1a, hp: 70000, atk: 325, speed: 1.35, atkRange: 4.4, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold', enrage: true }),
+    },
+    chests: [{ x: -14, z: 10, hide: 'deadTree' }, { x: 16, z: -12, hide: 'coral' }, { x: 8, z: -24, hide: 'rock' }],
+    quests: {
+      title: '마계 항구의 안개', npc: '마계 항구의 선장',
+      steps: [
+        { text: '마계 항구 몬스터 처치', type: 'kill', n: 24, reward: { gold: 4800, pt: 3, xp: 9000 } },
+        { text: '부두의 거대 게 처치', type: 'mid', n: 1, reward: { gold: 6000, item: 5, xp: 12000 } },
+        { text: '마계 항구의 주인 처치', type: 'boss', n: 1, reward: { gold: 8000, soul: 'purple', soulN: 10, xp: 16000, unlock: 11 } },
+      ],
+    },
+  },
+  {
+    id: 11, key: 'ganghwa', name: '강화 마계성', short: '강화', icon: '🏰',
+    sub: '붉은 돌로 지은 마계의 성채',
+    theme: {
+      ground: 0x4a2a3a, ground2: '#241420', grass: '#6a3a4a', accent: 0xd06a8a,
+      sky: 0x3a1a2a, fog: 0x4a2a3a, fogDensity: 0.02,
+      prop: ['pillar', 'rock', 'deadTree', 'wall'], ambient: 'spore', ambientColor: 0xff9a9a,
+    },
+    threat: 'blunt',
+    map: { cx: -192, cz: 0 },
+    npc: { name: '마계성의 파수꾼', x: -5, z: 22, icon: '🛡️' },
+    spawn: { x: 0, z: 23 }, boss: { x: 2, z: -32 }, mid: { x: 18, z: -4 }, field: { x: -30, z: 24 },
+    scale: SCALE[11], dropW: DROP_W[11],
+    mobs: {
+      normal: [
+        E({ key: 'castleGoblin', name: '마계 병사', shape: 'goblin', color: 0x8a3a4a, dark: 0x3a1a24, hp: 2000, atk: 152, speed: 2.1, atkRange: 1.7, atkCd: 1.25, aggro: 5.5, style: 'melee', soul: 'gray' }),
+        E({ key: 'castleMummy', name: '마계 저격수', shape: 'mummy', color: 0xa88a7a, dark: 0x4a3428, hp: 2100, atk: 160, speed: 1.25, atkRange: 7.5, atkCd: 2.4, aggro: 7, style: 'ranged', soul: 'gray' }),
+      ],
+      elite: [
+        E({ key: 'castleAnubis', name: '마계 기사', shape: 'anubis', color: 0x3a2a4a, dark: 0xc9a13a, hp: 5000, atk: 192, speed: 2.0, atkRange: 2.6, atkCd: 1.4, aggro: 7, style: 'melee', elite: true, soul: 'green' }),
+      ],
+      mid: E({ key: 'castleGolem', name: '마계 골렘', shape: 'golem', color: 0x7a3a4a, dark: 0x3a1a24, hp: 20500, atk: 246, speed: 1.3, atkRange: 3.8, atkCd: 2.0, aggro: 11, style: 'aoe', elite: true, boss: 'mid', soul: 'blue' }),
+      boss: E({ key: 'castleWitch', name: '마계 성주', shape: 'witch', color: 0x9a3a7a, dark: 0x3a1230, hp: 37000, atk: 292, speed: 1.45, atkRange: 7.5, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
+      field: E({ key: 'goldCastleWitch', name: '황금 마계 성주', shape: 'witch', color: 0xc9a13a, dark: 0x5a3a1a, hp: 76000, atk: 350, speed: 1.45, atkRange: 7.5, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold', enrage: true }),
+    },
+    chests: [{ x: -16, z: 8, hide: 'pillar' }, { x: 18, z: 12, hide: 'wall' }, { x: -9, z: -20, hide: 'rock' }],
+    quests: {
+      title: '마계성의 함락', npc: '마계성의 파수꾼',
+      steps: [
+        { text: '마계성 몬스터 처치', type: 'kill', n: 26, reward: { gold: 6400, pt: 3, xp: 12000 } },
+        { text: '마계 골렘 처치', type: 'mid', n: 1, reward: { gold: 8000, item: 5, xp: 16000 } },
+        { text: '마계 성주 처치', type: 'boss', n: 1, reward: { gold: 10000, soul: 'purple', soulN: 11, xp: 20000, unlock: 12 } },
+      ],
+    },
+  },
+  {
+    id: 12, key: 'yeongjong', name: '영종 마계섬', short: '영종', icon: '🌋',
+    sub: '마계의 기운이 가장 짙은 섬 · 경기도 관문',
+    theme: {
+      ground: 0x3a2a5a, ground2: '#1a1230', grass: '#5a4a8a', accent: 0xc9a8ff,
+      sky: 0x241a3a, fog: 0x3a2a5a, fogDensity: 0.02,
+      prop: ['pillar', 'ruinPillar', 'rock', 'deadTree'], ambient: 'spore', ambientColor: 0xc9a8ff,
+    },
+    threat: 'magic',
+    map: { cx: -192, cz: -96 },
+    npc: { name: '마계섬의 인도자', x: 6, z: 22, icon: '🧙' },
+    spawn: { x: 0, z: 23 }, boss: { x: 0, z: -32 }, mid: { x: -20, z: -5 }, field: { x: 30, z: 22 },
+    scale: SCALE[12], dropW: DROP_W[12],
+    mobs: {
+      normal: [
+        E({ key: 'islandWraith', name: '마계 박쥐', shape: 'wraith', color: 0x6a5a9a, dark: 0x241a4a, hp: 2200, atk: 168, speed: 1.7, atkRange: 7.0, atkCd: 2.3, aggro: 6.5, style: 'ranged', soul: 'gray' }),
+        E({ key: 'islandSiren', name: '마계 정령', shape: 'siren', color: 0x8a6ab0, dark: 0x2a1a4a, hp: 2300, atk: 176, speed: 1.8, atkRange: 7.8, atkCd: 1.9, aggro: 6.5, style: 'aoe', soul: 'gray' }),
+      ],
+      elite: [
+        E({ key: 'islandAnubis', name: '마계 수호자', shape: 'anubis', color: 0x4a2a6a, dark: 0xc9a13a, hp: 5500, atk: 212, speed: 2.0, atkRange: 2.6, atkCd: 1.4, aggro: 7, style: 'melee', elite: true, soul: 'green' }),
+      ],
+      mid: E({ key: 'islandDragon', name: '마계 드래곤', shape: 'dragon', color: 0x5a2a8a, dark: 0x1a0a3a, hp: 23000, atk: 272, speed: 1.6, atkRange: 4.0, atkCd: 1.9, aggro: 12, style: 'aoe', elite: true, boss: 'mid', soul: 'blue', enrage: true }),
+      boss: E({ key: 'islandEnt', name: '마계섬의 군주', shape: 'ent', color: 0x4a2a5a, dark: 0x2a1a3a, hp: 41000, atk: 322, speed: 1.35, atkRange: 3.4, atkCd: 1.9, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
+      field: E({ key: 'goldIslandEnt', name: '황금 마계 군주', shape: 'ent', color: 0xc9a13a, dark: 0x5a4a1a, hp: 84000, atk: 385, speed: 1.3, atkRange: 3.6, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold', enrage: true }),
+    },
+    chests: [{ x: 16, z: 10, hide: 'ruinPillar' }, { x: -14, z: -14, hide: 'pillar' }, { x: 12, z: -26, hide: 'rock' }],
+    quests: {
+      title: '마계섬의 관문', npc: '마계섬의 인도자',
+      steps: [
+        { text: '마계섬 몬스터 처치', type: 'kill', n: 28, reward: { gold: 8000, pt: 3, xp: 16000 } },
+        { text: '마계 드래곤 처치', type: 'mid', n: 1, reward: { gold: 10000, item: 5, xp: 20000 } },
+        // 3단계 보상에 해금 없음 — 보스 처치로 마계 관문(경기도행)이 열린다
+        { text: '마계섬의 군주 처치', type: 'boss', n: 1, reward: { gold: 12000, soul: 'gold', soulN: 3, xp: 24000 } },
+      ],
+    },
+  },
+  // ---- 경기도 (13~18): 마계의 기운이 스며든 경기도. 서울 동쪽·남쪽을 두른다 ----
+  {
+    id: 13, key: 'suwon', name: '수원 화성', short: '수원', icon: '🏯',
+    sub: '성곽이 버티는 황토의 요새 도시',
+    theme: {
+      ground: 0x9a7a4a, ground2: '#5a4226', grass: '#c9a468', accent: 0xffd257,
+      sky: 0xffd9a0, fog: 0xe8c890, fogDensity: 0.014,
+      prop: ['wall', 'pillar', 'rock', 'tree'], ambient: 'firefly', ambientColor: 0xfff3a0,
+    },
+    threat: 'slash',
+    map: { cx: 192, cz: -96 },
+    npc: { name: '화성의 수문장', x: 5, z: 22, icon: '🧑‍✈️' },
+    spawn: { x: 0, z: 23 }, boss: { x: 0, z: -32 }, mid: { x: -19, z: -6 }, field: { x: 30, z: -24 },
+    scale: SCALE[13], dropW: DROP_W[13],
+    mobs: {
+      normal: [
+        E({ key: 'fortGoblin', name: '성곽 수호병', shape: 'goblin', color: 0x8a7a4a, dark: 0x4a3a1a, hp: 2350, atk: 178, speed: 2.1, atkRange: 1.7, atkCd: 1.25, aggro: 5.5, style: 'melee', soul: 'gray' }),
+        E({ key: 'fortMummy', name: '화성 궁수', shape: 'mummy', color: 0xb8a888, dark: 0x5a4a2a, hp: 2450, atk: 186, speed: 1.25, atkRange: 7.5, atkCd: 2.4, aggro: 7, style: 'ranged', soul: 'gray' }),
+      ],
+      elite: [
+        E({ key: 'fortOrc', name: '화성 정예병', shape: 'orc', color: 0x6a5a3a, dark: 0x2a2210, hp: 5800, atk: 224, speed: 1.9, atkRange: 2.0, atkCd: 1.5, aggro: 7, style: 'melee', elite: true, soul: 'green' }),
+      ],
+      mid: E({ key: 'fortOgre', name: '화성의 거대 수호자', shape: 'ogre', color: 0x9a7a3a, dark: 0x4a3010, hp: 24500, atk: 288, speed: 1.7, atkRange: 2.6, atkCd: 1.7, aggro: 11, style: 'aoe', elite: true, boss: 'mid', soul: 'blue' }),
+      boss: E({ key: 'fortAnubis', name: '화성의 대장군', shape: 'anubis', color: 0x3a3020, dark: 0xc9a13a, hp: 44000, atk: 340, speed: 2.0, atkRange: 2.8, atkCd: 1.6, aggro: 13, style: 'melee', boss: 'boss', soul: 'purple' }),
+      field: E({ key: 'goldFortAnubis', name: '황금 화성의 대장군', shape: 'anubis', color: 0xc9a13a, dark: 0x5a4a1a, hp: 90000, atk: 405, speed: 2.0, atkRange: 3.0, atkCd: 1.7, aggro: 13, style: 'melee', boss: 'field', soul: 'gold', enrage: true }),
+    },
+    chests: [{ x: -13, z: 12, hide: 'wall' }, { x: 15, z: 4, hide: 'pillar' }, { x: 20, z: -18, hide: 'rock' }],
+    quests: {
+      title: '화성의 수호', npc: '화성의 수문장',
+      steps: [
+        { text: '화성 몬스터 처치', type: 'kill', n: 30, reward: { gold: 10000, pt: 3, xp: 20000 } },
+        { text: '화성의 거대 수호자 처치', type: 'mid', n: 1, reward: { gold: 12000, item: 5, xp: 24000 } },
+        { text: '화성의 대장군 처치', type: 'boss', n: 1, reward: { gold: 15000, soul: 'purple', soulN: 12, xp: 30000, unlock: 14 } },
+      ],
+    },
+  },
+  {
+    id: 14, key: 'seongnam', name: '성남 테크 유적', short: '성남', icon: '💠',
+    sub: '네온이 깜빡이는 고장 난 기계 도시',
+    theme: {
+      ground: 0x2a3a5a, ground2: '#141a2a', grass: '#4a6a9a', accent: 0x7fe0f0,
+      sky: 0x1a2a4a, fog: 0x2a3a5a, fogDensity: 0.018,
+      prop: ['pillar', 'ruinPillar', 'rock', 'bubbleRock'], ambient: 'bubble', ambientColor: 0x9fe8ff,
+    },
+    threat: 'ranged',
+    map: { cx: 192, cz: 0 },
+    npc: { name: '테크 유적의 해커', x: -5, z: 22, icon: '🧑‍💻' },
+    spawn: { x: 0, z: 23 }, boss: { x: 2, z: -32 }, mid: { x: 20, z: -8 }, field: { x: -30, z: -26 },
+    scale: SCALE[14], dropW: DROP_W[14],
+    mobs: {
+      normal: [
+        E({ key: 'techScarab', name: '유적 드론', shape: 'scarab', color: 0x3f8f9a, dark: 0x1e4f57, hp: 2500, atk: 188, speed: 2.5, atkRange: 2.0, atkCd: 1.3, aggro: 6.5, style: 'melee', soul: 'gray' }),
+        E({ key: 'techScorpion', name: '유적 전갈', shape: 'scorpion', color: 0x5a7a8a, dark: 0x2a3a4a, hp: 2600, atk: 196, speed: 2.3, atkRange: 1.9, atkCd: 1.15, aggro: 6.5, style: 'melee', soul: 'gray' }),
+      ],
+      elite: [
+        E({ key: 'techGolem', name: '유적 가디언', shape: 'golem', color: 0x6a8a9a, dark: 0x2a4a5a, hp: 6200, atk: 236, speed: 1.4, atkRange: 3.4, atkCd: 1.7, aggro: 7, style: 'aoe', elite: true, soul: 'green' }),
+      ],
+      mid: E({ key: 'techBigGolem', name: '유적의 거대 골렘', shape: 'golem', color: 0x4a6a7a, dark: 0x1a2a3a, hp: 26000, atk: 304, speed: 1.3, atkRange: 3.8, atkCd: 2.0, aggro: 11, style: 'aoe', elite: true, boss: 'mid', soul: 'blue' }),
+      boss: E({ key: 'techWitch', name: '테크 유적의 지배자', shape: 'witch', color: 0x7a5ab0, dark: 0x2a1a4a, hp: 47000, atk: 360, speed: 1.45, atkRange: 7.5, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
+      field: E({ key: 'goldTechWitch', name: '황금 테크 지배자', shape: 'witch', color: 0xc9a13a, dark: 0x5a3a1a, hp: 96000, atk: 430, speed: 1.45, atkRange: 7.5, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold', enrage: true }),
+    },
+    chests: [{ x: 14, z: 14, hide: 'ruinPillar' }, { x: -20, z: -2, hide: 'bubbleRock' }, { x: 8, z: -24, hide: 'pillar' }],
+    quests: {
+      title: '테크 유적의 비밀', npc: '테크 유적의 해커',
+      steps: [
+        { text: '테크 유적 몬스터 처치', type: 'kill', n: 32, reward: { gold: 12000, pt: 3, xp: 24000 } },
+        { text: '유적의 거대 골렘 처치', type: 'mid', n: 1, reward: { gold: 15000, item: 5, xp: 30000 } },
+        { text: '테크 유적의 지배자 처치', type: 'boss', n: 1, reward: { gold: 18000, soul: 'purple', soulN: 13, xp: 36000, unlock: 15 } },
+      ],
+    },
+  },
+  {
+    id: 15, key: 'goyang', name: '고양 호수공원', short: '고양', icon: '🌿',
+    sub: '갈대가 흔들리는 푸른 호숫가',
+    theme: {
+      ground: 0x3a7a6a, ground2: '#1c4a3a', grass: '#5aa888', accent: 0x9fe8c8,
+      sky: 0x9fd8ff, fog: 0xa8d8c8, fogDensity: 0.016,
+      prop: ['reed', 'tree', 'rock', 'grass'], ambient: 'firefly', ambientColor: 0xb9ff9a,
+    },
+    threat: 'magic',
+    map: { cx: 192, cz: 96 },
+    npc: { name: '호수공원의 관리인', x: 6, z: 22, icon: '🧑‍🌾' },
+    spawn: { x: 0, z: 23 }, boss: { x: 0, z: -33 }, mid: { x: -20, z: -5 }, field: { x: 30, z: 22 },
+    scale: SCALE[15], dropW: DROP_W[15],
+    mobs: {
+      normal: [
+        E({ key: 'lakeFrog', name: '호수 개구리', shape: 'frog', color: 0x5a9a6a, dark: 0x2a4a34, hp: 2600, atk: 198, speed: 1.75, atkRange: 6.5, atkCd: 2.2, aggro: 5.5, style: 'poison', soul: 'gray' }),
+        E({ key: 'lakeLizard', name: '호수 물뱀', shape: 'lizard', color: 0x4a8a7a, dark: 0x1a3a30, hp: 2700, atk: 206, speed: 2.25, atkRange: 2.1, atkCd: 1.35, aggro: 6, style: 'melee', soul: 'gray' }),
+      ],
+      elite: [
+        E({ key: 'lakeNaga', name: '호수 수호자', shape: 'naga', color: 0x5a7ab0, dark: 0x1a2a4a, hp: 6500, atk: 248, speed: 1.9, atkRange: 7.5, atkCd: 2.2, aggro: 7.5, style: 'ranged', elite: true, soul: 'green' }),
+      ],
+      mid: E({ key: 'lakeHydra', name: '호수의 히드라', shape: 'hydra', color: 0x4a9a7a, dark: 0x1a4a34, hp: 27500, atk: 320, speed: 1.5, atkRange: 3.4, atkCd: 1.8, aggro: 11, style: 'poison', elite: true, boss: 'mid', soul: 'blue' }),
+      boss: E({ key: 'lakeSiren', name: '호수의 여왕', shape: 'siren', color: 0x7fc8d8, dark: 0x1a4a5a, hp: 50000, atk: 380, speed: 1.8, atkRange: 7.8, atkCd: 1.9, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
+      field: E({ key: 'goldLakeSiren', name: '황금 호수의 여왕', shape: 'siren', color: 0xc9a13a, dark: 0x5a4a1a, hp: 102000, atk: 455, speed: 1.65, atkRange: 8.0, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold', enrage: true }),
+    },
+    chests: [{ x: -14, z: 10, hide: 'reed' }, { x: 16, z: -12, hide: 'tree' }, { x: 8, z: -24, hide: 'rock' }],
+    quests: {
+      title: '호수공원의 평화', npc: '호수공원의 관리인',
+      steps: [
+        { text: '호수공원 몬스터 처치', type: 'kill', n: 34, reward: { gold: 15000, pt: 3, xp: 30000 } },
+        { text: '호수의 히드라 처치', type: 'mid', n: 1, reward: { gold: 18000, item: 5, xp: 36000 } },
+        { text: '호수의 여왕 처치', type: 'boss', n: 1, reward: { gold: 22000, soul: 'purple', soulN: 14, xp: 44000, unlock: 16 } },
+      ],
+    },
+  },
+  {
+    id: 16, key: 'yongin', name: '용인 테마파크 유적', short: '용인', icon: '🎪',
+    sub: '버려진 놀이기구와 유령들의 유원지',
+    theme: {
+      ground: 0x8a6a8a, ground2: '#4a2a4a', grass: '#b08ab0', accent: 0xff9ec4,
+      sky: 0xffc8d8, fog: 0xd8a8c8, fogDensity: 0.016,
+      prop: ['pillar', 'rock', 'tree', 'flower'], ambient: 'firefly', ambientColor: 0xffc8e8,
+    },
+    threat: 'blunt',
+    map: { cx: 192, cz: 192 },
+    npc: { name: '테마파크의 안내원', x: -5, z: 22, icon: '🎠' },
+    spawn: { x: 0, z: 23 }, boss: { x: 2, z: -32 }, mid: { x: 18, z: -4 }, field: { x: -30, z: 24 },
+    scale: SCALE[16], dropW: DROP_W[16],
+    mobs: {
+      normal: [
+        E({ key: 'parkWraith', name: '유령 회전목마', shape: 'wraith', color: 0xb08ab0, dark: 0x4a2a5a, hp: 2750, atk: 208, speed: 1.7, atkRange: 7.0, atkCd: 2.3, aggro: 6.5, style: 'ranged', soul: 'gray' }),
+        E({ key: 'parkGoblin', name: '버려진 인형', shape: 'goblin', color: 0xa08a9a, dark: 0x4a2a3a, hp: 2850, atk: 216, speed: 2.1, atkRange: 1.7, atkCd: 1.25, aggro: 5.5, style: 'melee', soul: 'gray' }),
+      ],
+      elite: [
+        E({ key: 'parkMummy', name: '테마파크의 광대', shape: 'mummy', color: 0xc8a8b8, dark: 0x5a3a4a, hp: 6900, atk: 260, speed: 1.25, atkRange: 7.5, atkCd: 2.4, aggro: 7, style: 'ranged', elite: true, soul: 'green' }),
+      ],
+      mid: E({ key: 'parkOgre', name: '거대 곰인형', shape: 'ogre', color: 0x8a6a5a, dark: 0x3a2a1a, hp: 29000, atk: 336, speed: 1.7, atkRange: 2.6, atkCd: 1.7, aggro: 11, style: 'aoe', elite: true, boss: 'mid', soul: 'blue' }),
+      boss: E({ key: 'parkEnt', name: '테마파크의 지배자', shape: 'ent', color: 0x6a4a6a, dark: 0x2a1a2a, hp: 53000, atk: 400, speed: 1.35, atkRange: 3.4, atkCd: 1.9, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
+      field: E({ key: 'goldParkEnt', name: '황금 테마파크 지배자', shape: 'ent', color: 0xc9a13a, dark: 0x5a4a1a, hp: 108000, atk: 480, speed: 1.3, atkRange: 3.6, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold', enrage: true }),
+    },
+    chests: [{ x: -16, z: 6, hide: 'pillar' }, { x: 14, z: 14, hide: 'tree' }, { x: -8, z: -22, hide: 'flower' }],
+    quests: {
+      title: '테마파크의 유령', npc: '테마파크의 안내원',
+      steps: [
+        { text: '테마파크 몬스터 처치', type: 'kill', n: 36, reward: { gold: 18000, pt: 3, xp: 36000 } },
+        { text: '거대 곰인형 처치', type: 'mid', n: 1, reward: { gold: 22000, item: 5, xp: 44000 } },
+        { text: '테마파크의 지배자 처치', type: 'boss', n: 1, reward: { gold: 26000, soul: 'purple', soulN: 15, xp: 52000, unlock: 17 } },
+      ],
+    },
+  },
+  {
+    id: 17, key: 'paju', name: '파주 휴전선', short: '파주', icon: '🪖',
+    sub: '짙은 안개 속 갈라진 땅의 경계',
+    theme: {
+      ground: 0x5a6a4a, ground2: '#2a3a24', grass: '#7a8a5a', accent: 0xc9d68a,
+      sky: 0x9aa88a, fog: 0x8a9a7a, fogDensity: 0.03,
+      prop: ['wall', 'deadTree', 'rock', 'reed'], ambient: 'spore', ambientColor: 0xc9d68a,
+    },
+    threat: 'ranged',
+    map: { cx: 96, cz: 192 },
+    npc: { name: '휴전선의 초병', x: 6, z: 22, icon: '🎖️' },
+    spawn: { x: 0, z: 23 }, boss: { x: -2, z: -32 }, mid: { x: -18, z: 6 }, field: { x: 28, z: 22 },
+    scale: SCALE[17], dropW: DROP_W[17],
+    mobs: {
+      normal: [
+        E({ key: 'dmzGoblin', name: '안개 늑대', shape: 'goblin', color: 0x6a7a5a, dark: 0x2a3a24, hp: 2900, atk: 218, speed: 2.1, atkRange: 1.7, atkCd: 1.25, aggro: 5.5, style: 'melee', soul: 'gray' }),
+        E({ key: 'dmzMummy', name: '휴전선 정찰병', shape: 'mummy', color: 0x9a9a7a, dark: 0x3a3a24, hp: 3000, atk: 226, speed: 1.25, atkRange: 7.5, atkCd: 2.4, aggro: 7, style: 'ranged', soul: 'gray' }),
+      ],
+      elite: [
+        E({ key: 'dmzAnubis', name: '휴전선 특공대', shape: 'anubis', color: 0x4a4a3a, dark: 0xc9a13a, hp: 7200, atk: 272, speed: 2.0, atkRange: 2.6, atkCd: 1.4, aggro: 7, style: 'melee', elite: true, soul: 'green' }),
+      ],
+      mid: E({ key: 'dmzOgre', name: '안개의 거인', shape: 'ogre', color: 0x7a7a5a, dark: 0x2a2a1a, hp: 30500, atk: 352, speed: 1.7, atkRange: 2.6, atkCd: 1.7, aggro: 11, style: 'aoe', elite: true, boss: 'mid', soul: 'blue' }),
+      boss: E({ key: 'dmzBarbarian', name: '휴전선의 장군', shape: 'anubis', color: 0x5a5a4a, dark: 0xc9a13a, hp: 56000, atk: 420, speed: 2.0, atkRange: 2.8, atkCd: 1.6, aggro: 13, style: 'melee', boss: 'boss', soul: 'purple' }),
+      field: E({ key: 'goldDmzAnubis', name: '황금 휴전선 장군', shape: 'anubis', color: 0xc9a13a, dark: 0x5a4a1a, hp: 114000, atk: 500, speed: 2.0, atkRange: 3.0, atkCd: 1.7, aggro: 13, style: 'melee', boss: 'field', soul: 'gold', enrage: true }),
+    },
+    chests: [{ x: 12, z: 12, hide: 'wall' }, { x: -18, z: -8, hide: 'deadTree' }, { x: 6, z: -20, hide: 'reed' }],
+    quests: {
+      title: '휴전선의 안개', npc: '휴전선의 초병',
+      steps: [
+        { text: '휴전선 몬스터 처치', type: 'kill', n: 38, reward: { gold: 22000, pt: 3, xp: 44000 } },
+        { text: '안개의 거인 처치', type: 'mid', n: 1, reward: { gold: 26000, item: 5, xp: 52000 } },
+        { text: '휴전선의 장군 처치', type: 'boss', n: 1, reward: { gold: 30000, soul: 'purple', soulN: 16, xp: 60000, unlock: 18 } },
+      ],
+    },
+  },
+  {
+    id: 18, key: 'gapyeong', name: '가평 산호수', short: '가평', icon: '🏞️',
+    sub: '깊은 산속 푸른 호수 · 여정의 끝',
+    theme: {
+      ground: 0x2a5a6a, ground2: '#122a3a', grass: '#4a8a7a', accent: 0x7fd0e0,
+      sky: 0x9fd0e8, fog: 0x7ab0c8, fogDensity: 0.018,
+      prop: ['tree', 'rock', 'pillar', 'grass'], ambient: 'bubble', ambientColor: 0x9fe8ff,
+    },
+    threat: 'blunt',
+    map: { cx: 0, cz: 192 },
+    npc: { name: '산호수의 어부', x: 4, z: 22, icon: '🎣' },
+    spawn: { x: 0, z: 23 }, boss: { x: 0, z: -32 }, mid: { x: -20, z: -5 }, field: { x: 30, z: 22 },
+    scale: SCALE[18], dropW: DROP_W[18],
+    mobs: {
+      normal: [
+        E({ key: 'lake2Frog', name: '산호수 물고기', shape: 'frog', color: 0x4a8a9a, dark: 0x1a3a4a, hp: 3050, atk: 228, speed: 1.75, atkRange: 6.5, atkCd: 2.2, aggro: 5.5, style: 'poison', soul: 'gray' }),
+        E({ key: 'lake2Wraith', name: '산호수 요정', shape: 'wraith', color: 0x7ab0c8, dark: 0x2a4a5a, hp: 3150, atk: 236, speed: 1.7, atkRange: 7.0, atkCd: 2.3, aggro: 6.5, style: 'ranged', soul: 'gray' }),
+      ],
+      elite: [
+        E({ key: 'lake2Crab', name: '산호수 거북', shape: 'crab', color: 0x5a7a6a, dark: 0x1a3a2a, hp: 7600, atk: 284, speed: 2.2, atkRange: 2.3, atkCd: 1.3, aggro: 7, style: 'melee', elite: true, soul: 'green' }),
+      ],
+      mid: E({ key: 'lake2Dragon', name: '산호수의 용', shape: 'dragon', color: 0x2a6a8a, dark: 0x0a2a3a, hp: 32000, atk: 368, speed: 1.6, atkRange: 4.0, atkCd: 1.9, aggro: 12, style: 'aoe', elite: true, boss: 'mid', soul: 'blue', enrage: true }),
+      boss: E({ key: 'lake2Kraken', name: '산호수의 왕', shape: 'kraken', color: 0x3a7a9a, dark: 0x0a2a4a, hp: 59000, atk: 440, speed: 1.4, atkRange: 4.2, atkCd: 1.9, aggro: 13, style: 'aoe', boss: 'boss', soul: 'purple' }),
+      field: E({ key: 'goldLake2Kraken', name: '황금 산호수의 왕', shape: 'kraken', color: 0xc9a13a, dark: 0x5a4a1a, hp: 120000, atk: 525, speed: 1.35, atkRange: 4.4, atkCd: 2.0, aggro: 13, style: 'aoe', boss: 'field', soul: 'gold', enrage: true }),
+    },
+    chests: [{ x: 14, z: 8, hide: 'tree' }, { x: -16, z: -14, hide: 'pillar' }, { x: 10, z: -26, hide: 'rock' }],
+    quests: {
+      title: '산호수의 왕', npc: '산호수의 어부',
+      steps: [
+        { text: '산호수 몬스터 처치', type: 'kill', n: 40, reward: { gold: 26000, pt: 3, xp: 52000 } },
+        { text: '산호수의 용 처치', type: 'mid', n: 1, reward: { gold: 30000, item: 5, xp: 60000 } },
+        { text: '산호수의 왕 처치', type: 'boss', n: 1, reward: { gold: 36000, soul: 'gold', soulN: 6, xp: 72000 } },
       ],
     },
   },
@@ -872,10 +1200,50 @@ export const CHARMS = {
   aqua: { id: 'aqua', name: '수중호흡 아티팩트', icon: '🫧', desc: '한강 심해 유적에 들어갈 수 있습니다' },
 };
 
-export const SECRET_TOTAL = 28;
+export const SECRET_TOTAL = 55; // 9개 구역 × 3 + 인천·경기 9개 구역 × 3 = 55
 
-// 지구 귀환 게이트 — 9구역(북한산) 북쪽 끝. 9구역 보스를 처치하면 열린다 (보이는 것만, 엔딩 연출은 아직 없음)
+// 지구 귀환 게이트 — 9구역(북한산) 북쪽 끝. 9구역 보스를 처치하면 열린다.
+// 들어가면 집으로 가는 줄 알았는데, 사실은 마계 인천(10구역)으로 통하는 문이다.
 export const EARTH_GATE = { x: 96, z: -138 };
+// 마계 관문 — 12구역(영종 마계섬) 북쪽 끝. 12구역 보스를 처치하면 열린다.
+// 들어가면 경기도(13구역 수원 화성)로 통한다.
+export const GYEONGGI_GATE = { x: -192, z: -136 };
+
+// ---------- 구역 경계 (통로) ----------
+// 두 구역이 맞닿은 경계마다 딱 하나의 통로가 있다. (x, z)는 통로 중심(월드 좌표).
+// along 'x' = 경계선이 x축 방향(가로 경계, z 고정), 'z' = 경계선이 z축 방향(세로 경계, x 고정).
+// 통로는 번호가 더 큰 구역이 해금될 때 열린다 (해금 순서는 1→18 숫자 순).
+// 경계의 나머지 부분은 산·돌·나무 같은 자연물 벽으로 막혀 있다 (world.js buildWorld).
+// 9→10, 12→13은 걸어서 가는 통로가 아니라 포탈(지구 귀환 게이트·마계 관문)로 이동한다.
+export const BORDERS = [
+  // 서울 (뱀 순서 1→9)
+  { a: 1, b: 2, x: -96, z: 48, along: 'x' },
+  { a: 2, b: 3, x: -96, z: -48, along: 'x' },
+  { a: 3, b: 4, x: -48, z: -96, along: 'z' },
+  { a: 4, b: 5, x: 0, z: -48, along: 'x' },
+  { a: 5, b: 6, x: 0, z: 48, along: 'x' },
+  { a: 6, b: 7, x: 48, z: 96, along: 'z' },
+  { a: 7, b: 8, x: 96, z: 48, along: 'x' },
+  { a: 8, b: 9, x: 96, z: -48, along: 'x' },
+  // 마계 인천 (10~12) — 서울 서쪽과 맞닿은 옆통로 + 인천 내부 통로
+  { a: 1, b: 10, x: -144, z: 96, along: 'z' },
+  { a: 2, b: 11, x: -144, z: 0, along: 'z' },
+  { a: 3, b: 12, x: -144, z: -96, along: 'z' },
+  { a: 10, b: 11, x: -192, z: 48, along: 'x' },
+  { a: 11, b: 12, x: -192, z: -48, along: 'x' },
+  // 경기도 (13~18) — 서울 동쪽·남쪽과 맞닿은 옆통로 + 경기 내부 통로
+  { a: 9, b: 13, x: 144, z: -96, along: 'z' },
+  { a: 8, b: 14, x: 144, z: 0, along: 'z' },
+  { a: 7, b: 15, x: 144, z: 96, along: 'z' },
+  { a: 13, b: 14, x: 192, z: -48, along: 'x' },
+  { a: 14, b: 15, x: 192, z: 48, along: 'x' },
+  { a: 15, b: 16, x: 192, z: 144, along: 'x' },
+  { a: 16, b: 17, x: 144, z: 192, along: 'z' },
+  { a: 17, b: 18, x: 48, z: 192, along: 'z' },
+  { a: 6, b: 18, x: 0, z: 144, along: 'x' },
+  { a: 7, b: 17, x: 96, z: 144, along: 'x' },
+];
+export function borderDistrictId(b) { return Math.max(b.a, b.b); }
 
 // 몬스터 역할별 기본 보상 (구역 배율을 곱한다)
 export const MOB_REWARD = {
