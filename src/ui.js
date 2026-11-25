@@ -5,9 +5,9 @@ import {
   AVATARS, avatarOf, SKILLS, EVOLVE_NEED, BOSS_LABEL, BOSS_TIMER,
   COMPANION_SKILLS, COMPANION_SKILL_POOLS, SKILL_BOOK_SKILL, COMPANION_SKILL_MAX_LEVEL,
   COSTUMES, COSTUME_MAP, COSTUME_PULL_COST, COSTUME_MAX_LEVEL, COSTUME_STAT_LABEL, COMPANION_PULL_COST,
-  ELEMENTS, ELEM_BEATS, EARTH_GATE,
+  ELEMENTS, ELEM_BEATS, EARTH_GATE, GYEONGGI_GATE, BORDERS,
 } from './data.js';
-import { districtAt, PATH_CENTERS } from './world.js';
+import { districtAt, PATH_CENTERS, districtOutline, WORLD_BOUNDS } from './world.js';
 import { CloudAdapter } from './save.js';
 import { heroPortraitDataUrl, heroFullDataUrl, visualEquip } from './sprites.js';
 
@@ -185,6 +185,50 @@ export function createUI(game, THREE) {
     if (game.nearChest) game.openChest(game.nearChest);
   });
 
+  // 포탈 들어가기 버튼 (상자 "📦 열기" 버튼과 같은 방식 — 열린 게이트에 다가가면 뜬다)
+  const portalBtn = document.createElement('button');
+  portalBtn.className = 'chest-open-btn portal-open-btn hidden';
+  portalBtn.innerHTML = '🌀 들어가기';
+  worldLayer.appendChild(portalBtn);
+  ui.updatePortalPrompt = function (near) {
+    ui.nearPortal = near;
+    portalBtn.classList.toggle('hidden', !near);
+    if (near) portalBtn.classList.add('pop');
+  };
+  portalBtn.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    if (game.nearPortal) game.enterPortal();
+  });
+
+  // 포탈 스토리 한 장면 (다이얼로그) — 확인을 누르면 이동한다
+  ui.showPortalStory = function (kind, onConfirm) {
+    const texts = {
+      earth: {
+        title: '🌀 지구 귀환 게이트',
+        body: '집으로 돌아가는 문인 줄 알았는데…<br><br>문을 통과하자 낯선 공기가 코를 찌른다. 하늘이 보라빛으로 물들고, 멀리 검은 성이 보인다.<br><br><b>여긴… 마계 인천?!</b>',
+        btn: '마계 인천으로 들어가기',
+      },
+      gyeonggi: {
+        title: '🌀 마계 관문',
+        body: '마계 인천을 평정했다. 그런데 관문 너머에서 또 다른 기운이 느껴진다.<br><br>검은 안개가 걷히자 드넓은 평원과 성벽, 호수가 보인다.<br><br><b>다음은… 경기도다.</b>',
+        btn: '경기도로 들어가기',
+      },
+    };
+    const t = texts[kind] || texts.earth;
+    const ov = document.createElement('div');
+    ov.className = 'sheet-wrap';
+    ov.innerHTML = `<div class="sheet" style="max-width:340px;text-align:center">
+      <div class="sheet-title" style="font-size:19px">${t.title}</div>
+      <div style="margin:14px 4px;line-height:1.7;font-size:15px">${t.body}</div>
+      <button class="btn primary" style="width:100%;padding:12px;font-size:16px">${t.btn}</button>
+    </div>`;
+    ov.querySelector('button').addEventListener('click', () => {
+      ov.remove();
+      if (onConfirm) onConfirm();
+    });
+    document.body.appendChild(ov);
+  };
+
   // ---------- HUD ----------
   ui.markDirty = function (full) { ui.dirty = true; if (full) ui._rerender = true; };
 
@@ -242,29 +286,36 @@ export function createUI(game, THREE) {
   // ---------- 미니맵 · 월드맵 바탕 (서울 지도 전체, 한 번만 그린다) ----------
   let mapBase = null, mapBaseKey = '';
   function buildMapBase() {
-    const S = 900;
-    const cv = document.createElement('canvas'); cv.width = cv.height = S;
+    // 지도 전체 오프스크린 캔버스 900×720 (월드 480×384, 가로:세로 = 5:4).
+    // 구역은 울퉁불퉁한 다각형(districtOutline)으로 그리고, 소품은 네모 도트로 찍는다.
+    const W = 900, H = 720;
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     const g = cv.getContext('2d');
-    const W2 = (wx) => (wx + 144) / 288 * S;
-    const H2 = (wz) => (wz + 144) / 288 * S;
-    // 구역별 바탕
+    const W2 = (wx) => (wx - WORLD_BOUNDS.minX) / (WORLD_BOUNDS.maxX - WORLD_BOUNDS.minX) * W;
+    const H2 = (wz) => (wz - WORLD_BOUNDS.minZ) / (WORLD_BOUNDS.maxZ - WORLD_BOUNDS.minZ) * H;
+    // 구역별 바탕 (울퉁불퉁한 구역 다각형 + 방사 그라데이션)
     for (const zn of ZONES) {
       if (!zn.map) continue;
+      const outline = districtOutline(zn.id);
+      if (!outline.length) continue;
       const cx = W2(zn.map.cx), cy = H2(zn.map.cz);
-      const R = S / 3 * 0.72;
+      const R = W / 5 * 0.72;
       const grd = g.createRadialGradient(cx, cy, R * 0.05, cx, cy, R);
       grd.addColorStop(0, zn.theme.grass || hexOf(zn.theme.ground));
       grd.addColorStop(0.55, hexOf(zn.theme.ground));
       grd.addColorStop(1, zn.theme.ground2);
       g.fillStyle = grd;
-      g.fillRect(cx - S / 6, cy - S / 6, S / 3, S / 3);
+      g.beginPath();
+      outline.forEach((p, i) => { if (i === 0) g.moveTo(W2(p.x), H2(p.z)); else g.lineTo(W2(p.x), H2(p.z)); });
+      g.closePath();
+      g.fill();
     }
     // 얼룩
     let seed = 1234567;
     const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
     for (let i = 0; i < 420; i++) {
-      const x = rnd() * S, y = rnd() * S, r = 4 + rnd() * 26;
-      const zn = districtAt(x / S * 288 - 144, y / S * 288 - 144);
+      const x = rnd() * W, y = rnd() * H, r = 4 + rnd() * 26;
+      const zn = districtAt(x / W * (WORLD_BOUNDS.maxX - WORLD_BOUNDS.minX) + WORLD_BOUNDS.minX, y / H * (WORLD_BOUNDS.maxZ - WORLD_BOUNDS.minZ) + WORLD_BOUNDS.minZ);
       g.globalAlpha = 0.05 + rnd() * 0.1;
       g.fillStyle = rnd() > 0.5 ? zn.theme.ground2 : (zn.theme.grass || hexOf(zn.theme.ground));
       g.beginPath(); g.ellipse(x, y, r, r * (0.5 + rnd()), rnd() * 3, 0, 6.283); g.fill();
@@ -273,18 +324,18 @@ export function createUI(game, THREE) {
     // 한강 물줄기
     const ry0 = H2(-104), ry1 = H2(-88);
     g.fillStyle = 'rgba(42,122,150,.85)';
-    g.fillRect(0, ry0, S, ry1 - ry0);
+    g.fillRect(0, ry0, W, ry1 - ry0);
     g.strokeStyle = 'rgba(168,232,238,.6)'; g.lineWidth = 2;
     for (let i = 0; i < 14; i++) {
       const y = ry0 + rnd() * (ry1 - ry0);
       g.beginPath();
-      g.moveTo(rnd() * S * 0.5, y);
-      g.bezierCurveTo(S * 0.4, y + (rnd() - 0.5) * 10, S * 0.6, y + (rnd() - 0.5) * 10, S * (0.5 + rnd() * 0.5), y);
+      g.moveTo(rnd() * W * 0.5, y);
+      g.bezierCurveTo(W * 0.4, y + (rnd() - 0.5) * 10, W * 0.6, y + (rnd() - 0.5) * 10, W * (0.5 + rnd() * 0.5), y);
       g.stroke();
     }
-    // 메인 길 (구역 중심 뱀 모양)
+    // 메인 길 (구역 중심 뱀 모양 — 포탈 구간은 끊긴다)
     const pathColor = '#9c8a63';
-    g.strokeStyle = 'rgba(0,0,0,.18)'; g.lineWidth = S * 0.014; g.lineCap = 'round';
+    g.strokeStyle = 'rgba(0,0,0,.18)'; g.lineWidth = W * 0.014; g.lineCap = 'round';
     g.beginPath();
     PATH_CENTERS.forEach((p, i) => {
       const px = W2(p.x), py = H2(p.z);
@@ -292,35 +343,40 @@ export function createUI(game, THREE) {
       else { const prev = PATH_CENTERS[i - 1]; g.quadraticCurveTo(W2(prev.x), H2(p.z), px, py); }
     });
     g.stroke();
-    g.strokeStyle = pathColor; g.lineWidth = S * 0.011; g.stroke();
-    // 구역 경계선
+    g.strokeStyle = pathColor; g.lineWidth = W * 0.011; g.stroke();
+    // 구역 경계선 (울퉁불퉁한 윤곽선을 그대로 따라 그린다 — 네모 격자가 아니다)
     g.strokeStyle = 'rgba(0,0,0,.16)'; g.lineWidth = 2;
-    for (const b of [-48, 48]) {
-      g.beginPath(); g.moveTo(W2(b), 0); g.lineTo(W2(b), S); g.stroke();
-      g.beginPath(); g.moveTo(0, H2(b)); g.lineTo(S, H2(b)); g.stroke();
+    for (const zn of ZONES) {
+      if (!zn.map) continue;
+      const outline = districtOutline(zn.id);
+      if (!outline.length) continue;
+      g.beginPath();
+      outline.forEach((p, i) => { if (i === 0) g.moveTo(W2(p.x), H2(p.z)); else g.lineTo(W2(p.x), H2(p.z)); });
+      g.closePath();
+      g.stroke();
     }
-    // 소품 실루엣
+    // 소품 실루엣 (도트 스타일: 네모로 찍는다)
     for (const pr of game.world.props) {
       const x = W2(pr.x), y = H2(pr.z);
       const k = pr.kind || 'rock';
       const r = Math.max(1.6, pr.r * 4.2);
       if (k === 'tree' || k === 'deadTree' || k === 'cactus' || k === 'coral') {
-        g.fillStyle = 'rgba(0,0,0,.18)'; g.beginPath(); g.arc(x + 1.2, y + 1.4, r * 1.05, 0, 6.283); g.fill();
+        g.fillStyle = 'rgba(0,0,0,.18)'; g.fillRect(x - r * 0.9, y - r * 0.7, r * 2.1, r * 2.1);
         g.fillStyle = k === 'deadTree' ? '#4a3f3a' : k === 'cactus' ? '#4f8a4a' : k === 'coral' ? '#c97a9a' : '#2f6b2c';
-        g.beginPath(); g.arc(x, y, r, 0, 6.283); g.fill();
+        g.fillRect(x - r, y - r, r * 2, r * 2);
         g.fillStyle = k === 'coral' ? '#ffb0c8' : '#5fae4a';
-        g.beginPath(); g.arc(x - r * 0.25, y - r * 0.3, r * 0.56, 0, 6.283); g.fill();
+        g.fillRect(x - r * 0.9, y - r * 0.9, r * 0.9, r * 0.9);
       } else if (k === 'rock' || k === 'sandRock' || k === 'bubbleRock') {
         g.fillStyle = k === 'sandRock' ? '#c9a468' : k === 'bubbleRock' ? '#4a8894' : '#8d929c';
-        g.beginPath(); g.ellipse(x, y, r * 0.9, r * 0.7, 0, 0, 6.283); g.fill();
+        g.fillRect(x - r * 0.9, y - r * 0.7, r * 1.8, r * 1.4);
         g.fillStyle = 'rgba(255,255,255,.22)';
-        g.beginPath(); g.ellipse(x - r * 0.25, y - r * 0.25, r * 0.4, r * 0.3, 0, 0, 6.283); g.fill();
+        g.fillRect(x - r * 0.6, y - r * 0.55, r * 0.7, r * 0.5);
       } else if (k === 'wall' || k === 'pillar' || k === 'ruinPillar') {
         g.fillStyle = k === 'wall' ? '#6a6355' : k === 'ruinPillar' ? '#7fa4ac' : '#c9ad74';
         g.fillRect(x - r, y - r * 0.7, r * 2, r * 1.4);
       } else {
         g.fillStyle = 'rgba(30,70,30,.5)';
-        g.beginPath(); g.arc(x, y, r * 0.7, 0, 6.283); g.fill();
+        g.fillRect(x - r * 0.7, y - r * 0.7, r * 1.4, r * 1.4);
       }
     }
     // 보스 제단 (에픽) · 중간보스 자리 · 지역 필드보스 자리
@@ -330,28 +386,31 @@ export function createUI(game, THREE) {
     };
     for (const zn of ZONES) {
       if (!zn.map) continue;
-      arena(zn.map.cx + zn.mid.x, zn.map.cz + zn.mid.z, S * 0.013, 'rgba(80,160,255,.16)', 'rgba(120,190,255,.5)');
-      arena(zn.map.cx + zn.boss.x, zn.map.cz + zn.boss.z, S * 0.019, 'rgba(180,90,255,.18)', 'rgba(210,140,255,.55)');
-      if (zn.field) arena(zn.map.cx + zn.field.x, zn.map.cz + zn.field.z, S * 0.02, 'rgba(255,200,60,.16)', 'rgba(255,215,110,.6)');
+      arena(zn.map.cx + zn.mid.x, zn.map.cz + zn.mid.z, W * 0.013, 'rgba(80,160,255,.16)', 'rgba(120,190,255,.5)');
+      arena(zn.map.cx + zn.boss.x, zn.map.cz + zn.boss.z, W * 0.019, 'rgba(180,90,255,.18)', 'rgba(210,140,255,.55)');
+      if (zn.field) arena(zn.map.cx + zn.field.x, zn.map.cz + zn.field.z, W * 0.02, 'rgba(255,200,60,.16)', 'rgba(255,215,110,.6)');
     }
     // 시작 지점 문양 (1구역 스폰)
     const z1 = ZONES[0];
     g.strokeStyle = 'rgba(140,220,255,.55)'; g.lineWidth = 2;
-    g.beginPath(); g.arc(W2(z1.map.cx + z1.spawn.x), H2(z1.map.cz + z1.spawn.z), S * 0.01, 0, 6.283); g.stroke();
-    // 지구 귀환 게이트
+    g.beginPath(); g.arc(W2(z1.map.cx + z1.spawn.x), H2(z1.map.cz + z1.spawn.z), W * 0.01, 0, 6.283); g.stroke();
+    // 지구 귀환 게이트 (9구역) · 마계 관문 (12구역)
     g.fillStyle = game.state.earthGateOpen ? '#ffd257' : '#8a97a8';
-    g.beginPath(); g.arc(W2(EARTH_GATE.x), H2(EARTH_GATE.z), S * 0.012, 0, 6.283); g.fill();
+    g.beginPath(); g.arc(W2(EARTH_GATE.x), H2(EARTH_GATE.z), W * 0.012, 0, 6.283); g.fill();
+    g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke();
+    g.fillStyle = game.state.gyeonggiGateOpen ? '#b46cff' : '#8a97a8';
+    g.beginPath(); g.arc(W2(GYEONGGI_GATE.x), H2(GYEONGGI_GATE.z), W * 0.012, 0, 6.283); g.fill();
     g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke();
     // 테두리
     g.strokeStyle = 'rgba(255,255,255,.12)'; g.lineWidth = 8;
-    g.strokeRect(4, 4, S - 8, S - 8);
+    g.strokeRect(4, 4, W - 8, H - 8);
     mapBase = cv;
-    mapBaseKey = game.state.chestOpened.length + '|' + (game.state.earthGateOpen ? '1' : '0');
+    mapBaseKey = game.state.chestOpened.length + '|' + (game.state.earthGateOpen ? '1' : '0') + '|' + (game.state.gyeonggiGateOpen ? '1' : '0');
   }
 
   function drawMinimap() {
     if (!game.zone || !game.player || !game.world) return;
-    const baseKey = game.state.chestOpened.length + '|' + (game.state.earthGateOpen ? '1' : '0');
+    const baseKey = game.state.chestOpened.length + '|' + (game.state.earthGateOpen ? '1' : '0') + '|' + (game.state.gyeonggiGateOpen ? '1' : '0');
     if (!mapBase || mapBaseKey !== baseKey) buildMapBase();
     const c = $('minimap');
     const ctx = c.getContext('2d');
@@ -360,12 +419,12 @@ export function createUI(game, THREE) {
     ctx.clearRect(0, 0, W, H);
     ctx.save();
     ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.clip();
-    // 지형 레이어 (한 번 그려 둔 오프스크린 캔버스 — 서울 지도 전체)
-    const size = 288 * scale;
-    const ox = cx - (game.player.x + 144) / 288 * size;
-    const oy = cy - (game.player.z + 144) / 288 * size;
+    // 지형 레이어 (한 번 그려 둔 오프스크린 캔버스 — 판타지 대륙 지도 전체, 480×384)
+    const sizeW = 480 * scale, sizeH = 384 * scale;
+    const ox = cx - (game.player.x + 240) / 480 * sizeW;
+    const oy = cy - (game.player.z + 144) / 384 * sizeH;
     ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(mapBase, ox, oy, size, size);
+    ctx.drawImage(mapBase, ox, oy, sizeW, sizeH);
     ctx.imageSmoothingEnabled = false;
     const px2 = (wx, wz) => [cx + (wx - game.player.x) * scale, cy + (wz - game.player.z) * scale];
 
@@ -500,6 +559,16 @@ export function createUI(game, THREE) {
       } else if (ui.nearChest && ui.nearChest.opened) {
         ui.updateChestPrompt(null);
       }
+      // 포탈 들어가기 버튼 위치 (게이트 위)
+      if (ui.nearPortal) {
+        const p = project(ui.nearPortal.x, 3.4, ui.nearPortal.z);
+        if (p.visible) {
+          portalBtn.style.display = 'block';
+          portalBtn.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%,-100%)`;
+        } else portalBtn.style.display = 'none';
+      } else {
+        portalBtn.style.display = 'none';
+      }
     }
   };
 
@@ -527,6 +596,7 @@ export function createUI(game, THREE) {
     $('bossBar').classList.add('hidden');
     ui.updateTalkButtons();
     ui.updateChestPrompt(null);
+    ui.updatePortalPrompt(null);
     mapBase = null;
     ui.dirty = true;
   };
@@ -1510,39 +1580,45 @@ export function createUI(game, THREE) {
 
   // ---------- 월드맵 ----------
   // ---------- 전체 지도 (실제 맵 지형) ----------
-  // ---------- 월드맵 (서울 지도 전체 · 잠긴 구역은 구름) ----------
+  // ---------- 월드맵 (판타지 대륙 지도 전체 · 잠긴 구역은 구름) ----------
   ui.openWorldMap = function () {
     const s = game.state;
     const zone = game.zone;
     buildMapBase();
-    const M = 920;
+    const MW = 920, MH = 736;
     const cv = document.createElement('canvas');
-    cv.width = M; cv.height = M;
+    cv.width = MW; cv.height = MH;
     const g = cv.getContext('2d');
     g.imageSmoothingEnabled = true;
-    g.drawImage(mapBase, 0, 0, M, M);
-    const X = (wx) => (wx + 144) / 288 * M;
-    const Y = (wz) => (wz + 144) / 288 * M;
-    // 잠긴 구역은 구름으로 가린다
+    g.drawImage(mapBase, 0, 0, MW, MH);
+    const X = (wx) => (wx - WORLD_BOUNDS.minX) / (WORLD_BOUNDS.maxX - WORLD_BOUNDS.minX) * MW;
+    const Y = (wz) => (wz - WORLD_BOUNDS.minZ) / (WORLD_BOUNDS.maxZ - WORLD_BOUNDS.minZ) * MH;
+    // 잠긴 구역은 구름으로 가린다 (울퉁불퉁한 구역 모양 그대로)
     for (const zn of ZONES) {
       if (!zn.map) continue;
       if (s.unlocked.includes(zn.id)) continue;
-      const x0 = X(zn.map.cx - 48), y0 = Y(zn.map.cz - 48), w = M / 3, h = M / 3;
+      const outline = districtOutline(zn.id);
+      if (!outline.length) continue;
+      g.beginPath();
+      outline.forEach((p, i) => { if (i === 0) g.moveTo(X(p.x), Y(p.z)); else g.lineTo(X(p.x), Y(p.z)); });
+      g.closePath();
       g.fillStyle = 'rgba(220,228,240,.82)';
-      g.fillRect(x0, y0, w, h);
+      g.fill();
+      g.strokeStyle = 'rgba(90,106,138,.6)'; g.lineWidth = 3;
+      g.stroke();
+      const cx = X(zn.map.cx), cy = Y(zn.map.cz);
       g.fillStyle = '#5a6a8a';
       g.font = 'bold 44px sans-serif'; g.textAlign = 'center';
-      g.fillText('☁️', x0 + w / 2, y0 + h / 2 - 6);
+      g.fillText('☁️', cx, cy - 6);
       g.font = 'bold 20px sans-serif';
-      g.fillText('방벽', x0 + w / 2, y0 + h / 2 + 26);
-      g.strokeStyle = 'rgba(90,106,138,.6)'; g.lineWidth = 3;
-      g.strokeRect(x0 + 2, y0 + 2, w - 4, h - 4);
+      g.fillText('방벽', cx, cy + 26);
     }
-    // 방벽 게이트 표시 (잠긴 구역 입구)
-    for (const zn of ZONES) {
-      if (!zn.gate || s.unlocked.includes(zn.id)) continue;
+    // 방벽 게이트 표시 (잠긴 통로 입구 — 통로마다 하나)
+    for (const b of BORDERS) {
+      const did = Math.max(b.a, b.b);
+      if (s.unlocked.includes(did)) continue;
       g.fillStyle = '#b46cff';
-      g.beginPath(); g.arc(X(zn.gate.x), Y(zn.gate.z), 9, 0, 6.283); g.fill();
+      g.beginPath(); g.arc(X(b.x), Y(b.z), 9, 0, 6.283); g.fill();
       g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke();
     }
     // 상자(보물)
@@ -1569,20 +1645,29 @@ export function createUI(game, THREE) {
       g.beginPath(); g.arc(X(gr.x), Y(gr.z), 7, 0, 6.283); g.fillStyle = '#0e1420'; g.fill();
       g.strokeStyle = '#ffd257'; g.lineWidth = 2; g.stroke();
     }
-    // 지구 귀환 게이트
+    // 지구 귀환 게이트 · 마계 관문
     g.beginPath(); g.arc(X(EARTH_GATE.x), Y(EARTH_GATE.z), 10, 0, 6.283);
     g.fillStyle = s.earthGateOpen ? '#ffd257' : '#8a97a8'; g.fill();
+    g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke();
+    g.beginPath(); g.arc(X(GYEONGGI_GATE.x), Y(GYEONGGI_GATE.z), 10, 0, 6.283);
+    g.fillStyle = s.gyeonggiGateOpen ? '#b46cff' : '#8a97a8'; g.fill();
     g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke();
     // 내 캐릭터
     g.beginPath(); g.arc(X(game.player.x), Y(game.player.z), 12, 0, 6.283); g.fillStyle = '#3ddc54'; g.fill();
     g.strokeStyle = '#fff'; g.lineWidth = 2.5; g.stroke();
-    // 현재 구역 테두리
+    // 현재 구역 테두리 (울퉁불퉁한 윤곽선)
     if (zone.map) {
-      g.strokeStyle = '#fff'; g.lineWidth = 3;
-      g.strokeRect(X(zone.map.cx - 48) + 2, Y(zone.map.cz - 48) + 2, M / 3 - 4, M / 3 - 4);
+      const outline = districtOutline(zone.id);
+      if (outline.length) {
+        g.strokeStyle = '#fff'; g.lineWidth = 3;
+        g.beginPath();
+        outline.forEach((p, i) => { if (i === 0) g.moveTo(X(p.x), Y(p.z)); else g.lineTo(X(p.x), Y(p.z)); });
+        g.closePath();
+        g.stroke();
+      }
     }
     const img = cv.toDataURL('image/png');
-    const zoneCards = ZONES.map((z) => {
+    const zoneCard = (z) => {
       const unlocked = s.unlocked.includes(z.id);
       const current = zone.id === z.id;
       return `<button class="wm-zone ${current ? 'on' : ''} ${unlocked ? '' : 'fog'}" data-zone="${z.id}">
@@ -1591,10 +1676,11 @@ export function createUI(game, THREE) {
         <span class="wm-nm">${z.short}</span>
         <span class="wm-st">${current ? '지금 여기' : unlocked ? '🚀 탭하여 이동' : '미탐험 · 방벽'}</span>
       </button>`;
-    }).join('');
-    const html = `${head('🗺️ 서울 판타지 지도', `${zone.icon} ${zone.name}`)}
+    };
+    const region = (title, ids) => `<div class="wm-region">${title}</div><div class="wm-zones">${ids.map((id) => zoneCard(ZONES.find((z) => z.id === id))).join('')}</div>`;
+    const html = `${head('🗺️ 판타지 대륙 지도', `${zone.icon} ${zone.name}`)}
       <div class="wm-wrap">
-        <img class="wm-map" src="${img}" alt="서울 판타지 지도">
+        <img class="wm-map" src="${img}" alt="판타지 대륙 지도">
         <div class="wm-legend">
           <span><i class="lg me"></i>내 위치</span>
           <span><i class="lg mon"></i>몬스터</span>
@@ -1602,16 +1688,22 @@ export function createUI(game, THREE) {
           <span><i class="lg chest"></i>보물</span>
           <span><i class="lg npc"></i>NPC</span>
           <span>🚪 방벽</span>
+          <span>🌀 포탈</span>
         </div>
       </div>
-      <div class="wm-zones">${zoneCards}</div>
-      <div class="hint" style="margin-top:10px">하나로 연결된 서울 지도예요. 해금된 구역 카드를 누르면 그 구역 스폰으로 이동해요. 지금 있는 구역 카드를 누르면 구역 정보를 볼 수 있어요. 잠긴 구역은 이전 구역 보스를 처치하면 방벽이 열려요.</div>`;
+      ${region('🏙️ 서울', [1, 2, 3, 4, 5, 6, 7, 8, 9])}
+      ${region('😈 마계 인천', [10, 11, 12])}
+      ${region('🌄 경기도', [13, 14, 15, 16, 17, 18])}
+      <div class="hint" style="margin-top:10px">하나로 연결된 판타지 대륙 지도예요. 해금된 구역 카드를 누르면 그 구역 스폰으로 이동해요. 지금 있는 구역 카드를 누르면 구역 정보를 볼 수 있어요. 잠긴 구역은 이전 구역 보스를 처치하면 방벽이 열려요. 마계 인천은 지구 귀환 게이트(북한산 정상 북쪽 끝)로, 경기도는 마계 관문(영종 마계섬 북쪽 끝)으로 가야 해요.</div>`;
     const sheet = openSheet(html, 'hub-sheet');
     sheet.querySelectorAll('[data-zone]').forEach((el) => el.addEventListener('click', () => {
       const id = parseInt(el.dataset.zone, 10);
       const z = ZONES.find((x) => x.id === id);
       if (!z) return;
       if (!game.state.unlocked.includes(id)) {
+        // 포탈로만 가는 구역은 안내가 따로 있다
+        if (id === 10) { ui.toast('마계 인천항은 걸어서 갈 수 없어요. 지구 귀환 게이트(북한산 정상 북쪽 끝)로 가야 해요.', 'bad'); return; }
+        if (id === 13) { ui.toast('수원 화성은 걸어서 갈 수 없어요. 마계 관문(영종 마계섬 북쪽 끝)으로 가야 해요.', 'bad'); return; }
         const prev = ZONES.find((p) => p.id === id - 1);
         ui.toast(prev ? `${prev.name} 보스를 먼저 처치해야 방벽이 열려요.` : '아직 갈 수 없는 구역이에요.', 'bad');
         return;
