@@ -147,6 +147,11 @@ input,textarea,select{font-family:inherit}
 @keyframes chestPop{from{opacity:0;transform:translate(-50%,-90%) scale(.9)}to{opacity:1}}
 .chest-open-btn.pop{animation:chestPop .25s ease-out}
 
+/* 포탈 들어가기 버튼 (보라빛 변형) */
+.portal-open-btn{border-color:#b46cff;color:#e6d4ff;
+  background:linear-gradient(180deg,rgba(44,22,80,.96),rgba(18,8,40,.96));
+  box-shadow:0 8px 20px rgba(0,0,0,.45),0 0 18px rgba(180,108,255,.45)}
+
 /* ---------- 토스트 ---------- */
 .toasts{position:absolute;left:50%;top:calc(74px + env(safe-area-inset-top,0px));transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;align-items:center;width:min(420px,80vw);z-index:30}
 .toast{padding:7px 14px;border-radius:12px;background:rgba(14,19,32,.94);border:1px solid var(--line);
@@ -223,7 +228,7 @@ input,textarea,select{font-family:inherit}
 .islot-actions .btn{flex:1}
 
 /* ---------- 전체 지도 ---------- */
-.wm-wrap{position:relative;border-radius:16px;overflow:hidden;border:1px solid var(--line-strong);background:#101827;width:min(100%,46vh);margin:0 auto;aspect-ratio:1}
+.wm-wrap{position:relative;border-radius:16px;overflow:hidden;border:1px solid var(--line-strong);background:#101827;width:min(100%,46vh);margin:0 auto;aspect-ratio:5/4}
 .wm-map{display:block;width:100%;height:100%;object-fit:cover;image-rendering:auto;background:#0d1522}
 .wm-legend{position:absolute;left:8px;bottom:8px;display:flex;flex-wrap:wrap;gap:7px;padding:5px 8px;border-radius:10px;
   background:rgba(8,12,22,.78);font-size:9px;font-weight:800;color:#dbe6f8}
@@ -235,6 +240,8 @@ input,textarea,select{font-family:inherit}
 .wm-legend .lg.chest{background:#ffd257;border-radius:2px}
 .wm-legend .lg.npc{background:#7fd0ff}
 .wm-zones{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:10px}
+.wm-region{font-size:13px;font-weight:900;color:#ffd257;margin:14px 2px 0;letter-spacing:.5px}
+.wm-region:first-of-type{margin-top:12px}
 .wm-zone{position:relative;display:flex;flex-direction:column;align-items:center;gap:1px;padding:8px 4px;border-radius:13px;
   border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--txt);font-family:inherit;cursor:pointer;overflow:hidden}
 .wm-zone .wm-ic{font-size:17px;line-height:1.1}
