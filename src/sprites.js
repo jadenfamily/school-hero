@@ -1,5 +1,9 @@
 // 스쿨히어로 — 2.5D 도트 스프라이트 · 초상화 생성
 // 캐릭터/몬스터를 캔버스 픽셀아트로 그려 NearestFilter 텍스처로 쓴다.
+// 2D 탑뷰: 캐릭터·몬스터·소품은 카메라를 바라보는 빌보드(평면)다.
+// 카메라 고도 62°에 맞춰 빌보드를 눕힌다 (평면이 시선에 수직 → 화면에서 온전한 높이로 보인다).
+// game.js의 camRig와 같은 값이어야 한다 (뒤 0.85 : 높이 1.6 → tan 62°).
+export const BILLBOARD_TILT = 1.0821; // 62° (rad)
 import { GRADES, AVATAR_MAP, COSTUME_MAP } from './data.js';
 import { ASSET_URL, HERO_IDS, MONSTER_KEYS, COMPANION_IDS, GOLD_KEYS, getTexture, getSilhouette, aspectOf } from './assets.js';
 
@@ -868,7 +872,7 @@ export function makeMonsterSprite(THREE, def) {
   const url = hasPng ? ASSET_URL.monster(key) : null;
   const baseH = MONSTER_H[def.shape] || 1.28;
   const bossMul = def.boss === 'field' ? 1.22 : def.boss === 'boss' ? 1.12 : def.boss === 'mid' ? 1.05 : def.elite ? 1.06 : 1;
-  const h = baseH * 1.12 * bossMul;
+  const h = baseH * 1.12 * bossMul * 1.5; // 2D 탑뷰에서 크게 보이게
   const asp = url ? (aspectOf(THREE, url) || 0.75) : 1;
   const w = h * asp;
   const g = new THREE.Group();
@@ -879,7 +883,10 @@ export function makeMonsterSprite(THREE, def) {
   mesh.scale.set(w, h, 1);
   mesh.position.y = h / 2;
   const art = new THREE.Group();          // 카메라를 바라보는 빌보드 축
-  art.add(mesh);
+  const tilt = new THREE.Group();         // 시선에 수직이 되도록 눕힌다 (2D 탑뷰)
+  tilt.rotation.x = -BILLBOARD_TILT;
+  tilt.add(mesh);
+  art.add(tilt);
   g.add(art);
 
   // 피격 흰색 실루엣
@@ -890,7 +897,7 @@ export function makeMonsterSprite(THREE, def) {
     flash.scale.set(w * 1.02, h * 1.02, 1);
     flash.position.y = h / 2;
     flash.visible = false;
-    art.add(flash);
+    tilt.add(flash);
   }
 
   // 바닥 그림자 (입체감)
@@ -968,13 +975,13 @@ const HERO_FRAME = 52;
 export const COSTUME_VISUAL = {
   knight:   { head: 'crest',   outfit: 0xcfd8e6 },
   mage:     { head: 'none',    robe: true, rune: true, outfit: 0x6a4ac0 },
-  dark:     { head: 'hood',    cloak: true, outfit: 0x2a2438 },
+  dark:     { head: 'hood',    cloak: true, outfit: 0x453a5e, rim: '#b46cff' },
   royal:    { head: 'crown',   sash: true, outfit: 0xd8b34a },
-  ninja:    { head: 'hood',    mask: true, outfit: 0x1f2a33 },
+  ninja:    { head: 'hood',    mask: true, outfit: 0x2e3d4a, rim: '#7dff9e' },
   pirate:   { head: 'tricorn', coat: true, outfit: 0x7a2e2e },
   samurai:  { head: 'kabuto',  armor: true, outfit: 0x8c1f28 },
   paladin:  { head: 'halo',    plate: true, outfit: 0xf2e6c8 },
-  assassin: { head: 'hood',    mask: true, cloak: true, outfit: 0x3a2a4a },
+  assassin: { head: 'hood',    mask: true, cloak: true, outfit: 0x4a3460, rim: '#ff5a7a' },
   druid:    { head: 'antler',  robe: true, flower: true, outfit: 0x2e6b34 },
 };
 
@@ -1197,26 +1204,28 @@ function heroAtlas(THREE, av, eq) {
 // =======================================================================
 // 주인공 2.5D 도트 빌보드 (생성 PNG 그대로 · 카메라 정면 · 입체감)
 // =======================================================================
-const HERO_H = 2.2;
-// 코스튬은 정적 PNG 위에 색조·오라로 표현한다
-const COSTUME_TINT = { knight: 0xbfd4ff, mage: 0xc9a0ff, dark: 0x8a7fa8, royal: 0xffcf5e };
+const HERO_H = 2.9; // 2D 탑뷰에서 크게 보이게 (전신 캔버스 300×400 기준)
+// 코스튬은 전신 캔버스에 직접 그린다 (색조 틴트 대신) — 오라는 바닥 링 색으로만 쓴다
 const COSTUME_AURA = { knight: 0xb9c8dc, mage: 0x9ff0ff, dark: 0xb46cff, royal: 0xffd257 };
 export function makeHeroSprite(THREE, av, eq) {
-  const id = av && HERO_IDS.includes(av.id) ? av.id : 'boyA';
-  const url = ASSET_URL.hero(id);
+  // 정면 전신 캔버스(가방 아바타와 같은 그림)를 빌보드 텍스처로 쓴다 — 무기·방어구·코스튬이 그대로 보인다.
+  const canvas = heroFullCanvas(av, eq, 200, { billboard: true });
+  const tex = texture(THREE, canvas);
   const h = HERO_H;
-  const w = h * (aspectOf(THREE, url) || 0.72);
+  const w = h * 0.75; // 전신 캔버스 300×400
   const g = new THREE.Group();
 
-  const mat = new THREE.MeshBasicMaterial({ map: getTexture(THREE, url), transparent: true, alphaTest: 0.4, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
+  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.4, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
   const cid = eq && eq.mode === 'costume' ? eq.costumeId : null;
-  if (cid && COSTUME_TINT[cid]) mat.color.setHex(COSTUME_TINT[cid]);
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
   mesh.renderOrder = 16;
   mesh.scale.set(w, h, 1);
   mesh.position.y = h / 2;
   const art = new THREE.Group();
-  art.add(mesh);
+  const tilt = new THREE.Group();         // 시선에 수직이 되도록 눕힌다 (2D 탑뷰)
+  tilt.rotation.x = -BILLBOARD_TILT;
+  tilt.add(mesh);
+  art.add(tilt);
   g.add(art);
 
   // 바닥 그림자 (타원 · 키에 따라 번짐)
@@ -1251,6 +1260,22 @@ export function makeHeroSprite(THREE, av, eq) {
       const max = p.atkAnimMax || 0.24;
       const on = p.atkAnim > 0;
       const k = on ? 1 - p.atkAnim / max : 0;
+      // 휘두르기 3단계 키프레임 (휴식→타격→팔로우스루→회복) — animateArm과 같은 타이밍
+      const eoc = (t) => 1 - Math.pow(1 - t, 3);
+      const eiq = (t) => t * t;
+      const sm = (t) => t * t * (3 - 2 * t);
+      const kf = (stops) => {
+        if (k <= stops[0][0]) return stops[0][1];
+        for (let i = 1; i < stops.length; i++) {
+          if (k <= stops[i][0]) {
+            const t0 = stops[i - 1][0], v0 = stops[i - 1][1];
+            const t1 = stops[i][0], v1 = stops[i][1];
+            const e = stops[i][2] || sm;
+            return v0 + (v1 - v0) * e((k - t0) / (t1 - t0));
+          }
+        }
+        return stops[stops.length - 1][1];
+      };
       const swing = on ? Math.sin(Math.min(1, k) * Math.PI) : 0;
       g.position.x = p.x + Math.sin(p.facing || 0) * 0.2 * swing;
       g.position.z = p.z + Math.cos(p.facing || 0) * 0.2 * swing;
@@ -1266,11 +1291,11 @@ export function makeHeroSprite(THREE, av, eq) {
       }
       if (on) {
         if (fam === 'dagger') {
-          rotZ += -0.28 * swing;
+          rotZ += -0.28 * kf([[0, 0], [0.28, 1, eoc], [0.55, 1, sm], [1, 0, sm]]);
           dy += 0.03 * swing;
           scale = 1 + 0.05 * swing;
         } else if (fam === 'axe' || fam === 'mace') {
-          rotZ += (k < 0.45 ? 0.42 : -0.5) * (k < 0.45 ? k / 0.45 : 1);
+          rotZ += kf([[0, 0], [0.18, 0.42, eoc], [0.45, -0.5, eiq], [0.7, -0.3, sm], [1, 0, sm]]);
           dy += (k < 0.45 ? -0.02 : 0.05);
         } else if (fam === 'bow' || fam === 'crossbow') {
           rotZ += -0.1 * swing;
@@ -1280,11 +1305,18 @@ export function makeHeroSprite(THREE, av, eq) {
           scale = 1 + 0.03 * swing;
           sx *= 1 + 0.02 * swing;
         } else {
-          rotZ += (-0.55 + k * 1.15) * 1.25;
+          // 검: 몸을 틀어 가로 베기 → 팔로우스루 (같은 방향으로 계속) → 회복
+          rotZ += kf([[0, 0], [0.25, -0.55, eoc], [0.55, 0.6, eiq], [0.8, 0.35, sm], [1, 0, sm]]) * 1.25;
           dy += 0.02 * swing;
           scale = 1 + 0.07 * swing;
           sx *= 1 + 0.05 * swing;
         }
+      }
+      // 무기 교체 플러리시: 살짝 떠올랐다 내린다
+      if (p.switchT > 0) {
+        const sw = 1 - p.switchT / 0.45;
+        dy += Math.sin(sw * Math.PI) * 0.12;
+        rotZ += Math.sin(sw * Math.PI) * 0.15;
       }
       // 이동·공격 방향 좌우 반전
       const want = Math.sin(p.facing || 0) < -0.12 ? -1 : 1;
@@ -1358,16 +1390,26 @@ const COMPANION_ART = {
 };
 export function makeCompanionSprite(THREE, cls, gradeColor) {
   const id = COMPANION_IDS.includes(cls.id) ? cls.id : 'melee';
-  const url = ASSET_URL.companion(id);
-  const h = 1.5;
-  const w = h * (aspectOf(THREE, url) || 0.7);
+  // 직업별 전신 캔버스(가방·도감과 같은 도트 그림)를 빌보드 텍스처로 쓴다 — 직업마다 생김새가 다르다.
+  const col = cls.color || 0x6fcf97;
+  const { c: cv, g: ctx } = makeCanvas(48, 48);
+  const fn = COMPANION_ART[id] || COMPANION_ART.melee;
+  fn(ctx, hex(col), hex(shade(col, -0.35)));
+  crisp(cv);
+  const tex = texture(THREE, cv);
+  const scaleByClass = { tank: 1.08, healer: 0.95, melee: 0.92, mage: 1.0 };
+  const h = 2.5 * (scaleByClass[id] || 1); // 2D 탑뷰에서 크게 보이게 (48×48 정사각 캔버스)
+  const w = h;
   const g = new THREE.Group();
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: getTexture(THREE, url), transparent: true, alphaTest: 0.4, depthWrite: false, depthTest: false, side: THREE.DoubleSide }));
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.4, depthWrite: false, depthTest: false, side: THREE.DoubleSide }));
   mesh.renderOrder = 15;
   mesh.scale.set(w, h, 1);
   mesh.position.y = h / 2;
   const art = new THREE.Group();
-  art.add(mesh);
+  const tilt = new THREE.Group();         // 시선에 수직이 되도록 눕힌다 (2D 탑뷰)
+  tilt.rotation.x = -BILLBOARD_TILT;
+  tilt.add(mesh);
+  art.add(tilt);
   g.add(art);
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(w * 0.32, 16), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.26, depthWrite: false }));
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.03; shadow.scale.set(1.15, 0.7, 1); g.add(shadow);
@@ -1378,7 +1420,7 @@ export function makeCompanionSprite(THREE, cls, gradeColor) {
   ring.rotation.x = -Math.PI / 2; ring.position.y = 0.026; g.add(ring);
   let flip = 1;
   g.userData = {
-    sprite: mesh, shadow, headY: 1.5, radius: 0.4,
+    sprite: mesh, shadow, headY: h * 0.96, radius: Math.max(0.32, w * 0.34),
     animate(c, dt) {
       const cam = c.__cam;
       if (cam) art.rotation.y = Math.atan2(cam.position.x - c.x, cam.position.z - c.z);
@@ -1391,6 +1433,261 @@ export function makeCompanionSprite(THREE, cls, gradeColor) {
       shadow.scale.set(1.15 - dy * 0.5, 0.7 - dy * 0.25, 1);
     },
   };
+  return g;
+}
+// =======================================================================
+// 소품 2D 픽셀아트 (64×64 정면, 바닥 y≈60)
+// 지형 컨셉에 맞는 소품을 구역별로 배치한다 — 기둥은 유적·성·요새에만, 드물게.
+// =======================================================================
+const PROP_CANVAS = 64;
+const PROP_ART = {
+  tree(g) {
+    const cx = 32;
+    rct(g, cx - 3, 34, 6, 26, '#6b4a2a');
+    tri(g, cx - 16, 38, cx + 16, 38, cx, 8, '#3f8a3a');
+    tri(g, cx - 13, 30, cx + 13, 30, cx, 4, '#4f9a42');
+    tri(g, cx - 10, 22, cx + 10, 22, cx, 0, '#5fa84c');
+    el(g, cx - 6, 16, 2, 2, '#7fd07a'); el(g, cx + 5, 24, 2, 2, '#7fd07a');
+  },
+  rock(g) {
+    blob(g, 32, 48, 18, 12, '#8d929c', '#5a5f68');
+    blob(g, 24, 44, 8, 6, '#a8adb8', '#5a5f68');
+    el(g, 38, 42, 4, 2.4, '#c8ccd4');
+  },
+  grass(g) {
+    for (let i = 0; i < 5; i++) {
+      const x = 16 + i * 8;
+      tri(g, x - 3, 60, x + 3, 60, x + (i % 2 ? 2 : -2), 42 + (i % 3) * 3, i % 2 ? '#6fbf58' : '#4f9a42');
+    }
+  },
+  flower(g) {
+    const cols = ['#ffe066', '#ff9ec4', '#b9a6ff', '#ff7a6a'];
+    for (let i = 0; i < 4; i++) {
+      const x = 14 + i * 12;
+      ln(g, x, 60, x, 44, '#4f9a42', 2);
+      el(g, x, 40, 4, 4, cols[i]); el(g, x, 40, 1.6, 1.6, '#fff6c8');
+    }
+  },
+  bush(g) {
+    blob(g, 22, 50, 11, 8, '#4a8f3a', '#2f5c24');
+    blob(g, 40, 50, 12, 9, '#55a344', '#2f5c24');
+    blob(g, 31, 44, 10, 8, '#6fbf58', '#2f5c24');
+  },
+  deadTree(g) {
+    const cx = 32;
+    ln(g, cx, 60, cx - 2, 22, '#4a3f3a', 5);
+    ln(g, cx - 1, 40, cx - 14, 26, '#4a3f3a', 3);
+    ln(g, cx - 1, 34, cx + 12, 20, '#4a3f3a', 3);
+    ln(g, cx - 1, 28, cx + 6, 12, '#4a3f3a', 2.4);
+    ln(g, cx - 1, 46, cx - 10, 38, '#4a3f3a', 2.4);
+  },
+  reed(g) {
+    for (let i = 0; i < 6; i++) {
+      const x = 14 + i * 8;
+      ln(g, x, 60, x + (i % 2 ? 3 : -3), 30 + (i % 3) * 4, '#6f8a52', 2.4);
+      tri(g, x - 2, 32 + (i % 3) * 4, x + 2, 32 + (i % 3) * 4, x + (i % 2 ? 3 : -3), 24 + (i % 3) * 4, '#8a7a4a');
+    }
+  },
+  cactus(g) {
+    blob(g, 32, 40, 7, 20, '#4f8a4a', '#2f5c2e');
+    blob(g, 20, 44, 5, 8, '#4f8a4a', '#2f5c2e');
+    ln(g, 20, 44, 26, 44, '#4f8a4a', 5);
+    el(g, 32, 28, 1.4, 1.4, '#ff9ec4'); el(g, 32, 34, 1.2, 1.2, '#ff9ec4');
+  },
+  sandRock(g) {
+    blob(g, 32, 50, 20, 11, '#c9a468', '#8a6f3a');
+    blob(g, 22, 46, 9, 6, '#dcbd82', '#8a6f3a');
+    el(g, 40, 44, 4, 2.4, '#e8d5a0');
+  },
+  pillar(g) {
+    rct(g, 22, 52, 20, 8, '#c9ad74');
+    rct(g, 25, 14, 14, 38, '#dcc28a');
+    ln(g, 25, 20, 25, 48, '#b89a5e', 1.6); ln(g, 39, 20, 39, 48, '#b89a5e', 1.6);
+    rct(g, 21, 8, 22, 6, '#c9ad74');
+    el(g, 32, 11, 3, 1.6, '#f2e2b0');
+  },
+  ruinPillar(g) {
+    rct(g, 22, 52, 20, 8, '#6a8f96');
+    rct(g, 25, 16, 14, 36, '#7fa4ac');
+    ln(g, 30, 16, 28, 34, '#4a6a70', 1.6); ln(g, 28, 34, 32, 48, '#4a6a70', 1.4);
+    el(g, 26, 20, 2.4, 1.6, '#5a8a4a'); el(g, 36, 44, 2, 1.4, '#5a8a4a');
+    rct(g, 21, 10, 22, 6, '#6a8f96');
+  },
+  coral(g) {
+    const cols = ['#ff8fa3', '#ffb36b', '#9b8cff', '#7fe0d0'];
+    for (let i = 0; i < 4; i++) {
+      const x = 14 + i * 12;
+      ln(g, x, 60, x + (i % 2 ? 4 : -4), 30 + (i % 3) * 5, cols[i], 4);
+      el(g, x + (i % 2 ? 4 : -4), 28 + (i % 3) * 5, 3, 3, cols[i]);
+    }
+  },
+  bubbleRock(g) {
+    blob(g, 32, 48, 18, 12, '#4a8894', '#2a5560');
+    el(g, 26, 42, 5, 3.4, '#7fb8c4'); el(g, 38, 50, 3, 2, '#7fb8c4');
+  },
+  wall(g) {
+    rct(g, 10, 44, 44, 16, '#77705f');
+    rct(g, 10, 28, 44, 16, '#655f50');
+    rct(g, 12, 12, 40, 16, '#77705f');
+    ln(g, 10, 44, 54, 44, '#4a4438', 1.6); ln(g, 10, 28, 54, 28, '#4a4438', 1.6);
+    ln(g, 24, 44, 24, 60, '#4a4438', 1.4); ln(g, 38, 28, 38, 44, '#4a4438', 1.4); ln(g, 30, 12, 30, 28, '#4a4438', 1.4);
+  },
+  dock(g) {
+    rct(g, 6, 40, 52, 6, '#8a6a3a');
+    rct(g, 6, 50, 52, 6, '#7a5a30');
+    for (let i = 0; i < 6; i++) ln(g, 12 + i * 8, 40, 12 + i * 8, 56, '#5a4020', 1.4);
+    rct(g, 10, 56, 5, 6, '#6a4a26'); rct(g, 49, 56, 5, 6, '#6a4a26');
+    el(g, 32, 36, 3, 2, '#c9a468');
+  },
+  crate(g) {
+    rct(g, 16, 28, 32, 32, '#a8824a');
+    rct(g, 16, 28, 32, 5, '#c9a468'); rct(g, 16, 55, 32, 5, '#8a6a30');
+    ln(g, 16, 28, 48, 60, '#8a6a30', 2); ln(g, 48, 28, 16, 60, '#8a6a30', 2);
+    el(g, 20, 32, 1.6, 1.6, '#5a4020'); el(g, 44, 32, 1.6, 1.6, '#5a4020');
+  },
+  barrel(g) {
+    blob(g, 32, 44, 13, 17, '#8a6a3a', '#5a4020');
+    rct(g, 20, 32, 24, 3, '#4a4a52'); rct(g, 20, 52, 24, 3, '#4a4a52');
+    ln(g, 26, 28, 26, 60, '#a8824a', 1.4); ln(g, 38, 28, 38, 60, '#a8824a', 1.4);
+  },
+  anchor(g) {
+    el(g, 32, 12, 5, 5, '#3a3a44');
+    ln(g, 32, 16, 32, 50, '#3a3a44', 4);
+    ln(g, 22, 22, 42, 22, '#3a3a44', 3.4);
+    tri(g, 18, 52, 26, 52, 22, 40, '#4a4a58');
+    tri(g, 46, 52, 38, 52, 42, 40, '#4a4a58');
+    ln(g, 18, 52, 46, 52, '#4a4a58', 3);
+  },
+  buoy(g) {
+    blob(g, 32, 46, 12, 14, '#d04848', '#7a2020');
+    rct(g, 20, 40, 24, 7, '#f2f2e8');
+    tri(g, 32, 14, 28, 30, 36, 30, '#d04848');
+    el(g, 32, 12, 3, 3, '#ffd257');
+  },
+  boat(g) {
+    tri(g, 6, 44, 58, 44, 50, 58, '#7a4a26');
+    tri(g, 6, 44, 58, 44, 14, 58, '#8a5a30');
+    rct(g, 6, 42, 52, 3, '#5a3a1a');
+    ln(g, 32, 42, 32, 14, '#6a4a26', 3);
+    tri(g, 34, 16, 34, 40, 50, 40, '#e8e0c8');
+    tri(g, 30, 18, 30, 40, 16, 40, '#d8c8a8');
+  },
+  brazier(g) {
+    ln(g, 32, 60, 32, 46, '#4a4a52', 4);
+    ln(g, 24, 60, 40, 60, '#4a4a52', 3);
+    blob(g, 32, 42, 12, 5, '#5a5a62', '#33333a');
+    tri(g, 26, 42, 38, 42, 32, 22, '#ff8a3c');
+    tri(g, 28, 42, 36, 42, 32, 30, '#ffd257');
+    el(g, 32, 36, 3, 3, '#fff2a8');
+  },
+  mushroom(g) {
+    blob(g, 32, 50, 6, 10, '#f2e6c8', '#c9b890');
+    el(g, 16, 34, 16, 10, '#d04848'); el(g, 48, 34, 16, 10, '#d04848');
+    el(g, 32, 28, 17, 11, '#d04848');
+    el(g, 24, 26, 3, 2.4, '#ffffff'); el(g, 34, 30, 2.4, 2, '#ffffff'); el(g, 40, 24, 2, 1.6, '#ffffff');
+  },
+  pine(g) {
+    rct(g, 29, 44, 6, 16, '#5a3a22');
+    tri(g, 16, 48, 48, 48, 32, 14, '#2a4a3a');
+    tri(g, 20, 38, 44, 38, 32, 8, '#356048');
+    tri(g, 24, 28, 40, 28, 32, 2, '#40705a');
+    el(g, 32, 6, 6, 2.4, '#f2f6ff'); el(g, 26, 16, 5, 2, '#f2f6ff'); el(g, 38, 26, 4, 1.8, '#f2f6ff');
+  },
+  crystal(g) {
+    tri(g, 22, 60, 32, 60, 27, 18, '#7fa4ff');
+    tri(g, 32, 60, 44, 60, 38, 26, '#9b8cff');
+    tri(g, 28, 60, 38, 60, 33, 8, '#b9d4ff');
+    ln(g, 27, 20, 27, 58, '#e8f2ff', 1.4); ln(g, 33, 12, 33, 58, '#e8f2ff', 1.4);
+    el(g, 33, 10, 2, 2, '#ffffff');
+  },
+  lavaRock(g) {
+    blob(g, 32, 50, 19, 11, '#3a2a2e', '#1a1214');
+    ln(g, 20, 48, 30, 44, '#ff6a2a', 2); ln(g, 30, 44, 38, 50, '#ff8a3c', 2); ln(g, 38, 50, 46, 44, '#ffd257', 1.6);
+    el(g, 28, 52, 3, 2, '#ff8a3c');
+  },
+  iceRock(g) {
+    blob(g, 32, 50, 18, 11, '#b9d4e8', '#6a8aa0');
+    blob(g, 24, 46, 8, 6, '#d8ecf8', '#6a8aa0');
+    el(g, 38, 44, 4, 2.4, '#ffffff');
+  },
+  tent(g) {
+    tri(g, 8, 60, 56, 60, 32, 12, '#d04848');
+    tri(g, 20, 60, 32, 60, 32, 12, '#f2f2e8');
+    tri(g, 32, 60, 44, 60, 32, 12, '#f2f2e8');
+    ln(g, 32, 12, 32, 4, '#8a6a3a', 2);
+    tri(g, 32, 4, 40, 7, 32, 10, '#ffd257');
+    rct(g, 26, 52, 12, 8, '#5a3a22');
+  },
+  fence(g) {
+    rct(g, 12, 24, 5, 36, '#6a5a42'); rct(g, 47, 24, 5, 36, '#6a5a42');
+    ln(g, 12, 30, 52, 30, '#8a8a92', 1.6);
+    ln(g, 12, 42, 52, 42, '#8a8a92', 1.6);
+    ln(g, 12, 54, 52, 54, '#8a8a92', 1.6);
+    for (let i = 0; i < 5; i++) { el(g, 18 + i * 7, 30, 1.2, 1.2, '#c8c8d0'); el(g, 18 + i * 7, 42, 1.2, 1.2, '#c8c8d0'); }
+  },
+  npc(g) {
+    // 로브를 두른 노인 NPC (지팡이 + 빛나는 구슬)
+    tri(g, 20, 60, 44, 60, 32, 22, '#5c4a86');
+    tri(g, 24, 60, 40, 60, 32, 24, '#6f5a9a');
+    blob(g, 32, 18, 8, 7, '#f2c9a0', '#8a6a4a');
+    tri(g, 22, 16, 42, 16, 32, 2, '#3a2d5c');
+    eyes(g, 32, 18, 3, 1.6, '#20242e');
+    ln(g, 46, 58, 46, 20, '#8a6a3a', 2.4);
+    el(g, 46, 16, 3.4, 3.4, '#9fd8ff'); el(g, 46, 16, 1.4, 1.4, '#ffffff');
+  },
+};
+function propTexture(THREE, kind) {
+  const cache = propTexture.cache || (propTexture.cache = new Map());
+  if (cache.has(kind)) return cache.get(kind);
+  const { c, g } = makeCanvas(PROP_CANVAS, PROP_CANVAS);
+  const fn = PROP_ART[kind] || PROP_ART.rock;
+  fn(g);
+  crisp(c);
+  const t = texture(THREE, c);
+  cache.set(kind, t);
+  return t;
+}
+// 소품별 빌보드 크기(가로×세로, m) · 충돌 반경 — 3D propMesh의 userData.r와 같은 값
+export const PROP_SIZE = {
+  tree: [2.2, 3.4], rock: [1.6, 1.2], grass: [0.9, 0.7], flower: [0.8, 0.6],
+  bush: [1.2, 0.9], deadTree: [1.8, 3.0], reed: [1.0, 1.4], cactus: [1.0, 1.8],
+  sandRock: [1.8, 1.2], pillar: [1.0, 3.8], ruinPillar: [1.0, 3.2], coral: [1.4, 1.6],
+  bubbleRock: [1.6, 1.2], wall: [2.4, 1.8],
+  dock: [2.6, 1.0], crate: [1.2, 1.2], barrel: [1.0, 1.2], anchor: [1.2, 1.6],
+  buoy: [1.0, 1.4], boat: [3.0, 2.0], brazier: [1.0, 1.6], mushroom: [1.2, 1.4],
+  pine: [2.0, 3.2], crystal: [1.2, 1.8], lavaRock: [1.8, 1.4], iceRock: [1.6, 1.2],
+  tent: [2.6, 2.2], fence: [2.2, 1.4], npc: [1.4, 2.4],
+};
+export const PROP_R = {
+  tree: 0.5, rock: 0.9, grass: 0.22, flower: 0.2, bush: 0.42, deadTree: 0.4,
+  reed: 0.3, cactus: 0.34, sandRock: 1.1, pillar: 0.5, ruinPillar: 0.5, coral: 0.4,
+  bubbleRock: 0.9, wall: 1.1, dock: 0.9, crate: 0.6, barrel: 0.5, anchor: 0.5,
+  buoy: 0.45, boat: 1.2, brazier: 0.45, mushroom: 0.4, pine: 0.5, crystal: 0.45,
+  lavaRock: 0.9, iceRock: 0.85, tent: 1.0, fence: 0.8, npc: 0.4,
+};
+// 낱개 소품 빌보드 (보관함 가림막·게이트 기둥 등 — 필드 소품은 world.js에서 인스턴싱한다)
+export function makePropSprite(THREE, kind, rnd) {
+  const k = PROP_ART[kind] ? kind : 'rock';
+  const [w0, h0] = PROP_SIZE[k] || [1.2, 1.2];
+  const g = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({ map: propTexture(THREE, k), transparent: true, alphaTest: 0.4, depthWrite: true, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+  mesh.scale.set(w0, h0, 1);
+  mesh.position.y = h0 / 2;
+  const art = new THREE.Group();
+  const tilt = new THREE.Group();         // 시선에 수직이 되도록 눕힌다 (2D 탑뷰)
+  tilt.rotation.x = -BILLBOARD_TILT;
+  tilt.add(mesh);
+  art.add(tilt);
+  g.add(art);
+  const shadow = new THREE.Mesh(
+    new THREE.CircleGeometry(Math.max(0.2, w0 * 0.3), 14),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22, depthWrite: false }),
+  );
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = 0.03;
+  g.add(shadow);
+  g.userData = { isProp: true, kind: k, r: PROP_R[k] || 0.5, mesh, art, w: w0, h: h0 };
   return g;
 }
 // =======================================================================
@@ -1542,7 +1839,9 @@ export function heroFullDataUrl(av) {
 // 캔버스에 직접 그려 데이터 URL로 돌려준다. COSTUME_VISUAL 한 곳만 보고 그리므로
 // 3D 인게임 캐릭터와 가방 아바타가 항상 같은 코스튬 모습을 보여준다.
 // 캔버스 300×400 공간에 그리고 size에 맞춰 확대한다 (가방에서는 150px 너비로 표시).
-export function heroFullCanvasDataUrl(av, eq, size = 150) {
+// 전신 캔버스를 반환한다 (가방은 dataURL로, 인게임 빌보드는 텍스처로 쓴다).
+// opts.billboard: 빌보드용 — 바닥 그림자·오라·기울기 없이 똑바로 선 자세.
+export function heroFullCanvas(av, eq, size = 150, opts = {}) {
   const W = size * 2, H = Math.round(size * 2.66);
   const { c, g } = makeCanvas(W, H);
   g.scale(W / 300, H / 400);
@@ -1564,18 +1863,26 @@ export function heroFullCanvasDataUrl(av, eq, size = 150) {
   const outfit = vis ? hex(vis.outfit) : uni;
   const hs3 = A.hair3d || A.hairStyle;
 
-  // 바닥 그림자 + 등급 오라
-  el(g, cx, 372, 60, 12, 'rgba(0,0,0,.25)');
-  if (wGrade >= 2 || cos) {
-    g.strokeStyle = cos ? trim : gradeColor; g.globalAlpha = 0.55; g.lineWidth = 2.4;
-    g.beginPath(); g.ellipse(cx, 368, 56, 11, 0, 0, TAU); g.stroke(); g.globalAlpha = 1;
+  // 바닥 그림자 + 등급 오라 (빌보드는 빌더가 따로 그린다)
+  if (!opts.billboard) {
+    el(g, cx, 372, 60, 12, 'rgba(0,0,0,.25)');
+    if (wGrade >= 2 || cos) {
+      g.strokeStyle = cos ? trim : gradeColor; g.globalAlpha = 0.55; g.lineWidth = 2.4;
+      g.beginPath(); g.ellipse(cx, 368, 56, 11, 0, 0, TAU); g.stroke(); g.globalAlpha = 1;
+    }
+    // 인물 뒤 은은한 빛 (어두운 옷도 얼굴·몸이 읽히게)
+    el(g, cx, 210, 118, 138, 'rgba(255,255,255,0.08)');
+    el(g, cx, 210, 96, 116, 'rgba(255,255,255,0.06)');
   }
 
   g.save();
-  g.translate(cx, 210); g.rotate(-0.035); g.translate(-cx, -210); // 살짝 기울인 역동적인 자세
+  g.translate(cx, 210);
+  if (!opts.billboard) g.rotate(-0.035); // 살짝 기울인 역동적인 자세 (가방만)
+  g.scale(1.18, 1.18); // 인물 크게
+  g.translate(-cx, -210);
 
   // 망토 (뒤 — 왼쪽으로 흘러내리게)
-  const capeW = vis && vis.cloak ? 92 : 78;
+  const capeW = vis && vis.cloak ? 82 : 78;
   g.fillStyle = shade(cape, -0.12);
   g.beginPath();
   g.moveTo(cx - 28, 150);
@@ -1595,6 +1902,11 @@ export function heroFullCanvasDataUrl(av, eq, size = 150) {
     g.beginPath(); g.moveTo(cx - capeW + 30, 300); g.lineTo(cx - capeW + 36, 338);
     g.moveTo(cx + capeW - 30, 300); g.lineTo(cx + capeW - 36, 338); g.stroke(); g.globalAlpha = 1;
   }
+  if (vis && vis.rim) { // 어둠 계열 망토 가장자리 밝은 테두리 (어두운 망토가 배경에 묻히지 않게)
+    g.strokeStyle = vis.rim; g.lineWidth = 2; g.globalAlpha = 0.75;
+    g.beginPath(); g.moveTo(cx - capeW + 24, 180); g.lineTo(cx - capeW + 30, 340);
+    g.moveTo(cx + capeW - 24, 180); g.lineTo(cx + capeW - 30, 340); g.stroke(); g.globalAlpha = 1;
+  }
 
   // 다리 · 부츠 (로브 코스튬은 로브가 가린다)
   if (!(vis && vis.robe)) {
@@ -1613,17 +1925,17 @@ export function heroFullCanvasDataUrl(av, eq, size = 150) {
   }
 
   // 몸통
-  el(g, cx, 225, 44, 62, shade(outfit, -0.22));
+  el(g, cx, 225, 44, 62, shade(outfit, -0.14));
   el(g, cx, 225, 40, 58, outfit);
   if (aFam === 'blunt' || aFam === 'ranged') {
     el(g, cx, 222, 34, 48, aFam === 'ranged' ? '#c8d3e2' : '#a8b3c4');
-    el(g, cx, 216, 24, 34, shade(aFam === 'ranged' ? '#c8d3e2' : '#a8b3c4', 0.28));
+    el(g, cx, 216, 20, 28, shade(aFam === 'ranged' ? '#c8d3e2' : '#a8b3c4', 0.28));
     ln(g, cx - 22, 222, cx + 22, 222, 'rgba(70,86,110,.8)', 1.4);
   } else if (aFam === 'magic') {
     el(g, cx, 228, 38, 54, shade(accent, -0.02));
-    el(g, cx, 200, 16, 10, '#f2f6ff');
+    el(g, cx, 200, 12, 7, '#f2f6ff');
   } else {
-    el(g, cx, 198, 20, 13, '#eef4ff'); // 셔츠
+    tri(g, cx - 9, 182, cx + 9, 182, cx, 198, '#dfe8f5'); // 셔츠 깃 (흰 타원 덩어리 제거)
     g.fillStyle = A.skirt ? (A.ribbon ? hex(A.ribbon) : '#d04848') : '#3d6fd6';
     g.beginPath(); g.moveTo(cx, 208); g.lineTo(cx + 7, 222); g.lineTo(cx, 244); g.lineTo(cx - 7, 222); g.closePath(); g.fill(); // 넥타이·리본
   }
@@ -1646,9 +1958,11 @@ export function heroFullCanvasDataUrl(av, eq, size = 150) {
     g.strokeStyle = trim; g.lineWidth = 1.4; g.globalAlpha = 0.9;
     g.beginPath(); g.ellipse(cx, 225, 42, 60, 0, 0, TAU); g.stroke(); g.globalAlpha = 1;
   }
-  // 벨트 + 버클
-  rct(g, cx - 40, 286, 80, 11, trim || GRADES[Math.min(5, aGrade)].color);
-  rct(g, cx - 7, 287, 14, 9, '#dfe7f2');
+  // 벨트 + 버클 (망토·로브 코스튬은 벨트를 그리지 않는다 — 붉은 띠처럼 보이는 것을 막는다)
+  if (!(vis && (vis.cloak || vis.robe))) {
+    rct(g, cx - 40, 288, 80, 8, shade(trim || GRADES[Math.min(5, aGrade)].color, -0.25));
+    rct(g, cx - 7, 289, 14, 7, '#dfe7f2');
+  }
 
   // 어깨 보호대 + 팔
   const pad = (aFam === 'blunt' || aFam === 'ranged') ? '#aab5c6' : accent;
@@ -1664,7 +1978,7 @@ export function heroFullCanvasDataUrl(av, eq, size = 150) {
   g.beginPath(); g.moveTo(cx - 32, 146); g.lineTo(cx + 32, 146); g.lineTo(cx + 44, 178); g.lineTo(cx - 44, 178); g.closePath(); g.fill();
 
   // 얼굴 (초상화와 같은 anime 얼굴 — 큰 눈·눈썹·아바타 머리·리본)
-  drawFace(g, A, cx, 100, 1.5, { iris: A.iris });
+  drawFace(g, A, cx, 100, 1.65, { iris: A.iris });
 
   // 아바타별 머리 추가 (drawFace는 hairStyle만 보므로 hair3d 차이를 여기서 보완)
   if (hs3 === 'twin') {
@@ -1681,9 +1995,13 @@ export function heroFullCanvasDataUrl(av, eq, size = 150) {
   // 코스튬 머리 장식 (얼굴 위에 그린다)
   if (vis) {
     if (vis.head === 'hood') {
-      g.strokeStyle = shade(cape, -0.05); g.lineWidth = 10;
-      g.beginPath(); g.ellipse(cx, 99, 33, 35, 0, 0, TAU); g.stroke();
-      tri(g, cx - 12, 66, cx + 12, 66, cx, 50, shade(cape, -0.05));
+      g.strokeStyle = shade(cape, 0.12); g.lineWidth = 7;
+      g.beginPath(); g.ellipse(cx, 99, 40, 42, 0, 0, TAU); g.stroke();
+      if (vis.rim) { // 후드 안쪽 밝은 테두리 — 얼굴이 후드에 묻히지 않게
+        g.strokeStyle = vis.rim; g.lineWidth = 2; g.globalAlpha = 0.85;
+        g.beginPath(); g.ellipse(cx, 99, 35, 37, 0, 0, TAU); g.stroke(); g.globalAlpha = 1;
+      }
+      tri(g, cx - 12, 66, cx + 12, 66, cx, 50, shade(cape, 0.12));
     } else if (vis.head === 'tricorn') {
       el(g, cx, 66, 44, 11, '#2b2b33'); el(g, cx, 60, 20, 12, '#2b2b33');
       ln(g, cx - 40, 66, cx + 40, 66, '#ffd257', 2);
@@ -1706,7 +2024,7 @@ export function heroFullCanvasDataUrl(av, eq, size = 150) {
     } else if (vis.head === 'crest') {
       tri(g, cx - 6, 64, cx + 6, 64, cx, 38, '#ffd257');
     }
-    if (vis.mask) rct(g, cx - 20, 105, 40, 15, '#20242e'); // 복면 (눈만 보이게)
+    if (vis.mask) rct(g, cx - 22, 104, 44, 17, '#20242e'); // 복면 (눈만 보이게)
   }
 
   // 무기 (치켜든 오른손)
@@ -1720,7 +2038,10 @@ export function heroFullCanvasDataUrl(av, eq, size = 150) {
   g.restore();
 
   g.restore(); // 기울기 해제
-  return c.toDataURL();
+  return c;
+}
+export function heroFullCanvasDataUrl(av, eq, size = 150) {
+  return heroFullCanvas(av, eq, size).toDataURL();
 }
 
 export function avatarPalette(id) {
