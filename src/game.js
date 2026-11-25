@@ -11,6 +11,7 @@ import {
 } from './data.js';
 import { buildWorld, makePlayer, makeMonster, makeCompanion, groundHeight, districtAt, worldPos, WORLD_BOUNDS } from './world.js';
 import { ASSET_URL, getTexture, aspectOf } from './assets.js';
+import { BILLBOARD_TILT } from './sprites.js';
 
 const SAVE_KEY = 'school-hero.save.v1';
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -40,22 +41,33 @@ export function createGame(THREE) {
     }
   }
   const lowPower = (window.innerWidth < 700) || (navigator.hardwareConcurrency || 4) <= 2;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, lowPower ? 1.6 : 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, lowPower ? 1.5 : 2)); // 전투 렉 완화: 저전력 기기는 픽셀비를 더 낮춘다
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   renderer.setSize(window.innerWidth, window.innerHeight, false);
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 260);
+  // 2D 탑뷰: 직교 투영 (원근 왜곡 없음) — 보이는 세로 18m (ORTHO_SIZE*2). 주인공(2.9m)이 화면 높이의 ~16%로 크게 보인다.
+  const ORTHO_SIZE = 9;
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 300);
+  function updateOrthoFrustum() {
+    const aspect = window.innerWidth / Math.max(1, window.innerHeight);
+    camera.left = -ORTHO_SIZE * aspect;
+    camera.right = ORTHO_SIZE * aspect;
+    camera.top = ORTHO_SIZE;
+    camera.bottom = -ORTHO_SIZE;
+    camera.updateProjectionMatrix();
+  }
+  updateOrthoFrustum();
   const hemi = new THREE.HemisphereLight(0xdfefff, 0x3a4a30, 0.62);
   scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xfff6e0, 0.92);
   sun.position.set(16, 34, 14);
   sun.castShadow = true;
   sun.shadow.mapSize.set(lowPower ? 1024 : 2048, lowPower ? 1024 : 2048);
-  sun.shadow.camera.left = -34; sun.shadow.camera.right = 34;
-  sun.shadow.camera.top = 34; sun.shadow.camera.bottom = -34;
+  sun.shadow.camera.left = -16; sun.shadow.camera.right = 16;
+  sun.shadow.camera.top = 16; sun.shadow.camera.bottom = -16; // 2D 탑뷰: 보이는 18m만 커버하면 된다 (그림자는 그대로, 해상도 효율은 2배)
   sun.shadow.camera.near = 1; sun.shadow.camera.far = 110;
   sun.shadow.bias = -0.0016;
   scene.add(sun);
@@ -623,9 +635,9 @@ export function createGame(THREE) {
     }
     if (game.ui) game.ui.clearTags();
     for (const pr of game.projectiles) scene.remove(pr.mesh);
-    for (const it of game.pickups) if (it.mesh) scene.remove(it.mesh);
+    for (const it of game.pickups) if (it.mesh) fxFree(it.mesh);
     for (const fx of game.effects) if (fx.mesh) disposeObj(fx.mesh);
-    for (const t of game.telegraphs) { scene.remove(t.mesh); scene.remove(t.ring); if (t.mark) scene.remove(t.mark); }
+    for (const t of game.telegraphs) { fxFree(t.mesh); fxFree(t.ring); if (t.mark) fxFree(t.mark); }
     game.enemies = []; game.projectiles = []; game.pickups = []; game.effects = []; game.telegraphs = []; game.bossGroups = {};
   }
 
@@ -685,11 +697,10 @@ export function createGame(THREE) {
     spawnDistrictMobs(zone);
 
     // 카메라 즉시 이동 (플레이어 지형 높이 기준)
-    const aspect0 = window.innerWidth / Math.max(1, window.innerHeight);
-    const vis0 = Math.min(15.5, Math.max(11, 9.6 / aspect0));
+    const rig0 = camRig();
     const gy0 = groundY(game.player.x, game.player.z);
-    camera.position.set(game.player.x, gy0 + vis0 * 1.22, game.player.z + vis0 * 1.08);
-    camera.lookAt(camera.position.x, gy0, camera.position.z - vis0 * 1.08);
+    camera.position.set(game.player.x, gy0 + rig0.height, game.player.z + rig0.back);
+    camera.lookAt(camera.position.x, gy0, camera.position.z - rig0.back);
 
     if (game.ui) {
       game.ui.onZoneEnter(zone);
@@ -745,10 +756,24 @@ export function createGame(THREE) {
     return true;
   };
 
-  // 귀환 버튼: 마지막으로 해금한 구역(가장 높은 번호) 스폰으로 돌아간다
+  // 귀환 버튼: 현재 구역 퀘스트를 끝내고 필드보스까지 잡았을 때만 가장 높은 해금 구역으로,
+  // 그 전에는 현재 구역 NPC 옆으로 돌아간다 (필드보스를 잡았다고 퀘스트가 끝나기 전에 다음 구역으로 넘어가지 않는다)
   game.returnToLastDistrict = function () {
-    const last = Math.max(...(game.state.unlocked || [1]));
-    return game.returnToStart(last);
+    const cur = game.zone;
+    const q = (game.state.quests || {})[cur.id] || {};
+    const bossDead = game.bossRemain(cur.id, 'field') > 0; // 필드보스 타이머가 살아 있으면 잡은 상태 (타이머 자체는 그대로)
+    if (q.done && bossDead) {
+      const last = Math.max(...(game.state.unlocked || [1]));
+      return game.returnToStart(last);
+    }
+    // 퀘스트 진행 중이거나 필드보스가 살아 있으면 현재 구역 NPC 옆으로
+    game.setDistrict(cur.id);
+    const npc = cur.npc ? worldPos(cur, cur.npc.x, cur.npc.z) : worldPos(cur, cur.spawn.x, cur.spawn.z);
+    game.player.x = npc.x + 2; game.player.z = npc.z + 2; game.player.facing = Math.PI;
+    game.playerMesh.position.set(game.player.x, groundY(game.player.x, game.player.z), game.player.z);
+    snapCompanions();
+    if (game.ui) game.ui.toast(`${cur.npc ? cur.npc.name : cur.name} 옆으로 돌아왔어요.`, 'good');
+    return true;
   };
 
   // 예전 enterZone 호출 자리 (디버그·호환용) — 이제는 구역만 바꾼다
@@ -1200,15 +1225,12 @@ export function createGame(THREE) {
 
   // 작은 충격 반짝임
   function hitSpark(x, y, z, color) {
-    const m = new THREE.Mesh(
-      new THREE.SphereGeometry(0.16, 7, 5),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }),
-    );
+    const m = fxAlloc(fxGeo('sphere', 0.16, 7, 5), color, 0.95, { tag: 'hit:spark' });
     m.position.set(x, y, z);
     addFx(m, 0.18, (fx, k) => {
       m.scale.setScalar(1 + (1 - k) * 2.6);
       m.material.opacity = k;
-    });
+    }, 'hit:spark');
   }
 
   function killEnemy(e) {
@@ -1294,6 +1316,8 @@ export function createGame(THREE) {
     game.save();
   }
 
+  // 퀘스트 처치 단계용 교체 몹 타이머 — 같은 종류가 구역에 하나도 없을 때만 10초 뒤에 한 마리 되돌린다 (일반 12초 젠 사이클과 무관, 보스 타이머와 무관)
+  const questRespawns = [];
   function questKill(e) {
     const s = game.state;
     const zone = game.zone;
@@ -1306,6 +1330,14 @@ export function createGame(THREE) {
     else if (step.type === 'mid' && e.isMid) { q.progress = step.n; advanced = true; }
     else if (step.type === 'boss' && e.isBoss) { q.progress = step.n; advanced = true; }
     if (advanced) game.save();
+    // 처치 단계: 같은 종류의 몹이 구역에 하나도 남지 않았는데 아직 더 잡아야 하면, 같은 종류를 10초 뒤에 한 마리 되돌린다.
+    // (일반 12초 젠 사이클은 건드리지 않는다 — 퀘스트 몹이 없을 때만 적용되는 교체다)
+    if (advanced && step.type === 'kill' && q.progress < step.n) {
+      const sameAlive = game.enemies.some((m) => m.alive && !m.isBoss && !m.isMid && !m.isField && m.def === e.def);
+      if (!sameAlive && !questRespawns.some((r) => r.def === e.def)) {
+        questRespawns.push({ def: e.def, t: 10 });
+      }
+    }
     if (q.progress >= step.n && !q._notified) {
       q._notified = true;
       if (game.ui) game.ui.toast('퀘스트 목표 달성! NPC에게 돌아가 보상을 받으세요.', 'good');
@@ -1649,20 +1681,117 @@ export function createGame(THREE) {
     book: { anim: 0.18, kind: 'cast' },
   };
 
-  function fxMat(color, opacity = 0.85) {
-    return new THREE.MeshBasicMaterial({
-      color, transparent: true, opacity, side: THREE.DoubleSide,
-      depthWrite: false, blending: THREE.AdditiveBlending,
+  // ---------- 이펙트 풀 (전투 렉 방지) ----------
+  // 매 타격마다 새 지오메트리·재질을 만들면 할당+GC가 치명타 순간에 몰려 아이폰에서 끊긴다.
+  // 지오메트리는 공유 캐시, 메시는 고정 풀(96개)에서 빌려 쓰고 반납한다 — 핫 패스 무할당.
+  const FX_GEO_CACHE = new Map();
+  function fxGeo(type, ...params) {
+    const key = type + ':' + params.map((v) => Math.round(v * 1000) / 1000).join(',');
+    let g = FX_GEO_CACHE.get(key);
+    if (!g) {
+      if (type === 'sphere') g = new THREE.SphereGeometry(params[0], params[1] || 8, params[2] || 6);
+      else if (type === 'box') g = new THREE.BoxGeometry(params[0], params[1], params[2]);
+      else if (type === 'oct') g = new THREE.OctahedronGeometry(params[0], 0);
+      else if (type === 'ring') g = new THREE.RingGeometry(params[0], params[1], params[2] || 30);
+      else if (type === 'circle') g = new THREE.CircleGeometry(params[0], params[1] || 24);
+      else if (type === 'torus') g = new THREE.TorusGeometry(params[0], params[1], params[2] || 6, params[3] || 24, params[4] || Math.PI * 2);
+      else if (type === 'cyl') g = new THREE.CylinderGeometry(params[0], params[1], params[2], params[3] || 8, 1, !!params[4]);
+      else if (type === 'cone') g = new THREE.ConeGeometry(params[0], params[1], params[2] || 8);
+      else if (type === 'plane') g = new THREE.PlaneGeometry(params[0] || 1, params[1] || 1);
+      if (g) FX_GEO_CACHE.set(key, g);
+    }
+    return g;
+  }
+  const FX_POOL_SIZE = 192; // 동시 이펙트 메시 상한 (5연속 치명타 ~75 + 타격·보관함 ~20 + 진행 중 전투·투사체 여유)
+  const fxPool = [];
+  // 버릴 수 있는 이펙트 태그 (풀이 가득 차면 가장 오래된 것부터 회수한다 — 치명타·투사체·텔레그래프는 절대 회수하지 않는다)
+  const FX_DROPPABLE = ['dust', 'cast:spark', 'sword:motion', 'dagger:motion', 'heal:spark', 'compskill:healspark', 'fire:flame'];
+  function stealFxMesh() {
+    for (const fx of game.effects) {
+      const m = fx.mesh;
+      if (m && m.isMesh && m.userData.pooled && fx.tag && FX_DROPPABLE.some((d) => fx.tag.indexOf(d) === 0)) {
+        fx.mesh = null; fx.life = 0; // 이 이펙트는 끝낸다 (필터가 치운다)
+        if (m.parent) m.parent.remove(m);
+        return m;
+      }
+    }
+    return null;
+  }
+  function fxAlloc(geo, color, opacity = 0.9, opts = {}) {
+    let m = fxPool.pop();
+    if (!m) {
+      m = stealFxMesh();
+      if (!m) {
+        // 극단적 버스트 (풀 96개가 전부 치명타·투사체로 찬 경우) — 한 개만 1회용으로 만든다 (지오메트리는 공유, 재질만 1회용)
+        m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+        m.userData.pooled = false;
+        m.userData.tag = opts.tag || '';
+        return m;
+      }
+    }
+    m.geometry = geo;
+    const mat = m.material;
+    mat.color.setHex(color);
+    mat.opacity = opacity;
+    mat.blending = opts.blending !== undefined ? opts.blending : THREE.AdditiveBlending;
+    mat.transparent = opts.transparent !== undefined ? opts.transparent : opacity < 1;
+    mat.depthWrite = opts.depthWrite !== undefined ? opts.depthWrite : false;
+    mat.depthTest = opts.depthTest !== undefined ? opts.depthTest : true;
+    mat.side = opts.side !== undefined ? opts.side : THREE.DoubleSide;
+    m.renderOrder = opts.renderOrder || 0;
+    m.position.set(0, 0, 0);
+    m.rotation.set(0, 0, 0);
+    m.scale.set(1, 1, 1);
+    m.visible = true;
+    m.userData.pooled = true;
+    m.userData.tag = opts.tag || '';
+    return m;
+  }
+  // 치명타 충격파 평면 전용 풀 (텍스처가 있는 유일한 이펙트 메시 — 일반 풀의 재질에는 map을 쓰지 않는다)
+  const impactPool = [];
+  function fxAllocImpact() {
+    let m = impactPool.pop();
+    if (!m) {
+      if (!impactTex) impactTex = getTexture(THREE, ASSET_URL.fx('impact'));
+      m = new THREE.Mesh(fxGeo('plane', 1, 1), new THREE.MeshBasicMaterial({ map: impactTex, transparent: true, opacity: 0.95, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+      m.userData.pooled = 'impact';
+    }
+    m.position.set(0, 0, 0);
+    m.rotation.set(0, 0, 0);
+    m.scale.set(1, 1, 1);
+    m.visible = true;
+    return m;
+  }
+  function fxFree(obj) {
+    if (!obj) return;
+    if (obj.parent) obj.parent.remove(obj);
+    obj.traverse((o) => {
+      if (!o.isMesh) return;
+      if (o.userData.pooled === true) {
+        o.visible = false;
+        o.renderOrder = 0;
+        if (fxPool.length < FX_POOL_SIZE * 2) fxPool.push(o);
+      } else if (o.userData.pooled === 'impact') {
+        o.visible = false;
+        o.renderOrder = 0;
+        if (impactPool.length < 8) impactPool.push(o);
+      } else {
+        // 풀 밖에서 만든 1회용 메시 (극단적 버스트) — 재질만 해제, 지오메트리는 공유 캐시라 건드리지 않는다
+        if (o.material && o.material.dispose) o.material.dispose();
+      }
     });
+  }
+  // 풀을 미리 채운다 (게임 시작 시 한 번만 — 전투 중에는 할당하지 않는다)
+  for (let i = 0; i < FX_POOL_SIZE; i++) {
+    const m = new THREE.Mesh(fxGeo('sphere', 1, 8, 6), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+    m.visible = false;
+    m.userData.pooled = true;
+    fxPool.push(m);
   }
 
   // 효과·투사체용 임시 메시 정리.
-  // 재질은 남겨 두어 셰이더 프로그램이 매번 삭제·재컴파일되지 않게 한다(모바일 발광 이펙트 끊김 방지).
-  function disposeObj(obj) {
-    if (!obj) return;
-    if (obj.parent) obj.parent.remove(obj);
-    obj.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
-  }
+  // 풀 메시와 공유 지오메트리는 해제하지 않는다 — 반납만 한다 (모바일 발광 이펙트 끊김 방지).
+  function disposeObj(obj) { fxFree(obj); }
 
   function addFx(mesh, life, tick, tag) {
     if (mesh) scene.add(mesh);
@@ -1670,7 +1799,7 @@ export function createGame(THREE) {
   }
 
   function flatRing(x, z, r0, r1, color, opacity = 0.8, y = 0.13) {
-    const m = new THREE.Mesh(new THREE.RingGeometry(r0, r1, 30), fxMat(color, opacity));
+    const m = fxAlloc(fxGeo('ring', r0, r1, 30), color, opacity, { tag: 'ring' });
     m.rotation.x = -Math.PI / 2;
     m.position.set(x, groundY(x, z) + y, z);
     return m;
@@ -1684,7 +1813,7 @@ export function createGame(THREE) {
     const gy = groundY(p.x, p.z);
     if (fam === 'dagger') {
       for (let i = 0; i < 3; i++) {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, W.range), fxMat(0xdff4ff, 0.75));
+        const m = fxAlloc(fxGeo('box', 0.1, 0.08, W.range), 0xdff4ff, 0.75, { tag: 'dagger:motion' });
         m.position.set(p.x + fx * W.range * 0.45, gy + 1.05 + i * 0.1, p.z + fz * W.range * 0.45);
         m.rotation.y = a;
         addFx(m, 0.16, (f, k) => { m.material.opacity = k * 0.7; }, 'dagger:motion');
@@ -1692,7 +1821,7 @@ export function createGame(THREE) {
       dustBurst(p.x + fx * 0.6, p.z + fz * 0.6, 0xdff4ff, 4);
     } else if (fam === 'axe' || fam === 'mace') {
       const col = fam === 'axe' ? 0xffcf8a : 0xffe0a0;
-      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.17, 6, 5), fxMat(col, 0.9));
+      const tip = fxAlloc(fxGeo('sphere', 0.17, 6, 5), col, 0.9, { tag: 'melee:tip' });
       const y0 = fam === 'axe' ? 2.3 : 2.0;
       tip.position.set(p.x + fx * 0.9, gy + y0, p.z + fz * 0.9);
       addFx(tip, 0.24, (f, k) => { tip.position.y = gy + 0.25 + (1 - k) * y0 * 0.75; tip.material.opacity = k * 0.9; }, 'melee:tip');
@@ -1701,26 +1830,26 @@ export function createGame(THREE) {
       addFx(ring, 0.35, (f, k) => { ring.scale.setScalar(1 + (1 - k) * 2.0); ring.material.opacity = k * 0.8; }, 'melee:shock');
       dustBurst(p.x + fx * 1.1, p.z + fz * 1.1, fam === 'axe' ? 0xffd6a0 : 0xfff0c0, 8);
     } else if (fam === 'bow' || fam === 'crossbow') {
-      const flash = new THREE.Mesh(new THREE.SphereGeometry(0.22, 6, 5), fxMat(0xffe0a0, 0.9));
+      const flash = fxAlloc(fxGeo('sphere', 0.22, 6, 5), 0xffe0a0, 0.9, { tag: 'ranged:muzzle' });
       flash.position.set(p.x + fx * 0.6, gy + 1.1, p.z + fz * 0.6);
       addFx(flash, 0.16, (f, k) => { flash.scale.setScalar(1 + (1 - k) * 1.8); flash.material.opacity = k; }, 'ranged:muzzle');
       // 발사 궤적선 (활은 길게, 석궁은 짧고 굵게)
       const len = fam === 'bow' ? 2.0 : 1.3;
-      const streak = new THREE.Mesh(new THREE.BoxGeometry(fam === 'bow' ? 0.06 : 0.1, 0.06, len), fxMat(0xfff0c0, 0.8));
+      const streak = fxAlloc(fxGeo('box', fam === 'bow' ? 0.06 : 0.1, 0.06, len), 0xfff0c0, 0.8, { tag: 'ranged:streak' });
       streak.position.set(p.x + fx * (0.6 + len / 2), gy + 1.1, p.z + fz * (0.6 + len / 2));
       streak.rotation.y = a;
       addFx(streak, 0.14, (f, k) => { streak.material.opacity = k * 0.75; }, 'ranged:streak');
     } else if (fam === 'staff' || fam === 'book') {
       const col = fam === 'staff' ? 0xb58cff : 0x9ff0ff;
-      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.3, 7, 6), fxMat(col, 0.95));
+      const orb = fxAlloc(fxGeo('sphere', 0.3, 7, 6), col, 0.95, { tag: 'cast:orb' });
       orb.position.set(p.x + fx * 0.7, gy + 1.25, p.z + fz * 0.7);
       addFx(orb, 0.3, (f, k) => { orb.scale.setScalar(0.6 + (1 - k) * 1.8); orb.material.opacity = k; }, 'cast:orb');
       // 지팡이 끝 섬광 + 위로 솟는 마법 불꽃
-      const flash = new THREE.Mesh(new THREE.SphereGeometry(0.34, 8, 6), fxMat(col, 0.85));
+      const flash = fxAlloc(fxGeo('sphere', 0.34, 8, 6), col, 0.85, { tag: 'cast:flash' });
       flash.position.set(p.x + fx * 0.7, gy + 1.5, p.z + fz * 0.7);
       addFx(flash, 0.2, (f, k) => { flash.scale.setScalar(1 + (1 - k) * 2.0); flash.material.opacity = k * 0.8; }, 'cast:flash');
       for (let i = 0; i < 4; i++) {
-        const sp = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 5), fxMat(col, 0.9));
+        const sp = fxAlloc(fxGeo('sphere', 0.09, 6, 5), col, 0.9, { tag: 'cast:spark' });
         sp.position.set(p.x + fx * 0.7, gy + 1.3, p.z + fz * 0.7);
         addFx(sp, 0.35, (f, k) => {
           const t = 1 - k;
@@ -1731,14 +1860,14 @@ export function createGame(THREE) {
     } else {
       // 검: 앞에 큰 베기 호 (토러스 조각) + 궤적 점들 + 먼지
       const arcG = new THREE.Group();
-      const arc = new THREE.Mesh(new THREE.TorusGeometry(W.range * 0.8, 0.07, 6, 24, 2.2), fxMat(0xdff2ff, 0.85));
+      const arc = fxAlloc(fxGeo('torus', W.range * 0.8, 0.07, 6, 24, 2.2), 0xdff2ff, 0.85, { tag: 'sword:arc' });
       arc.rotation.x = -Math.PI / 2;
       arcG.add(arc);
       arcG.position.set(p.x, gy + 1.0, p.z);
       arcG.rotation.y = a - (Math.PI / 2 + 1.1);
       addFx(arcG, 0.18, (f, k) => { arcG.scale.setScalar(0.85 + (1 - k) * 0.3); arc.material.opacity = k * 0.8; }, 'sword:arc');
       for (let i = 0; i < 3; i++) {
-        const st = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 5), fxMat(0xdff2ff, 0.8));
+        const st = fxAlloc(fxGeo('sphere', 0.12, 6, 5), 0xdff2ff, 0.8, { tag: 'sword:motion' });
         const sa = a + (i - 1) * 0.9;
         st.position.set(p.x + Math.sin(sa) * W.range * 0.8, gy + 1.0, p.z + Math.cos(sa) * W.range * 0.8);
         addFx(st, 0.16, (f, k) => { st.material.opacity = k * 0.7; }, 'sword:motion');
@@ -1758,8 +1887,7 @@ export function createGame(THREE) {
   };
   function specialHit(e, kind) {
     const c = SPECIAL[kind] || SPECIAL.crit;
-    if (!impactTex) impactTex = getTexture(THREE, ASSET_URL.fx('impact'));
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: impactTex, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, opacity: 0.95 }));
+    const m = fxAllocImpact();
     const y = groundY(e.x, e.z) + (e.headY || 1.2) * 0.72;
     m.position.set(e.x, y, e.z);
     m.renderOrder = 30;
@@ -1774,11 +1902,11 @@ export function createGame(THREE) {
     // 바닥 충격파 링 + 섬광 (치명타가 터졌다는 게 멀리서도 보이게)
     const burst = flatRing(e.x, e.z, 0.2, 0.6, c.color, 0.9, 0.14);
     addFx(burst, 0.4, (fx, k) => { burst.scale.setScalar(1 + (1 - k) * 3.2); burst.material.opacity = k * 0.85; }, 'special:ring');
-    const flash = new THREE.Mesh(new THREE.SphereGeometry(0.32, 8, 6), fxMat(c.color, 0.9));
+    const flash = fxAlloc(fxGeo('sphere', 0.32, 8, 6), c.color, 0.9, { tag: 'special:flash' });
     flash.position.set(e.x, y, e.z);
     addFx(flash, 0.25, (fx, k) => { flash.scale.setScalar(1 + (1 - k) * 2.6); flash.material.opacity = k * 0.85; }, 'special:flash');
     for (let i = 0; i < 12; i++) {
-      const sp = new THREE.Mesh(new THREE.OctahedronGeometry(0.13, 0), fxMat(c.color, 0.95));
+      const sp = fxAlloc(fxGeo('oct', 0.13), c.color, 0.95, { tag: 'special:shard' });
       sp.position.set(e.x, y, e.z);
       const ang = (i / 12) * TAU + Math.random();
       const spd = 3.2 + Math.random() * 3.2;
@@ -1795,9 +1923,10 @@ export function createGame(THREE) {
   game.specialHit = specialHit;
 
   function dustBurst(x, z, color, n = 6) {
+    n = Math.min(n, 6); // 한 번에 6개까지 — 치명타+폭발이 겹쳐도 먼지가 풀을 넘치지 않게
     const gy = groundY(x, z);
     for (let i = 0; i < n; i++) {
-      const m = new THREE.Mesh(new THREE.SphereGeometry(0.1, 5, 4), fxMat(color, 0.85));
+      const m = fxAlloc(fxGeo('sphere', 0.1, 5, 4), color, 0.85, { tag: 'dust' });
       m.position.set(x, gy + 0.2, z);
       const a = Math.random() * TAU, sp = 1.2 + Math.random() * 1.6;
       addFx(m, 0.32 + Math.random() * 0.1, (fx, k) => {
@@ -1814,7 +1943,7 @@ export function createGame(THREE) {
   // (주인공이 둔기로 적을 기절시킬 때 + 바바리안 둔기가 주인공을 기절시킬 때)
   function stunStars(x, y, z, dur = 1.2) {
     for (let i = 0; i < 5; i++) {
-      const m = new THREE.Mesh(new THREE.OctahedronGeometry(0.16, 0), fxMat(0xffe066, 0.95));
+      const m = fxAlloc(fxGeo('oct', 0.16), 0xffe066, 0.95, { tag: 'mace:stars' });
       m.position.set(x, y, z);
       addFx(m, dur, (fx) => {
         const t = (fx.max - fx.life) * 5 + (i / 5) * TAU;
@@ -1827,7 +1956,7 @@ export function createGame(THREE) {
 
   function hitBurst(x, z, color) {
     // 투사체 명중 섬광 — 지팡이/활/석궁이 닿았다는 게 보이게 크게 + 충격파 링
-    const m = new THREE.Mesh(new THREE.SphereGeometry(0.28, 7, 5), fxMat(color, 0.95));
+    const m = fxAlloc(fxGeo('sphere', 0.28, 7, 5), color, 0.95, { tag: 'hit:burst' });
     m.position.set(x, groundY(x, z) + 0.9, z);
     addFx(m, 0.24, (fx, k) => { m.scale.setScalar(1 + (1 - k) * 2.6); m.material.opacity = k; }, 'hit:burst');
     const ring = flatRing(x, z, 0.15, 0.5, color, 0.85, 0.14);
@@ -1837,59 +1966,60 @@ export function createGame(THREE) {
   // ---------- 원거리 ----------
   function buildProjectileMesh(style, color) {
     const g = new THREE.Group();
-    const basic = (c, op = 1) => new THREE.MeshBasicMaterial({ color: c, transparent: op < 1, opacity: op, depthWrite: false });
-    const add = (c, op = 1) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: op, depthWrite: false, blending: THREE.AdditiveBlending });
+    // 풀 메시로 만든다 (투사체는 매 발사마다 생겼다 사라진다 — 핫 패스 무할당)
+    const basic = (c, op = 1) => (geo) => fxAlloc(geo, c, op, { blending: THREE.NormalBlending, depthWrite: false, transparent: op < 1, side: THREE.FrontSide, tag: 'proj' });
+    const add = (c, op = 1) => (geo) => fxAlloc(geo, c, op, { side: THREE.FrontSide, tag: 'proj' });
     if (style === 'arrow' || style === 'pierce') {
       // 화살: 길고 밝은 화살 + 비행 궤적이 보이는 꼬리 (폰에서도 보여야 한다)
-      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1.1, 6), basic(0xe8cf9e));
+      const shaft = basic(0xe8cf9e)(fxGeo('cyl', 0.035, 0.035, 1.1, 6));
       shaft.rotation.x = Math.PI / 2; g.add(shaft);
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.3, 4), basic(0xe9f2ff));
+      const tip = basic(0xe9f2ff)(fxGeo('cone', 0.1, 0.3, 4));
       tip.rotation.x = Math.PI / 2; tip.position.z = 0.66; g.add(tip);
       for (const s of [-.07, .07]) {
-        const f = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.16, 0.26), basic(0xffffff));
+        const f = basic(0xffffff)(fxGeo('box', 0.03, 0.16, 0.26));
         f.position.set(0, s, -0.44); f.rotation.x = 0.3; g.add(f);
       }
-      const glowM = new THREE.Mesh(new THREE.SphereGeometry(0.13, 6, 5), add(style === 'pierce' ? (color || 0xbfe6ff) : 0xfff0c0, 0.5));
+      const glowM = add(style === 'pierce' ? (color || 0xbfe6ff) : 0xfff0c0, 0.5)(fxGeo('sphere', 0.13, 6, 5));
       glowM.position.z = 0.1; g.add(glowM);
-      const trail = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 1.9), add(style === 'pierce' ? (color || 0xbfe6ff) : 0xffe9a8, 0.5));
+      const trail = add(style === 'pierce' ? (color || 0xbfe6ff) : 0xffe9a8, 0.5)(fxGeo('box', 0.09, 0.09, 1.9));
       trail.position.z = -0.75; g.add(trail);
     } else if (style === 'bolt') {
       // 석궁 볼트: 짧고 두껍고 빠르게 보이는 탄환 + 꼬리
-      const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.56), basic(0xd7e2f0));
+      const shaft = basic(0xd7e2f0)(fxGeo('box', 0.07, 0.07, 0.56));
       shaft.position.z = 0.0; g.add(shaft);
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.22, 4), basic(0xffffff));
+      const tip = basic(0xffffff)(fxGeo('cone', 0.09, 0.22, 4));
       tip.rotation.x = Math.PI / 2; tip.position.z = 0.36; g.add(tip);
-      const fletch = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.17, 0.09), basic(0x8fb8e0));
+      const fletch = basic(0x8fb8e0)(fxGeo('box', 0.17, 0.17, 0.09));
       fletch.position.z = -0.3; g.add(fletch);
-      const trail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 1.1), add(0xcfe4ff, 0.5));
+      const trail = add(0xcfe4ff, 0.5)(fxGeo('box', 0.08, 0.08, 1.1));
       trail.position.z = -0.5; g.add(trail);
     } else if (style === 'fireball') {
-      const core = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 8), add(0xff8a3c, 0.95));
+      const core = add(0xff8a3c, 0.95)(fxGeo('sphere', 0.26, 10, 8));
       g.add(core);
-      const inner = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), add(0xffe08a, 1));
+      const inner = add(0xffe08a, 1)(fxGeo('sphere', 0.14, 8, 6));
       g.add(inner);
       for (let i = 0; i < 3; i++) {
-        const fl = new THREE.Mesh(new THREE.SphereGeometry(0.1, 6, 5), add(0xff5a2a, 0.6));
+        const fl = add(0xff5a2a, 0.6)(fxGeo('sphere', 0.1, 6, 5));
         fl.position.z = -0.3 - i * 0.16; fl.position.x = (Math.random() - 0.5) * 0.1;
         g.add(fl);
       }
     } else if (style === 'ice') {
-      const shard = new THREE.Mesh(new THREE.OctahedronGeometry(0.2, 0), add(0x9fe8ff, 0.95));
+      const shard = add(0x9fe8ff, 0.95)(fxGeo('oct', 0.2));
       shard.scale.set(0.8, 1.3, 0.8); g.add(shard);
-      const halo = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.02, 4, 10), add(0xdff6ff, 0.8));
+      const halo = add(0xdff6ff, 0.8)(fxGeo('torus', 0.22, 0.02, 4, 10));
       g.add(halo);
     } else {
       // 마법 오브 (지팡이/책): 크고 밝은 구체 + 후광 + 빛나는 꼬리
-      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.3, 9, 7), add(color || 0x9fd8ff, 0.95));
+      const orb = add(color || 0x9fd8ff, 0.95)(fxGeo('sphere', 0.3, 9, 7));
       g.add(orb);
-      const core = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), add(0xffffff, 0.9));
+      const core = add(0xffffff, 0.9)(fxGeo('sphere', 0.16, 8, 6));
       g.add(core);
-      const halo = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.035, 4, 12), add(color || 0x9fd8ff, 0.8));
+      const halo = add(color || 0x9fd8ff, 0.8)(fxGeo('torus', 0.38, 0.035, 4, 12));
       g.add(halo);
-      const glowM = new THREE.Mesh(new THREE.SphereGeometry(0.48, 8, 6), add(color || 0x9fd8ff, 0.28));
+      const glowM = add(color || 0x9fd8ff, 0.28)(fxGeo('sphere', 0.48, 8, 6));
       g.add(glowM);
       for (let i = 0; i < 3; i++) {
-        const sp = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 5), add(color || 0x9fd8ff, 0.55));
+        const sp = add(color || 0x9fd8ff, 0.55)(fxGeo('sphere', 0.09, 6, 5));
         sp.position.z = -0.35 - i * 0.22;
         sp.position.x = (Math.random() - 0.5) * 0.16;
         sp.position.y = (Math.random() - 0.5) * 0.16;
@@ -1918,10 +2048,7 @@ export function createGame(THREE) {
   }
 
   function explodeAt(x, z, radius, dmg, attacker) {
-    const disk = new THREE.Mesh(
-      new THREE.CircleGeometry(1, 26),
-      new THREE.MeshBasicMaterial({ color: 0xff6a2a, transparent: true, opacity: 0.72, depthWrite: false, side: THREE.DoubleSide }),
-    );
+    const disk = fxAlloc(fxGeo('circle', 1, 26), 0xff6a2a, 0.72, { tag: 'fire:disk' });
     disk.rotation.x = -Math.PI / 2;
     disk.position.set(x, groundY(x, z) + 0.11, z);
     addFx(disk, 0.4, (fx, k) => {
@@ -1930,7 +2057,7 @@ export function createGame(THREE) {
     }, 'fire:disk');
     const ring = flatRing(x, z, 0.3, 1.0, 0xffa040, 0.95, 0.12);
     addFx(ring, 0.45, (fx, k) => { ring.scale.setScalar(1 + (1 - k) * radius * 1.6); ring.material.opacity = k * 0.9; }, 'fire:explode');
-    const core = new THREE.Mesh(new THREE.SphereGeometry(0.4, 10, 8), fxMat(0xffcc66, 0.9));
+    const core = fxAlloc(fxGeo('sphere', 0.4, 10, 8), 0xffcc66, 0.9, { tag: 'fire:core' });
     core.position.set(x, groundY(x, z) + 0.9, z);
     addFx(core, 0.32, (fx, k) => { core.scale.setScalar(1 + (1 - k) * 3.2); core.material.opacity = k * 0.85; }, 'fire:core');
     dustBurst(x, z, 0xff8a3c, 8);
@@ -1954,7 +2081,7 @@ export function createGame(THREE) {
     }, 'fire:zone');
     for (let i = 0; i < 7; i++) {
       const a = (i / 7) * TAU;
-      const fl = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.9, 5), fxMat(0xffb055, 0.7));
+      const fl = fxAlloc(fxGeo('cone', 0.28, 0.9, 5), 0xffb055, 0.7, { tag: 'fire:flame' });
       const fgy = groundY(x + Math.cos(a) * radius * 0.7, z + Math.sin(a) * radius * 0.7);
       fl.position.set(x + Math.cos(a) * radius * 0.7, fgy + 0.45, z + Math.sin(a) * radius * 0.7);
       addFx(fl, duration, (fx) => {
@@ -1968,7 +2095,7 @@ export function createGame(THREE) {
     const ring = flatRing(x, z, 0.2, 0.7, color, 0.9, 0.1);
     addFx(ring, 0.7, (fx, k) => { ring.scale.setScalar(1 + (1 - k) * 1.8); ring.material.opacity = k * 0.9; }, 'heal:ring');
     for (let i = 0; i < 4; i++) {
-      const m = new THREE.Mesh(new THREE.SphereGeometry(0.08, 5, 4), fxMat(color, 0.9));
+      const m = fxAlloc(fxGeo('sphere', 0.08, 5, 4), color, 0.9, { tag: 'heal:spark' });
       const hgy = groundY(x, z);
       m.position.set(x + (Math.random() - 0.5) * 0.5, hgy + 0.4, z + (Math.random() - 0.5) * 0.5);
       addFx(m, 0.8, (fx, k) => { m.position.y = hgy + 0.4 + (1 - k) * 1.4; m.material.opacity = k; }, 'heal:spark');
@@ -1979,16 +2106,13 @@ export function createGame(THREE) {
   // 기본 치유(healFx)보다 훨씬 크게 해서 힐러 스킬이 썼다는 게 한눈에 보이게 한다.
   function skillHealFx(x, z) {
     const gy = groundY(x, z);
-    const beam = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.55, 0.75, 2.4, 10, 1, true),
-      new THREE.MeshBasicMaterial({ color: 0x7dffb0, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
-    );
+    const beam = fxAlloc(fxGeo('cyl', 0.55, 0.75, 2.4, 10, 1), 0x7dffb0, 0.35, { tag: 'compskill:healbeam' });
     beam.position.set(x, gy + 1.2, z);
     addFx(beam, 0.7, (fx, k) => { beam.material.opacity = 0.35 * k; beam.scale.x = beam.scale.z = 1 + (1 - k) * 0.5; }, 'compskill:healbeam');
     const ring = flatRing(x, z, 0.3, 1.4, 0x7dffb0, 0.95, 0.12);
     addFx(ring, 0.7, (fx, k) => { ring.scale.setScalar(1 + (1 - k) * 1.6); ring.material.opacity = k * 0.9; }, 'compskill:healring');
     for (let i = 0; i < 8; i++) {
-      const m = new THREE.Mesh(new THREE.SphereGeometry(0.1, 5, 4), fxMat(0xbfffd9, 0.95));
+      const m = fxAlloc(fxGeo('sphere', 0.1, 5, 4), 0xbfffd9, 0.95, { tag: 'compskill:healspark' });
       m.position.set(x + (Math.random() - 0.5) * 0.8, gy + 0.3, z + (Math.random() - 0.5) * 0.8);
       addFx(m, 0.9, (fx, k) => { m.position.y = gy + 0.3 + (1 - k) * 2.2; m.material.opacity = k; }, 'compskill:healspark');
     }
@@ -2332,7 +2456,7 @@ export function createGame(THREE) {
       if (e.chargeCd <= 0 && dd > 2.5 && dd < 16) {
         const len = 13;
         e.charge = { t: 0, dx: dx / dd, dz: dz / dd, hit: false };
-        const run = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.035, len), new THREE.MeshBasicMaterial({ color: 0xff4d5e, transparent: true, opacity: 0.34, depthWrite: false }));
+        const run = fxAlloc(fxGeo('box', 1.8, 0.035, len), 0xff4d5e, 0.34, { tag: 'charge:trail' });
         run.position.set(e.x + e.charge.dx * len * 0.45, groundY(e.x + e.charge.dx * len * 0.45, e.z + e.charge.dz * len * 0.45) + 0.07, e.z + e.charge.dz * len * 0.45);
         run.rotation.y = Math.atan2(e.charge.dx, e.charge.dz);
         scene.add(run);
@@ -2353,7 +2477,7 @@ export function createGame(THREE) {
       game.camShake = 0.5;
     }
     if (c.t > 1.4) {
-      if (c.trail) { scene.remove(c.trail); c.trail.geometry.dispose(); c.trail.material.dispose(); }
+      if (c.trail) fxFree(c.trail);
       e.charge = null;
       e.chargeCd = 7 + Math.random() * 3;
     }
@@ -2388,7 +2512,7 @@ export function createGame(THREE) {
     const dx = p.x - e.x, dz = p.z - e.z;
     const dd = Math.hypot(dx, dz) || 1;
     const sx = e.x + (dx / dd) * 3, sz = e.z + (dz / dd) * 3;
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(1.1, 2.8, 10), new THREE.MeshBasicMaterial({ color: 0xdff4ff, transparent: true, opacity: 0.5, depthWrite: false }));
+    const cone = fxAlloc(fxGeo('cone', 1.1, 2.8, 10), 0xdff4ff, 0.5, { tag: 'whirlwind' });
     cone.position.set(sx, groundY(sx, sz) + 1.4, sz);
     scene.add(cone);
     game.effects.push({ mesh: cone, kind: 'whirlwind', x: sx, z: sz, r: 1.9, life: 5, max: 5, tick: 0, dmg: e.atk * 0.8 });
@@ -2401,9 +2525,9 @@ export function createGame(THREE) {
     for (const s of [-1, 1]) {
       const cx = e.x + s * 3.2, cz = e.z + 1.5;
       const grp = new THREE.Group();
-      const base = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.7, 1.1), new THREE.MeshBasicMaterial({ color: 0x4a3a2a }));
+      const base = fxAlloc(fxGeo('box', 1.1, 0.7, 1.1), 0x4a3a2a, 1, { blending: THREE.NormalBlending, depthWrite: true, transparent: false, tag: 'cannon:base' });
       base.position.y = 0.35; grp.add(base);
-      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 1.6, 8), new THREE.MeshBasicMaterial({ color: 0x2a2a30 }));
+      const barrel = fxAlloc(fxGeo('cyl', 0.28, 0.34, 1.6, 8), 0x2a2a30, 1, { blending: THREE.NormalBlending, depthWrite: true, transparent: false, tag: 'cannon:barrel' });
       barrel.rotation.x = Math.PI / 2.6; barrel.position.set(0, 0.9, 0.3); grp.add(barrel);
       grp.position.set(cx, groundY(cx, cz), cz);
       scene.add(grp);
@@ -2418,7 +2542,7 @@ export function createGame(THREE) {
     const cx = e.home.x, cz = e.home.z;
     const ring = flatRing(cx, cz, 1.2, 3.4, 0xb46cff, 0.85, 0.15);
     addFx(ring, 3, (fx, k) => { ring.scale.setScalar(0.6 + (1 - k) * 0.8); ring.material.opacity = k * 0.85; ring.rotation.z += 0.05; }, 'portal:ring');
-    const core = new THREE.Mesh(new THREE.CircleGeometry(2.6, 24), new THREE.MeshBasicMaterial({ color: 0x7a3fd0, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
+    const core = fxAlloc(fxGeo('circle', 2.6, 24), 0x7a3fd0, 0.5, { depthTest: false, renderOrder: 11, tag: 'portal:core' });
     core.rotation.x = -Math.PI / 2; core.position.set(cx, groundY(cx, cz) + 0.14, cz); core.renderOrder = 11;
     addFx(core, 3, (fx, k) => { core.material.opacity = k * 0.5; core.scale.setScalar(0.4 + (1 - k) * 0.7); }, 'portal:core');
     const adds = [];
@@ -2614,18 +2738,14 @@ export function createGame(THREE) {
 
   function addTelegraph(x, z, r, time, dmg, source, opts = {}) {
     // 지형·풀에 가려지지 않도록 바닥 위로 띄우고 깊이검사를 끈다
-    const mesh = new THREE.Mesh(
-      new THREE.CircleGeometry(r, 30),
-      new THREE.MeshBasicMaterial({ color: 0xff2f45, transparent: true, opacity: 0.34, side: THREE.DoubleSide, depthWrite: false, depthTest: false })
-    );
+    const mesh = fxAlloc(fxGeo('circle', r, 30), 0xff2f45, 0.34, { depthTest: false, renderOrder: 12, tag: 'telegraph' });
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.set(x, groundY(x, z) + 0.3, z);
-    mesh.renderOrder = 12;
     scene.add(mesh);
-    const ring = new THREE.Mesh(new THREE.RingGeometry(r * 0.92, r, 34), new THREE.MeshBasicMaterial({ color: 0xff8a8a, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
-    ring.rotation.x = -Math.PI / 2; ring.position.set(x, groundY(x, z) + 0.31, z); ring.renderOrder = 13; scene.add(ring);
-    const mark = new THREE.Mesh(new THREE.RingGeometry(r * 0.12, r * 0.2, 20), new THREE.MeshBasicMaterial({ color: 0xffd0d0, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
-    mark.rotation.x = -Math.PI / 2; mark.position.set(x, groundY(x, z) + 0.31, z); mark.renderOrder = 13; scene.add(mark);
+    const ring = fxAlloc(fxGeo('ring', r * 0.92, r, 34), 0xff8a8a, 0.95, { depthTest: false, renderOrder: 13, tag: 'telegraph:ring' });
+    ring.rotation.x = -Math.PI / 2; ring.position.set(x, groundY(x, z) + 0.31, z); scene.add(ring);
+    const mark = fxAlloc(fxGeo('ring', r * 0.12, r * 0.2, 20), 0xffd0d0, 0.9, { depthTest: false, renderOrder: 13, tag: 'telegraph:mark' });
+    mark.rotation.x = -Math.PI / 2; mark.position.set(x, groundY(x, z) + 0.31, z); scene.add(mark);
     game.telegraphs.push({ mesh, ring, mark, x, z, r, t: 0, max: time, dmg, source, done: false, stun: opts.stun || 0 });
   }
 
@@ -2646,10 +2766,7 @@ export function createGame(THREE) {
         game.camShake = 0.32;
       }
       if (t.t >= t.max + 0.18) {
-        scene.remove(t.mesh); scene.remove(t.ring); scene.remove(t.mark);
-        t.mesh.geometry.dispose(); t.mesh.material.dispose();
-        t.ring.geometry.dispose(); t.ring.material.dispose();
-        if (t.mark) { t.mark.geometry.dispose(); t.mark.material.dispose(); }
+        fxFree(t.mesh); fxFree(t.ring); if (t.mark) fxFree(t.mark);
         t.remove = true;
       }
     }
@@ -2713,14 +2830,14 @@ export function createGame(THREE) {
         e.mesh.position.set(e.x, groundY(e.x, e.z), e.z);
       }
     }
-    for (const t of game.telegraphs) { scene.remove(t.mesh); scene.remove(t.ring); if (t.mark) scene.remove(t.mark); }
+    for (const t of game.telegraphs) { fxFree(t.mesh); fxFree(t.ring); if (t.mark) fxFree(t.mark); }
     game.telegraphs = [];
     // 회오리·대포 같은 보스 패턴 이펙트도 함께 정리한다
     for (const fx of game.effects) {
-      if ((fx.kind === 'whirlwind' || fx.kind === 'cannon') && fx.mesh) { scene.remove(fx.mesh); disposeGroup(fx.mesh); }
+      if ((fx.kind === 'whirlwind' || fx.kind === 'cannon') && fx.mesh) fxFree(fx.mesh);
     }
     game.effects = game.effects.filter((fx) => fx.kind !== 'whirlwind' && fx.kind !== 'cannon');
-    for (const pr of game.projectiles) if (pr.from === 'enemy') scene.remove(pr.mesh);
+    for (const pr of game.projectiles) if (pr.from === 'enemy') fxFree(pr.mesh);
     game.projectiles = game.projectiles.filter((pr) => pr.from !== 'enemy');
     if (game.ui) game.ui.updateBossBar(null);
   }
@@ -2826,7 +2943,7 @@ export function createGame(THREE) {
       // 두 번째 충격파 + 섬광 + 먼지 — 방패 강타가 멀리서도 한눈에 보이게
       const ring2 = flatRing(c.x, c.z, 0.6, def.radius * 1.5, 0x9fc4ff, 0.7, 0.14);
       addFx(ring2, 0.55, (fx, k) => { ring2.scale.setScalar(0.6 + (1 - k) * 1.4); ring2.material.opacity = k * 0.75; }, 'compskill:slam2');
-      const flash = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), fxMat(0xbfe0ff, 0.9));
+      const flash = fxAlloc(fxGeo('sphere', 0.35, 8, 6), 0xbfe0ff, 0.9, { tag: 'compskill:flash' });
       flash.position.set(c.x, groundY(c.x, c.z) + 0.9, c.z);
       addFx(flash, 0.28, (fx, k) => { flash.scale.setScalar(1 + (1 - k) * 2.4); flash.material.opacity = k * 0.85; }, 'compskill:slamflash');
       dustBurst(c.x, c.z, 0x9fc4ff, 8);
@@ -2842,7 +2959,7 @@ export function createGame(THREE) {
       if (!hit) return false;
       const ring = flatRing(c.x, c.z, 0.4, def.radius, 0x9fc4ff, 0.85, 0.12);
       addFx(ring, 0.5, (fx, k) => { ring.scale.setScalar(0.5 + (1 - k) * 1.1); ring.material.opacity = k * 0.9; }, 'compskill:roar');
-      const flash = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), fxMat(0xbfe0ff, 0.9));
+      const flash = fxAlloc(fxGeo('sphere', 0.35, 8, 6), 0xbfe0ff, 0.9, { tag: 'compskill:flash' });
       flash.position.set(c.x, groundY(c.x, c.z) + 0.9, c.z);
       addFx(flash, 0.28, (fx, k) => { flash.scale.setScalar(1 + (1 - k) * 2.4); flash.material.opacity = k * 0.85; }, 'compskill:roarflash');
       game.camShake = Math.max(game.camShake, 0.18);
@@ -2880,7 +2997,7 @@ export function createGame(THREE) {
       const ring2 = flatRing(c.x, c.z, 0.5, def.radius * 1.4, 0xbfe6ff, 0.7, 0.13);
       addFx(ring2, 0.5, (fx, k) => { ring2.scale.setScalar(0.6 + (1 - k) * 1.3); ring2.material.opacity = k * 0.8; }, 'compskill:whirl2');
       for (let i = 0; i < 5; i++) {
-        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.1, def.radius * 1.05), fxMat(0xeaf6ff, 0.8));
+        const blade = fxAlloc(fxGeo('box', 0.14, 0.1, def.radius * 1.05), 0xeaf6ff, 0.8, { tag: 'compskill:blade' });
         blade.position.y = 0.7; blade.rotation.y = (i / 5) * TAU;
         const g = new THREE.Group(); g.add(blade); g.position.set(c.x, groundY(c.x, c.z), c.z);
         const off = (i / 5) * TAU;
@@ -2945,7 +3062,7 @@ export function createGame(THREE) {
       const t = nearestEnemyFrom(c.x, c.z, def.range, false, true);
       if (!t) return false;
       const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
-      const flash = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 6), fxMat(0xff8a3c, 0.9));
+      const flash = fxAlloc(fxGeo('sphere', 0.3, 8, 6), 0xff8a3c, 0.9, { tag: 'compskill:firecast' });
       flash.position.set(c.x, groundY(c.x, c.z) + 1.1, c.z);
       addFx(flash, 0.25, (fx, k) => { flash.scale.setScalar(1 + (1 - k) * 2.2); flash.material.opacity = k * 0.85; }, 'compskill:firecast');
       if (game.ui) game.ui.floatText(c.x, groundY(c.x, c.z) + 2.0, c.z, '파이어볼!', 'skill skill-mage');
@@ -2960,7 +3077,7 @@ export function createGame(THREE) {
       const t = nearestEnemyFrom(c.x, c.z, def.range, false, true);
       if (!t) return false;
       const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
-      const flash = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 6), fxMat(0x9fe8ff, 0.9));
+      const flash = fxAlloc(fxGeo('sphere', 0.3, 8, 6), 0x9fe8ff, 0.9, { tag: 'compskill:icecast' });
       flash.position.set(c.x, groundY(c.x, c.z) + 1.1, c.z);
       addFx(flash, 0.25, (fx, k) => { flash.scale.setScalar(1 + (1 - k) * 2.2); flash.material.opacity = k * 0.85; }, 'compskill:icecast');
       skillText('아이스볼트!', 'skill-mage');
@@ -2986,14 +3103,14 @@ export function createGame(THREE) {
       const targets = [...game.enemies].filter((e) => e.alive && isHeroRecognized(e) && Math.hypot(e.x - t.x, e.z - t.z) <= def.radius + e.radius);
       if (!targets.length) return false;
       const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
-      const disk = new THREE.Mesh(new THREE.CircleGeometry(1, 26), new THREE.MeshBasicMaterial({ color: 0x9fe8ff, transparent: true, opacity: 0.72, depthWrite: false, side: THREE.DoubleSide }));
+      const disk = fxAlloc(fxGeo('circle', 1, 26), 0x9fe8ff, 0.72, { tag: 'compskill:blizzard' });
       disk.rotation.x = -Math.PI / 2;
       disk.position.set(t.x, groundY(t.x, t.z) + 0.11, t.z);
       addFx(disk, 0.45, (fx, k) => { disk.scale.setScalar(def.radius * (0.35 + (1 - k) * 0.85)); disk.material.opacity = 0.7 * k; }, 'compskill:blizzard');
       const ring = flatRing(t.x, t.z, 0.3, 1.0, 0xbfe6ff, 0.95, 0.12);
       addFx(ring, 0.5, (fx, k) => { ring.scale.setScalar(1 + (1 - k) * def.radius * 1.6); ring.material.opacity = k * 0.9; }, 'compskill:blizzardring');
       for (let i = 0; i < 8; i++) {
-        const m = new THREE.Mesh(new THREE.OctahedronGeometry(0.16, 0), fxMat(0xd6f4ff, 0.95));
+        const m = fxAlloc(fxGeo('oct', 0.16), 0xd6f4ff, 0.95, { tag: 'compskill:blizzardshard' });
         const sx = t.x + (Math.random() - 0.5) * def.radius * 1.4;
         const sz = t.z + (Math.random() - 0.5) * def.radius * 1.4;
         const sgy = groundY(sx, sz);
@@ -3011,13 +3128,10 @@ export function createGame(THREE) {
       if (!t) return false;
       const dmg = dmgOf(def.mult + def.multPerLv * (skillLv - 1));
       const tgy = groundY(t.x, t.z);
-      const beam = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.22, 0.3, 3.2, 8, 1, true),
-        new THREE.MeshBasicMaterial({ color: 0xfff2a8, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
-      );
+      const beam = fxAlloc(fxGeo('cyl', 0.22, 0.3, 3.2, 8, 1), 0xfff2a8, 0.85, { tag: 'compskill:thunder' });
       beam.position.set(t.x, tgy + 1.6, t.z);
       addFx(beam, 0.35, (fx, k) => { beam.material.opacity = 0.85 * k; beam.scale.x = beam.scale.z = 1 + (1 - k) * 1.6; }, 'compskill:thunder');
-      const flash = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 6), fxMat(0xfff2a8, 0.95));
+      const flash = fxAlloc(fxGeo('sphere', 0.4, 8, 6), 0xfff2a8, 0.95, { tag: 'compskill:thunderflash' });
       flash.position.set(t.x, tgy + 0.9, t.z);
       addFx(flash, 0.3, (fx, k) => { flash.scale.setScalar(1 + (1 - k) * 3); flash.material.opacity = k; }, 'compskill:thunderflash');
       game.dealDamage(t, dmg, { heavy: true, elem: def.elem, canCrit: false, attacker: c });
@@ -3371,7 +3485,7 @@ export function createGame(THREE) {
   }
 
   function addPoisonPool(x, z, dmg) {
-    const pool = new THREE.Mesh(new THREE.CircleGeometry(2.2, 20), new THREE.MeshBasicMaterial({ color: 0x7ad64a, transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
+    const pool = fxAlloc(fxGeo('circle', 2.2, 20), 0x7ad64a, 0.42, { depthTest: false, renderOrder: 10, tag: 'pool' });
     pool.rotation.x = -Math.PI / 2; pool.position.set(x, groundY(x, z) + 0.26, z); pool.renderOrder = 10; scene.add(pool);
     game.effects.push({ mesh: pool, kind: 'pool', x, z, r: 2.2, life: 4.5, max: 4.5, tick: 0, dmg: dmg * 0.6 });
   }
@@ -3402,12 +3516,12 @@ export function createGame(THREE) {
         if (it.type === 'soul') color = it.data === 'purple' ? 0xb46cff : it.data === 'blue' ? 0x5aa9ff : it.data === 'green' ? 0x5fe08d : 0xc9d2e0;
         if (it.type === 'item') color = parseInt(GRADES[it.data.grade].color.slice(1), 16);
         if (it.type === 'book') color = 0xc9a1ff;
-        const geo = it.type === 'gold' ? new THREE.CylinderGeometry(0.14, 0.14, 0.05, 8)
-          : it.type === 'book' ? new THREE.BoxGeometry(0.3, 0.24, 0.07)
-            : new THREE.SphereGeometry(0.15, 7, 5);
-        it.mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color }));
+        const geo = it.type === 'gold' ? fxGeo('cyl', 0.14, 0.14, 0.05, 8)
+          : it.type === 'book' ? fxGeo('box', 0.3, 0.24, 0.07)
+            : fxGeo('sphere', 0.15, 7, 5);
+        it.mesh = fxAlloc(geo, color, 1, { blending: THREE.NormalBlending, depthWrite: true, transparent: false, side: THREE.FrontSide, tag: 'pickup' });
         if (it.type === 'book') {
-          const halo = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.02, 4, 12), new THREE.MeshBasicMaterial({ color: 0xe8d8ff, transparent: true, opacity: 0.8, depthWrite: false }));
+          const halo = fxAlloc(fxGeo('torus', 0.3, 0.02, 4, 12), 0xe8d8ff, 0.8, { tag: 'pickup:halo' });
           halo.rotation.x = -Math.PI / 2;
           it.mesh.add(halo);
         }
@@ -3416,7 +3530,7 @@ export function createGame(THREE) {
       it.mesh.position.set(it.x, groundY(it.x, it.z) + 0.5 + Math.sin(it.t * 4) * 0.1, it.z);
       it.mesh.rotation.y += dt * 3;
       const nd = Math.hypot(p.x - it.x, p.z - it.z);
-      if (nd < 0.75) { collect(it); it.alive = false; scene.remove(it.mesh); }
+      if (nd < 0.75) { collect(it); it.alive = false; fxFree(it.mesh); }
     }
     game.pickups = game.pickups.filter((x) => x.alive);
   }
@@ -3521,7 +3635,7 @@ export function createGame(THREE) {
       game.state.chestsFound = Math.min(SECRET_TOTAL, (game.state.chestsFound || 0) + 1);
       const reward = giveChestReward();
       // 보상 연출
-      const gold = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), fxMat(0xffd257, 0.95));
+      const gold = fxAlloc(fxGeo('sphere', 0.16, 8, 6), 0xffd257, 0.95, { tag: 'chest:gold' });
       const cgy = groundY(c.x, c.z);
       gold.position.set(c.x, cgy + 0.7, c.z);
       addFx(gold, 0.75, (fx, k) => {
@@ -3533,7 +3647,7 @@ export function createGame(THREE) {
       addFx(ring, 0.6, (fx, k) => { ring.scale.setScalar(1 + (1 - k) * 2.6); ring.material.opacity = k * 0.9; }, 'chest:ring');
       dustBurst(c.x, c.z, 0xffd257, 10);
       for (let i = 0; i < 8; i++) {
-        const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.03, 8), fxMat(0xffcf4d, 0.95));
+        const coin = fxAlloc(fxGeo('cyl', 0.09, 0.09, 0.03, 8), 0xffcf4d, 0.95, { tag: 'chest:coin' });
         const a = (i / 8) * TAU;
         coin.position.set(c.x, cgy + 0.7, c.z);
         addFx(coin, 0.9, (fx, k) => {
@@ -3592,23 +3706,23 @@ export function createGame(THREE) {
       } else if (fx.kind === 'fadeScale' && fx.mesh) {
         fx.mesh.material.opacity = k * 0.9;
         fx.mesh.scale.setScalar((fx.from || 0.92) + (1 - k) * 0.16);
-        if (fx.life <= 0) { scene.remove(fx.mesh); fx.mesh.geometry.dispose(); fx.mesh.material.dispose(); }
+        if (fx.life <= 0) fxFree(fx.mesh);
       } else if (fx.kind === 'burst') {
         if (!fx.mesh) {
-          const m = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), new THREE.MeshBasicMaterial({ color: fx.color, transparent: true, opacity: 0.9 }));
+          const m = fxAlloc(fxGeo('sphere', 0.2, 8, 6), fx.color, 0.9, { tag: 'burst' });
           m.position.set(fx.x, groundY(fx.x, fx.z) + 0.8, fx.z); scene.add(m); fx.mesh = m;
         }
         fx.mesh.scale.setScalar(1 + (1 - k) * 4);
         fx.mesh.material.opacity = k;
-        if (fx.life <= 0) { scene.remove(fx.mesh); fx.mesh.geometry.dispose(); fx.mesh.material.dispose(); }
+        if (fx.life <= 0) fxFree(fx.mesh);
       } else if (fx.kind === 'shockwave') {
         if (!fx.mesh) {
-          const m = new THREE.Mesh(new THREE.RingGeometry(0.4, 0.9, 32), new THREE.MeshBasicMaterial({ color: 0xff7070, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
+          const m = fxAlloc(fxGeo('ring', 0.4, 0.9, 32), 0xff7070, 0.9, { tag: 'shockwave' });
           m.rotation.x = -Math.PI / 2; m.position.set(fx.x, groundY(fx.x, fx.z) + 0.12, fx.z); scene.add(m); fx.mesh = m;
         }
         fx.mesh.scale.setScalar(1 + (1 - k) * (fx.r || 4) * 1.2);
         fx.mesh.material.opacity = k * 0.85;
-        if (fx.life <= 0) { scene.remove(fx.mesh); fx.mesh.geometry.dispose(); fx.mesh.material.dispose(); }
+        if (fx.life <= 0) fxFree(fx.mesh);
       } else if (fx.kind === 'whirlwind') {
         // 회오리는 플레이어를 향해 천천히 이동하며 닿으면 피해를 준다
         const p = game.player;
@@ -3627,7 +3741,7 @@ export function createGame(THREE) {
           if (p2 && p2.alive && Math.hypot(p2.x - fx.x, p2.z - fx.z) < fx.r) game.damagePlayer(fx.dmg, null);
         }
         fx.mesh.material.opacity = 0.3 + Math.sin(game.time * 6) * 0.12;
-        if (fx.life <= 0) { scene.remove(fx.mesh); fx.mesh.geometry.dispose(); fx.mesh.material.dispose(); }
+        if (fx.life <= 0) fxFree(fx.mesh);
       } else if (fx.kind === 'cannon') {
         // 대포는 주기적으로 플레이어 주변에 작은 빨간원 폭격을 쏜다
         const boss = fx.boss;
@@ -3641,7 +3755,7 @@ export function createGame(THREE) {
           }
           dustBurst(fx.x, fx.z, 0xffa040, 4);
         }
-        if (fx.life <= 0) { scene.remove(fx.mesh); disposeGroup(fx.mesh); }
+        if (fx.life <= 0) fxFree(fx.mesh);
       } else if (fx.kind === 'pool') {
         fx.tick -= dt;
         if (fx.tick <= 0) {
@@ -3650,7 +3764,7 @@ export function createGame(THREE) {
           if (p.alive && Math.hypot(p.x - fx.x, p.z - fx.z) < fx.r) game.damagePlayer(fx.dmg, null);
         }
         fx.mesh.material.opacity = 0.2 + Math.sin(game.time * 4) * 0.1;
-        if (fx.life <= 0) { scene.remove(fx.mesh); fx.mesh.geometry.dispose(); fx.mesh.material.dispose(); }
+        if (fx.life <= 0) fxFree(fx.mesh);
       }
     }
     game.effects = game.effects.filter((f) => f.life > 0);
@@ -3658,6 +3772,24 @@ export function createGame(THREE) {
 
   let respawnT = 12;
   function updateRespawn(dt) {
+    // 퀘스트 교체 몹 (10초) — 일반 12초 젠 사이클과 별개로 돈다
+    for (let i = questRespawns.length - 1; i >= 0; i--) {
+      const r = questRespawns[i];
+      r.t -= dt;
+      if (r.t > 0) continue;
+      questRespawns.splice(i, 1);
+      // 퀘스트가 아직 처치 단계를 진행 중이고, 같은 종류가 여전히 없을 때만 되돌린다
+      const qz = game.zone;
+      const qq = (game.state.quests || {})[qz.id];
+      const qstep = qq && qq.accepted && !qq.done ? (qz.quests.steps || [])[qq.step] : null;
+      if (!qstep || qstep.type !== 'kill' || qq.progress >= qstep.n) continue;
+      if (game.enemies.some((m) => m.alive && !m.isBoss && !m.isMid && !m.isField && m.def === r.def)) continue;
+      const qpts = (game.world.spawnPointsByDistrict && game.world.spawnPointsByDistrict[qz.id]) || game.world.spawnPoints;
+      for (let tries = 0; tries < 12; tries++) {
+        const qp = qpts[Math.floor(Math.random() * qpts.length)];
+        if (Math.hypot(qp.x - game.player.x, qp.z - game.player.z) > 15) { spawnEnemy(r.def, qp.x, qp.z); break; }
+      }
+    }
     respawnT -= dt;
     if (respawnT > 0) return;
     respawnT = 12; // 몹 젠 완화: 4.5초 → 12초마다 체크 (생존 상한 13마리 유지)
@@ -3675,11 +3807,11 @@ export function createGame(THREE) {
 
   // ---------- 카메라 ----------
   let camPos = new THREE.Vector3(0, 18, 26);
-  // 카메라 각도 완전 고정(약 45도 쿼터뷰). 캐릭터가 움직여도 회전하지 않는다.
+  // 카메라 각도 완전 고정 (2D 탑뷰, 고도 62° — 빌보드 기울기 BILLBOARD_TILT와 같은 값). 캐릭터가 움직여도 회전하지 않는다.
+  // 뒤:높이 = 0.85 : 0.85*tan(62°) ≈ 1.6 — 카메라 고도가 빌보드 기울기와 일치해 스프라이트가 화면에 똑바로 선다.
   function camRig() {
-    const aspect = window.innerWidth / Math.max(1, window.innerHeight);
-    const vis = Math.min(15.5, Math.max(11, 9.6 / aspect));
-    return { back: vis * 1.08, height: vis * 1.22, vis };
+    const back = ORTHO_SIZE * 0.85;
+    return { back, height: back * Math.tan(BILLBOARD_TILT), vis: ORTHO_SIZE * 2 };
   }
   function updateCamera(dt) {
     const p = game.player;
@@ -3831,8 +3963,7 @@ export function createGame(THREE) {
   game.resize = function () {
     const w = window.innerWidth, h = window.innerHeight;
     renderer.setSize(w, h, false);
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
+    updateOrthoFrustum(); // 직교 투영: aspect 대신 좌우 절두체를 다시 계산한다
   };
   window.addEventListener('resize', () => game.resize());
   document.addEventListener('visibilitychange', () => { if (document.hidden && game._dirty) game.flushSave(); });
@@ -4158,7 +4289,7 @@ export function createGame(THREE) {
     if (game.ui) game.ui.openQuestDialog(q);
   };
   // 퀘스트가 보스 처치를 요구할 때, 이미 잡아 둔 보스 때문에 몇 시간씩 막히지 않도록
-  // 해당 보스의 리스폰을 90초 뒤로 앞당긴다.
+  // 해당 보스의 리스폰을 10초 뒤로 앞당긴다. (보스 타이머 자체는 그대로 — 퀘스트 몹이 없을 때만 이 10초 앞당김이 적용된다)
   function readyQuestBoss(zone, step) {
     if (!step) return null;
     const type = step.type === 'mid' ? 'mid' : step.type === 'boss' ? 'boss' : null;
@@ -4166,7 +4297,7 @@ export function createGame(THREE) {
     const key = `${zone.id}:${type}`;
     const at = (game.state.bossTimers || {})[key];
     if (!at) return null;
-    const soon = Date.now() + 90 * 1000;
+    const soon = Date.now() + 10 * 1000;
     if (at > soon) {
       game.state.bossTimers[key] = soon;
       game.save();
@@ -4191,7 +4322,7 @@ export function createGame(THREE) {
       const soon = readyQuestBoss(zone, step);
       game.save();
       if (game.ui) game.ui.markDirty(true);
-      if (soon && game.ui) game.ui.toast(`퀘스트를 위해 ${soon}이(가) 90초 뒤 다시 나타납니다.`, 'good');
+      if (soon && game.ui) game.ui.toast(`퀘스트를 위해 ${soon}이(가) 10초 뒤 다시 나타납니다.`, 'good');
       return { ok: true, msg: `퀘스트 수락! ${step.text}`, accept: true };
     }
     if (q.progress < step.n) return { ok: false, msg: `아직 목표를 달성하지 못했어요. (${Math.min(q.progress, step.n)} / ${step.n})` };
@@ -4234,7 +4365,7 @@ export function createGame(THREE) {
     const nextStep = zone.quests.steps[q.step];
     if (nextStep) {
       const soon = readyQuestBoss(zone, nextStep);
-      if (soon && game.ui) game.ui.toast(`다음 목표를 위해 ${soon}이(가) 90초 뒤 다시 나타납니다.`, 'good');
+      if (soon && game.ui) game.ui.toast(`다음 목표를 위해 ${soon}이(가) 10초 뒤 다시 나타납니다.`, 'good');
     }
     return {
       ok: true,
