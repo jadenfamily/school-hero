@@ -9,7 +9,7 @@ import {
 } from './data.js';
 import { districtAt, PATH_CENTERS, districtOutline, WORLD_BOUNDS } from './world.js';
 import { CloudAdapter } from './save.js';
-import { heroPortraitDataUrl, heroFullDataUrl, visualEquip } from './sprites.js';
+import { heroPortraitDataUrl, heroFullCanvasDataUrl, visualEquip } from './sprites.js';
 
 const $ = (id) => document.getElementById(id);
 const pct = (a, b) => `${Math.max(0, Math.min(100, b ? (a / b) * 100 : 0)).toFixed(1)}%`;
@@ -30,7 +30,7 @@ const fullCache = new Map();
 function fullBody(av, equip, appearance, size = 150) {
   const ap = appearance || { mode: 'armor' };
   const key = `${av.id}|${equip.weapon ? equip.weapon.fam + equip.weapon.grade : '-'}|${equip.armor ? equip.armor.fam + equip.armor.grade : '-'}|${ap.mode}|${ap.costumeId || '-'}|${size}`;
-  if (!fullCache.has(key)) fullCache.set(key, heroFullDataUrl(av, visualEquip(equip, ap), size));
+  if (!fullCache.has(key)) fullCache.set(key, heroFullCanvasDataUrl(av, visualEquip(equip, ap), size));
   return fullCache.get(key);
 }
 
@@ -960,7 +960,7 @@ export function createUI(game, THREE) {
         </div>
       </div>
       <div class="look-box">
-        <div class="look-head"><b>👗 외형</b><span class="hint">능력치는 그대로, 캐릭터 색조·오라로 표현됩니다</span>
+        <div class="look-head"><b>👗 외형</b><span class="hint">외형을 바꾸면 가방 아바타와 게임 속 캐릭터 모습이 함께 바뀝니다</span>
           <button class="mini-btn gold" data-gacha ${game.costumePoolStatus().allMaxed ? 'disabled' : ''}>${game.costumePoolStatus().allMaxed ? '모두 최대 레벨' : `🎲 외형 뽑기 ${COSTUME_PULL_COST}G`}</button></div>
         <div class="look-opts">${lookOpts}</div>
         <div class="codex-head"><b>📖 외형 도감</b><span class="codex-total">${totalBonusText}</span></div>
