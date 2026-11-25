@@ -1382,14 +1382,14 @@ export function createUI(game, THREE) {
         </div>
       </div>`;
     }).join('') || `<div class="hint" style="margin:8px 0 16px">${f === 'all' ? '아직 동료가 없어요. 아래 뽑기로 동료를 만나 보세요!' : '이 직업의 동료가 없어요.'}</div>`;
-    const html = `${head('🐾 동료', `동행 ${s.party.length}/3`, 'companions')}
+    const html = `${head('🐾 동료', `동행 ${s.party.length}/4`, 'companions')}
       <div class="tab-row">${tabs}</div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <span class="hint">동료 뽑기 · ${COMPANION_PULL_COST}골드 (보유 ${fmt(s.gold)})</span>
         <button class="btn gold" data-pull>뽑기 ✨</button>
       </div>
       ${cards}
-      <div class="hint" style="margin-top:10px">탱커·힐러·근접딜러·마법딜러 중 최대 3명까지 함께 싸워요. 동료마다 고유 스킬이 있어요 — 같은 직업이라도 쓰는 스킬이 다를 수 있어요. 같은 동료가 다시 나오면 등급이 오르고 스킬도 강해져요 (최대 Lv.10). 스킬북은 가방에서 쓸 수 있어요 — 같은 스킬을 쓰는 동료가 강해져요. 스킬 레벨은 등급 + 1 + 보너스 (최대 Lv.10). 동료 레벨은 주인공 레벨을 따라가요 — 동료를 바꿔도 바로 주인공 레벨로 싸워요.</div>`;
+      <div class="hint" style="margin-top:10px">탱커·힐러·근접딜러·마법딜러 중 최대 4명까지 함께 싸워요. 동료마다 고유 스킬이 있어요 — 같은 직업이라도 쓰는 스킬이 다를 수 있어요. 같은 동료가 다시 나오면 등급이 오르고 스킬도 강해져요 (최대 Lv.10). 스킬북은 가방에서 쓸 수 있어요 — 같은 스킬을 쓰는 동료가 강해져요. 스킬 레벨은 등급 + 1 + 보너스 (최대 Lv.10). 동료 레벨은 주인공 레벨을 따라가요 — 동료를 바꿔도 바로 주인공 레벨로 싸워요.</div>`;
     const sheet = openSheet(html, 'hub-sheet');
     sheet.querySelectorAll('[data-comp-tab]').forEach((el) => el.addEventListener('click', () => ui.openCompanions(el.dataset.compTab)));
     sheet.querySelector('[data-pull]').addEventListener('click', () => {
