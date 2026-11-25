@@ -1074,21 +1074,19 @@ function makeGlbHeroAnimator(outer, inner) {
   };
 }
 
-export async function loadGlbHero(THREE, url) {
-  const LoaderClass = await importGlTFLoader();
-  const gltf = await loadGlbWithLoader(LoaderClass, url);
-  const src = gltf.scene;
-  // [skin-brightness-fix] Tripo GLB의 baseColorFactor가 0.8이라 GLTFLoader가
-  // 재질 색을 (0.8, 0.8, 0.8)로 만들어 텍스처 전체를 0.8배로 어둡게 렌더링한다
-  // (피부 텍스처를 밝게 고쳐도 여전히 어둡게 보이는 원인). 로드 직후 색을
-  // 흰색(1, 1, 1)으로 되돌려 텍스처 본연의 밝기로 보이게 한다. 텍스처(map)는
-  // 그대로 두고 색만 되돌리므로 다른 부위 밝기도 함께 정상화된다.
-  // [skin-brightness-fix-3] 색을 흰색으로 되돌려도 48° 탑다운 시점에서 얼굴이
-  // 그림자에 가려 여전히 어둡게 보여, 자체발광(emissive)으로 얼굴을 띄운다.
-  // [skin-brightness-fix-4] 균일 발광(emissiveIntensity 2.0)은 교복·머리까지
-  // 하얗게 띄워 캐릭터 전체가 빛나는 유령처럼 보였다. 그래서 basecolor
-  // 텍스처를 발광 맵(emissiveMap)으로 써서 밝은 부분(피부)만 발광하고
-  // 어두운 부분(검은 머리·남색 교복)은 거의 발광하지 않게 한다.
+// [skin-brightness-fix] Tripo GLB의 baseColorFactor가 0.8이라 GLTFLoader가
+// 재질 색을 (0.8, 0.8, 0.8)로 만들어 텍스처 전체를 0.8배로 어둡게 렌더링한다
+// (피부 텍스처를 밝게 고쳐도 여전히 어둡게 보이는 원인). 로드 직후 색을
+// 흰색(1, 1, 1)으로 되돌려 텍스처 본연의 밝기로 보이게 한다. 텍스처(map)는
+// 그대로 두고 색만 되돌리므로 다른 부위 밝기도 함께 정상화된다.
+// [skin-brightness-fix-3] 색을 흰색으로 되돌려도 48° 탑다운 시점에서 얼굴이
+// 그림자에 가려 여전히 어둡게 보여, 자체발광(emissive)으로 얼굴을 띄운다.
+// [skin-brightness-fix-4] 균일 발광(emissiveIntensity 2.0)은 교복·머리까지
+// 하얗게 띄워 캐릭터 전체가 빛나는 유령처럼 보였다. 그래서 basecolor
+// 텍스처를 발광 맵(emissiveMap)으로 써서 밝은 부분(피부)만 발광하고
+// 어두운 부분(검은 머리·남색 교복)은 거의 발광하지 않게 한다.
+// 주인공·동료 GLB 공통 (loadGlbHero / loadGlbCompanion 둘 다 이걸 쓴다).
+function applyGlbSkinFix(src) {
   src.traverse((o) => {
     if (!o.isMesh) return;
     const mats = Array.isArray(o.material) ? o.material : [o.material];
@@ -1102,38 +1100,67 @@ export async function loadGlbHero(THREE, url) {
       }
     }
   });
-  // [/skin-brightness-fix]
-  // 키 맞추기: GLB 원본 높이(약 99.84 단위, y=0 바닥)를 주인공 키 2.85m로
+}
+// [/skin-brightness-fix]
+
+// GLB 정적 캐릭터 뼈대 (주인공·동료 공통): 키 맞추기 + 그림자 + 팔다리 피벗 스텁.
+// GLB 원본 높이(약 99 단위, y=0 바닥)를 목표 키로 맞추고, y=0에 세운다.
+// 팔다리 피벗 스텁 — 빈 Object3D라서 돌려도 보이는 부분은 움직이지 않는다.
+// 기존 코드가 userData.armR/armL/legL/legR/head를 찾아도 크래시가 나지 않는다.
+function buildGlbCharacter(THREE, src, targetHeight, headY, radius, tag) {
   const box = new THREE.Box3().setFromObject(src);
   const size = new THREE.Vector3();
   box.getSize(size);
   if (!isFinite(size.y) || size.y <= 0) throw new Error('glb-bad-bounds');
-  const scale = GLB_HERO_TARGET_HEIGHT / size.y;
+  const scale = targetHeight / size.y;
   const inner = new THREE.Group();
   src.position.y -= box.min.y * scale;
   src.scale.setScalar(scale);
   inner.add(src);
-  inner.add(blobShadow(THREE, 0.42));
-  // 그림자 (절차적 주인공과 같은 방식)
+  inner.add(blobShadow(THREE, 0.42 * (targetHeight / GLB_HERO_TARGET_HEIGHT)));
+  // 그림자 (절차적 캐릭터와 같은 방식)
   inner.traverse((o) => { if (o.isMesh) o.castShadow = true; });
 
   const outer = new THREE.Group();
   outer.add(inner);
-  // 팔다리 피벗 스텁 — 빈 Object3D라서 돌려도 보이는 부분은 움직이지 않는다.
-  // animateArm 등 기존 코드가 userData.armR/armL/legL/legR/head를 찾아도 크래시가 나지 않는다.
-  // (실제 모션은 userData.animate가 전신만 움직인다.)
-  const stub = (x, y, z) => { const o = new THREE.Object3D(); o.position.set(x, y, z); inner.add(o); return o; };
+  const k = targetHeight / GLB_HERO_TARGET_HEIGHT;
+  const stub = (x, y, z) => { const o = new THREE.Object3D(); o.position.set(x, y * k, z); inner.add(o); return o; };
   const armR = stub(0.28, 1.08, 0);
   const armL = stub(-0.28, 1.08, 0);
   const legL = stub(-0.11, 0.55, 0);
   const legR = stub(0.11, 0.55, 0);
   const head = stub(0, 1.44, 0);
   outer.userData = {
-    avatar: null, height: GLB_HERO_TARGET_HEIGHT, headY: 2.4, radius: 0.63,
+    avatar: null, height: targetHeight, headY, radius,
     armR, armL, legL, legR, body: inner, head, weapon: null, weaponGroup: null,
-    isHeroSprite: false, glbHero: true,
+    isHeroSprite: false, [tag]: true,
   };
+  return { outer, inner };
+}
+
+export async function loadGlbHero(THREE, url) {
+  const LoaderClass = await importGlTFLoader();
+  const gltf = await loadGlbWithLoader(LoaderClass, url);
+  const src = gltf.scene;
+  applyGlbSkinFix(src);
+  const { outer, inner } = buildGlbCharacter(THREE, src, GLB_HERO_TARGET_HEIGHT, 2.4, 0.63, 'glbHero');
   outer.userData.animate = makeGlbHeroAnimator(outer, inner);
+  return outer;
+}
+
+// ---------- GLB 탱커 동료 테스트 (?companion=glb) ----------
+// Tripo 탱커 GLB(assets/tank.glb)를 탱커 동료 대신 쓴다. 주인공 GLB와 같은
+// 정적 메쉬(뼈대 없음)라 팔다리 애니메이션은 하지 않고, 게임 루프가 정하는
+// 위치·회전·걷기 바운스만 전신에 적용된다. 피부 처리(색 흰색 복원 +
+// 텍스처 변조 발광)도 주인공과 동일하다. 얼굴은 +Z를 향한다
+// (소프트웨어 렌더로 확인: +Z에서 얼굴·방패·검이 보이고 -Z에서 뒷모습).
+export const GLB_COMPANION_TARGET_HEIGHT = 2.57; // 절차적 동료와 같은 키 (1.9 × 1.35)
+export async function loadGlbCompanion(THREE, url) {
+  const LoaderClass = await importGlTFLoader();
+  const gltf = await loadGlbWithLoader(LoaderClass, url);
+  const src = gltf.scene;
+  applyGlbSkinFix(src);
+  const { outer } = buildGlbCharacter(THREE, src, GLB_COMPANION_TARGET_HEIGHT, 2.16, 0.57, 'glbCompanion');
   return outer;
 }
 
