@@ -43,7 +43,7 @@ export function validateState(s) {
   }
   if (total > 12000) return 'bagTotal';
   if (s.companions && (!Array.isArray(s.companions) || s.companions.length > 200)) return 'companions';
-  if (s.unlocked && (!Array.isArray(s.unlocked) || s.unlocked.some((z) => z < 1 || z > 9))) return 'unlocked';
+  if (s.unlocked && (!Array.isArray(s.unlocked) || s.unlocked.some((z) => z < 1 || z > 18))) return 'unlocked';
   return null;
 }
 
