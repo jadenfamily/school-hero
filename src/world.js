@@ -1023,9 +1023,11 @@ export function makePlayer(THREE, family = 'sword', av = null, equip = null, app
 // ---------- GLB 주인공 테스트 (?hero=glb) ----------
 // Tripo에서 만든 시우 GLB(assets/siwoo.glb)를 플레이어 대신 쓴다. 이 함수를 부르는 곳은
 // game.js의 GLB 분기뿐이라, 플래그가 없으면 절차적 makeHumanoid3D 주인공이 그대로다.
-// GLB는 뼈대·애니메이션이 없는 정적 메쉬라서 팔다리 애니메이션은 하지 않고 전신만
-// 움직인다 (걷기 바운스 + 공격 돌진). 코스튬·무기 교체도 GLB에 반영되지 않는다.
-// 얼굴은 +Z를 향한다 (절차적 플레이어의 앞면과 같은 방향 — UV/정점 분석으로 확인됨).
+// 주인공 GLB는 Tripo Studio에서 리깅된 모델(assets/siwoo.glb)이라 뼈대가 있다 —
+// 걷기·공격할 때 팔·다리 뼈를 코드로 직접 움직인다 (makeGlbHeroRigAnimator).
+// 리깅이 없는 GLB가 들어오면 기존 전신 애니메이터(바운스 + 돌진)로 폴백한다.
+// 코스튬·무기 교체는 GLB에 반영되지 않는다 (테스트 한계).
+// 얼굴은 +Z를 향한다 (절차적 플레이어의 앞면과 같은 방향 — 소프트웨어 렌더로 확인됨).
 export const GLB_HERO_TARGET_HEIGHT = 2.85; // 절차적 주인공과 같은 키 (makePlayer 1.9 × 1.5)
 const GLTF_LOADER_URLS = [
   '../vendor/loaders/GLTFLoader.js',
@@ -1138,13 +1140,123 @@ function buildGlbCharacter(THREE, src, targetHeight, headY, radius, tag) {
   return { outer, inner };
 }
 
+// 리깅된 GLB 주인공 뼈대 찾기: 스킨이 있는 메쉬의 스켈레톤에서 팔·다리 뼈를 찾는다.
+// GLTFLoader가 뼈대 이름의 콜론을 제거해 mixamorig:LeftArm이 mixamorigLeftArm이
+// 되므로, 콜론 유무·대소문자를 무시하고 찾는다. 스킨이 없으면 null.
+function findRigBones(src) {
+  let skinned = null;
+  src.traverse((o) => { if (!skinned && o.isSkinnedMesh && o.skeleton) skinned = o; });
+  if (!skinned) return null;
+  const norm = (s) => (s || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+  const byNorm = new Map();
+  for (const b of skinned.skeleton.bones) byNorm.set(norm(b.name), b);
+  const get = (name) => byNorm.get(norm(name)) || null;
+  const bones = {
+    armL: get('mixamorig:LeftArm'),
+    foreArmL: get('mixamorig:LeftForeArm'),
+    armR: get('mixamorig:RightArm'),
+    foreArmR: get('mixamorig:RightForeArm'),
+    upLegL: get('mixamorig:LeftUpLeg'),
+    legL: get('mixamorig:LeftLeg'),
+    upLegR: get('mixamorig:RightUpLeg'),
+    legR: get('mixamorig:RightLeg'),
+  };
+  if (!bones.armR || !bones.armL || !bones.upLegL || !bones.upLegR) return null;
+  // 바인드 포즈 쿼터니언을 저장한다: 뼈대의 바인드 회전은 identity가 아니라서
+  // rotation.x/z를 직접 대입하면 자세가 무너진다. 매 프레임 기본 자세로
+  // 되돌린 뒤 상대 회전을 곱한다.
+  for (const b of Object.values(bones)) if (b) b.userData.baseQuat = b.quaternion.clone();
+  return bones;
+}
+
+// 리깅된 GLB 주인공 애니메이터: 전신 바운스·돌진(기존 makeGlbHeroAnimator과 동일) +
+// 뼈대 팔다리 (걷기 스윙 + 검 휘두르기). Head/Hands/Spine은 건드리지 않는다.
+// Mixamo 뼈대 축 (실제 GLB 프로브로 확인): rotateZ가 앞뒤 스윙(음수=앞으로),
+// rotateX가 좌우 스윙(오른팔 양수=몸통 가로지르기). 곡선은 절차적
+// animateArm의 검 휘두르기 키프레임과 같다 (타격 → 팔로우스루 → 회복).
+function makeGlbHeroRigAnimator(outer, inner, bones) {
+  let t = 0;
+  const eoc = (x) => 1 - Math.pow(1 - x, 3);
+  const sm = (x) => x * x * (3 - 2 * x);
+  // 뼈대를 기본 자세로 되돌린 뒤 상대 회전을 곱한다 (rz=앞뒤, rx=좌우).
+  const setBone = (b, rz, rx) => {
+    if (!b) return;
+    b.quaternion.copy(b.userData.baseQuat);
+    if (rz) b.rotateZ(rz);
+    if (rx) b.rotateX(rx);
+  };
+  const restBones = () => {
+    for (const b of Object.values(bones)) if (b) b.quaternion.copy(b.userData.baseQuat);
+  };
+  return (p, dt) => {
+    t += dt;
+    const on = p.atkAnim > 0;
+    const k = on ? Math.min(1, 1 - p.atkAnim / (p.atkAnimMax || 0.22)) : 1;
+    const bobY = (p.moving && !on) ? Math.abs(Math.sin(p.walkT)) * 0.05 : Math.sin(t * 2.1) * 0.012;
+    outer.position.y += bobY;
+    if (on) {
+      const s = Math.sin(k * Math.PI);
+      outer.position.x += Math.sin(p.facing) * 0.3 * s;
+      outer.position.z += Math.cos(p.facing) * 0.3 * s;
+      inner.rotation.x = 0.08 * s; // 살짝 앞으로 숙이기
+      // 키프레임 보간: stops = [진행도, 값, 구간 이징]. 첫 값과 마지막 값은 항상 0이다.
+      const kf = (stops) => {
+        if (k <= stops[0][0]) return stops[0][1];
+        for (let i = 1; i < stops.length; i++) {
+          if (k <= stops[i][0]) {
+            const t0 = stops[i - 1][0], v0 = stops[i - 1][1];
+            const t1 = stops[i][0], v1 = stops[i][1];
+            const e = stops[i][2] || sm;
+            return v0 + (v1 - v0) * e((k - t0) / (t1 - t0));
+          }
+        }
+        return stops[stops.length - 1][1];
+      };
+      // 검: 빠르게 가로 베기 → 반대쪽으로 더 넘어가는 팔로우스루 → 회복
+      const rx = kf([[0, 0], [0.32, -1.1, eoc], [0.62, -0.7, sm], [1, 0, sm]]);
+      const rz = kf([[0, 0], [0.32, 1.5, eoc], [0.62, 1.75, sm], [1, 0, sm]]);
+      setBone(bones.armR, rx, rz);
+      setBone(bones.foreArmR, rx * 0.5, 0);
+      setBone(bones.armL, 0, 0);
+      // 공격 중에는 다리를 디딤 자세로 고정한다
+      setBone(bones.upLegL, -0.12, 0);
+      setBone(bones.upLegR, 0.12, 0);
+      setBone(bones.legL, 0.1, 0);
+      setBone(bones.legR, 0.1, 0);
+      // 몸통 비틀기는 넣지 않는다: inner 전체를 비틀면 발까지 돌아가 디딤 자세가
+      // 무너지고, Spine 뼈는 건드리지 않기로 했다 (머리·손과 같은 이유).
+    } else {
+      inner.rotation.x = 0;
+      if (p.moving) {
+        const w = Math.sin(p.walkT);
+        const legSwing = w * 0.55, armSwing = w * 0.2;
+        setBone(bones.upLegL, -legSwing, 0);
+        setBone(bones.upLegR, legSwing, 0);
+        setBone(bones.legL, Math.max(0, -w) * 0.7, 0);
+        setBone(bones.legR, Math.max(0, w) * 0.7, 0);
+        setBone(bones.armL, armSwing, 0);
+        setBone(bones.armR, -armSwing, 0);
+        setBone(bones.foreArmL, 0, 0);
+        setBone(bones.foreArmR, 0, 0);
+      } else {
+        restBones();
+      }
+    }
+  };
+}
+
 export async function loadGlbHero(THREE, url) {
   const LoaderClass = await importGlTFLoader();
   const gltf = await loadGlbWithLoader(LoaderClass, url);
   const src = gltf.scene;
   applyGlbSkinFix(src);
   const { outer, inner } = buildGlbCharacter(THREE, src, GLB_HERO_TARGET_HEIGHT, 2.4, 0.63, 'glbHero');
-  outer.userData.animate = makeGlbHeroAnimator(outer, inner);
+  // 리깅된 GLB면 뼈대 애니메이터를, 아니면 기존 전신 애니메이터를 쓴다
+  const bones = findRigBones(src);
+  outer.userData.animate = bones
+    ? makeGlbHeroRigAnimator(outer, inner, bones)
+    : makeGlbHeroAnimator(outer, inner);
+  outer.userData.rigBones = bones;
   return outer;
 }
 
