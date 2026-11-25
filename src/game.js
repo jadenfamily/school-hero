@@ -9,7 +9,7 @@ import {
   BOSS_TIMER, BOSS_LABEL, EVOLVE_NEED, SOUL_KINDS, COSTUMES, COSTUME_MAP, COSTUME_PULL_COST, COSTUME_MAX_LEVEL, costumeLevelMult, COMPANION_PULL_COST,
   ELEMENTS, ELEM_BEATS, EARTH_GATE, GYEONGGI_GATE,
 } from './data.js';
-import { buildWorld, makePlayer, makeMonster, makeCompanion, groundHeight, districtAt, worldPos, WORLD_BOUNDS, loadGlbHero } from './world.js';
+import { buildWorld, makePlayer, makeMonster, makeCompanion, groundHeight, districtAt, worldPos, WORLD_BOUNDS, loadGlbHero, loadGlbCompanion } from './world.js';
 import { ASSET_URL, getTexture, aspectOf } from './assets.js';
 
 const SAVE_KEY = 'school-hero.save.v1';
@@ -95,6 +95,12 @@ export function createGame(THREE) {
   // 없으면 아래 코드는 전혀 동작하지 않고, 기존 절차적 주인공이 그대로다.
   const HERO_GLB = (() => { try { return new URLSearchParams(window.location.search).get('hero') === 'glb'; } catch (e) { return false; } })();
   const GLB_HERO_URL = 'assets/siwoo.glb';
+
+  // ---------- GLB 탱커 동료 테스트 (?companion=glb) ----------
+  // URL에 ?companion=glb가 있을 때만 Tripo 탱커 GLB(assets/tank.glb)를 탱커 동료로 쓴다.
+  // 없으면 아래 코드는 전혀 동작하지 않고, 기존 절차적 동료가 그대로다.
+  const COMPANION_GLB = (() => { try { return new URLSearchParams(window.location.search).get('companion') === 'glb'; } catch (e) { return false; } })();
+  const GLB_TANK_URL = 'assets/tank.glb';
 
   // ---------- 지형 높이 ----------
   // 3D 지형 높이. 월드가 아직 없으면 평지(0)로 취급한다.
@@ -370,6 +376,40 @@ export function createGame(THREE) {
     game.playerMesh.position.set(game.player.x, groundY(game.player.x, game.player.z), game.player.z);
     game.playerMesh.rotation.y = game.player.facing;
     scene.add(game.playerMesh);
+  }
+
+  // GLB 탱커 동료 상태 (기본값 off — 플래그가 없을 때는 건드리지 않는다)
+  let glbTankState = 'off'; // off | loading | ready | failed
+  let glbTankMesh = null;
+  function ensureGlbTank() {
+    if (!COMPANION_GLB || glbTankState !== 'off') return;
+    glbTankState = 'loading';
+    loadGlbCompanion(THREE, GLB_TANK_URL).then((mesh) => {
+      glbTankMesh = mesh;
+      glbTankState = 'ready';
+      swapGlbTankIn();
+    }).catch((err) => {
+      glbTankState = 'failed';
+      console.warn('GLB 탱커 모델을 불러오지 못했어요:', err && err.message);
+      if (game.ui) game.ui.toast('GLB 탱커 모델을 불러오지 못했어요. 기본 모델로 계속해요.', '');
+    });
+  }
+  // 파티의 첫 번째 탱커 동료 메쉬를 GLB로 바꾼다. GLB 메쉬는 하나뿐이라
+  // 탱커가 둘 이상이면 첫 번째만 GLB, 나머지는 절차적 모델 그대로 둔다.
+  function swapGlbTankIn() {
+    if (!glbTankMesh || !game.compObjects) return;
+    const o = game.compObjects.find((x) => x.cls.id === 'tank');
+    if (!o || o.mesh === glbTankMesh) return;
+    if (o.mesh) { scene.remove(o.mesh); disposeGroup(o.mesh); }
+    o.mesh = glbTankMesh;
+    o.mesh.position.set(o.x, groundY(o.x, o.z), o.z);
+    o.mesh.rotation.y = Math.PI;
+    scene.add(o.mesh);
+  }
+  function maybeSwapGlbTank() {
+    if (!COMPANION_GLB) return;
+    if (glbTankState === 'ready' && glbTankMesh) swapGlbTankIn();
+    else if (glbTankState === 'off') ensureGlbTank();
   }
 
   function rebuildPlayerMesh() {
@@ -728,6 +768,8 @@ export function createGame(THREE) {
       game.companions.push(o);
       if (cls.id === 'tank' && !game.tank) game.tank = o;
     });
+    // GLB 탱커 테스트: 준비된 GLB가 있으면 첫 탱커를 GLB로 바꾼다
+    maybeSwapGlbTank();
 
     spawnDistrictMobs(zone);
 
@@ -4279,6 +4321,8 @@ export function createGame(THREE) {
       game.compObjects.push(o); game.companions.push(o);
       if (cls.id === 'tank' && !game.tank) game.tank = o;
     });
+    // GLB 탱커 테스트: 준비된 GLB가 있으면 첫 탱커를 GLB로 바꾼다
+    maybeSwapGlbTank();
   }
 
   // 안 쓰는 동료 보내기 (동행 중이면 동행에서도 제외, 환급 없음)
