@@ -1084,16 +1084,22 @@ export async function loadGlbHero(THREE, url) {
   // 흰색(1, 1, 1)으로 되돌려 텍스처 본연의 밝기로 보이게 한다. 텍스처(map)는
   // 그대로 두고 색만 되돌리므로 다른 부위 밝기도 함께 정상화된다.
   // [skin-brightness-fix-3] 색을 흰색으로 되돌려도 48° 탑다운 시점에서 얼굴이
-  // 그림자에 가려 여전히 어둡게 보여, 은은한 자체발광(emissive)을 더한다.
-  // 텍스처는 이미 밝기 한계(피부 R 249)라 더 밝힐 수 없어 조명 쪽에서 올린다.
-  // (0.28, 0.25, 0.21)은 살짝 따뜻한 중립값으로, 그림자진 얼굴을 띄우되
-  // 빛 받는 부위가 하얗게 날아가지 않도록 중간 수준으로 잡았다.
+  // 그림자에 가려 여전히 어둡게 보여, 자체발광(emissive)으로 얼굴을 띄운다.
+  // [skin-brightness-fix-4] 균일 발광(emissiveIntensity 2.0)은 교복·머리까지
+  // 하얗게 띄워 캐릭터 전체가 빛나는 유령처럼 보였다. 그래서 basecolor
+  // 텍스처를 발광 맵(emissiveMap)으로 써서 밝은 부분(피부)만 발광하고
+  // 어두운 부분(검은 머리·남색 교복)은 거의 발광하지 않게 한다.
   src.traverse((o) => {
     if (!o.isMesh) return;
     const mats = Array.isArray(o.material) ? o.material : [o.material];
     for (const m of mats) {
       if (m && m.color) m.color.setRGB(1, 1, 1);
-      if (m && m.emissive) { m.emissive.setRGB(0.28, 0.25, 0.21); m.emissiveIntensity = 2.0; }
+      if (m && m.emissive) {
+        if (m.map) m.emissiveMap = m.map;
+        m.emissive.setRGB(1, 1, 1);
+        m.emissiveIntensity = 0.35;
+        m.needsUpdate = true;
+      }
     }
   });
   // [/skin-brightness-fix]
