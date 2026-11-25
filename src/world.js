@@ -1083,10 +1083,18 @@ export async function loadGlbHero(THREE, url) {
   // (피부 텍스처를 밝게 고쳐도 여전히 어둡게 보이는 원인). 로드 직후 색을
   // 흰색(1, 1, 1)으로 되돌려 텍스처 본연의 밝기로 보이게 한다. 텍스처(map)는
   // 그대로 두고 색만 되돌리므로 다른 부위 밝기도 함께 정상화된다.
+  // [skin-brightness-fix-3] 색을 흰색으로 되돌려도 48° 탑다운 시점에서 얼굴이
+  // 그림자에 가려 여전히 어둡게 보여, 은은한 자체발광(emissive)을 더한다.
+  // 텍스처는 이미 밝기 한계(피부 R 249)라 더 밝힐 수 없어 조명 쪽에서 올린다.
+  // (0.28, 0.25, 0.21)은 살짝 따뜻한 중립값으로, 그림자진 얼굴을 띄우되
+  // 빛 받는 부위가 하얗게 날아가지 않도록 중간 수준으로 잡았다.
   src.traverse((o) => {
     if (!o.isMesh) return;
     const mats = Array.isArray(o.material) ? o.material : [o.material];
-    for (const m of mats) { if (m && m.color) m.color.setRGB(1, 1, 1); }
+    for (const m of mats) {
+      if (m && m.color) m.color.setRGB(1, 1, 1);
+      if (m && m.emissive) { m.emissive.setRGB(0.28, 0.25, 0.21); m.emissiveIntensity = 1.0; }
+    }
   });
   // [/skin-brightness-fix]
   // 키 맞추기: GLB 원본 높이(약 99.84 단위, y=0 바닥)를 주인공 키 2.85m로
