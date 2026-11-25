@@ -9,7 +9,7 @@ import {
   BOSS_TIMER, BOSS_LABEL, EVOLVE_NEED, SOUL_KINDS, COSTUMES, COSTUME_MAP, COSTUME_PULL_COST, COSTUME_MAX_LEVEL, costumeLevelMult, COMPANION_PULL_COST,
   ELEMENTS, ELEM_BEATS, EARTH_GATE, GYEONGGI_GATE,
 } from './data.js';
-import { buildWorld, makePlayer, makeMonster, makeCompanion, groundHeight, districtAt, worldPos, WORLD_BOUNDS } from './world.js';
+import { buildWorld, makePlayer, makeMonster, makeCompanion, groundHeight, districtAt, worldPos, WORLD_BOUNDS, loadGlbHero } from './world.js';
 import { ASSET_URL, getTexture, aspectOf } from './assets.js';
 
 const SAVE_KEY = 'school-hero.save.v1';
@@ -89,6 +89,12 @@ export function createGame(THREE) {
     tank: null,
     lastAttack: null,
   };
+
+  // ---------- GLB 주인공 테스트 (?hero=glb) ----------
+  // URL에 ?hero=glb가 있을 때만 Tripo 시우 GLB(assets/siwoo.glb)를 플레이어로 쓴다.
+  // 없으면 아래 코드는 전혀 동작하지 않고, 기존 절차적 주인공이 그대로다.
+  const HERO_GLB = (() => { try { return new URLSearchParams(window.location.search).get('hero') === 'glb'; } catch (e) { return false; } })();
+  const GLB_HERO_URL = 'assets/siwoo.glb';
 
   // ---------- 지형 높이 ----------
   // 3D 지형 높이. 월드가 아직 없으면 평지(0)로 취급한다.
@@ -341,10 +347,38 @@ export function createGame(THREE) {
     return true;
   };
 
+  // GLB 주인공 상태 (기본값 off — 플래그가 없을 때는 건드리지 않는다)
+  let glbHeroState = 'off'; // off | loading | ready | failed
+  let glbHeroMesh = null;
+  function ensureGlbHero() {
+    if (!HERO_GLB || glbHeroState !== 'off') return;
+    glbHeroState = 'loading';
+    loadGlbHero(THREE, GLB_HERO_URL).then((mesh) => {
+      glbHeroMesh = mesh;
+      glbHeroState = 'ready';
+      swapGlbHeroIn();
+    }).catch((err) => {
+      glbHeroState = 'failed';
+      console.warn('GLB 주인공을 불러오지 못했어요:', err && err.message);
+      if (game.ui) game.ui.toast('GLB 주인공 모델을 불러오지 못했어요. 기본 모델로 계속해요.', '');
+    });
+  }
+  function swapGlbHeroIn() {
+    if (!game.player || !glbHeroMesh || game.playerMesh === glbHeroMesh) return;
+    if (game.playerMesh) { scene.remove(game.playerMesh); disposeGroup(game.playerMesh); }
+    game.playerMesh = glbHeroMesh;
+    game.playerMesh.position.set(game.player.x, groundY(game.player.x, game.player.z), game.player.z);
+    game.playerMesh.rotation.y = game.player.facing;
+    scene.add(game.playerMesh);
+  }
+
   function rebuildPlayerMesh() {
     const p = game.player;
     if (!p) return;
-    if (game.playerMesh) { scene.remove(game.playerMesh); disposeGroup(game.playerMesh); }
+    // GLB 테스트: GLB가 준비됐으면 GLB를 유지한다 (코스튬·무기 교체는 GLB에 보이지 않는 테스트 한계)
+    if (HERO_GLB && glbHeroState === 'ready' && glbHeroMesh) { swapGlbHeroIn(); return; }
+    if (HERO_GLB && glbHeroState === 'off') ensureGlbHero();
+    if (game.playerMesh) { scene.remove(game.playerMesh); if (game.playerMesh !== glbHeroMesh) disposeGroup(game.playerMesh); }
     game.playerMesh = makePlayer(THREE, 'sword', avatarOf(game.state.avatar), game.state.equip, game.state.appearance);
     game.playerMesh.position.set(p.x, groundY(p.x, p.z), p.z);
     game.playerMesh.rotation.y = p.facing;
@@ -659,9 +693,13 @@ export function createGame(THREE) {
     scene.add(game.world.group);
     applyDistrictAtmosphere(zone);
 
-    // 플레이어
-    if (game.playerMesh) { scene.remove(game.playerMesh); disposeGroup(game.playerMesh); }
-    game.playerMesh = makePlayer(THREE, 'sword', avatarOf(game.state.avatar), game.state.equip, game.state.appearance);
+    // 플레이어 (GLB 테스트: 준비된 GLB가 있으면 절차적 메쉬 대신 GLB를 쓴다)
+    if (game.playerMesh) { scene.remove(game.playerMesh); if (game.playerMesh !== glbHeroMesh) disposeGroup(game.playerMesh); }
+    if (HERO_GLB && glbHeroState === 'ready' && glbHeroMesh) {
+      game.playerMesh = glbHeroMesh;
+    } else {
+      game.playerMesh = makePlayer(THREE, 'sword', avatarOf(game.state.avatar), game.state.equip, game.state.appearance);
+    }
     scene.add(game.playerMesh);
     const d = game.derived();
     const sp = worldPos(zone, zone.spawn.x, zone.spawn.z);
@@ -674,6 +712,7 @@ export function createGame(THREE) {
       combatT: 0, target: null, atkKind: null, castT: 0,
     };
     game.playerMesh.position.set(game.player.x, groundY(game.player.x, game.player.z), game.player.z);
+    ensureGlbHero();
 
     // 동료
     game.compObjects = [];
