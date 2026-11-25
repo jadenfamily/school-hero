@@ -1270,15 +1270,14 @@ export function createUI(game, THREE) {
       const cls = COMPANION_CLASSES[c.cls];
       const g = GRADES[c.grade] || GRADES[0];
       const inParty = s.party.includes(c.id);
-      // 레벨은 파티 슬롯에 매겨진다. 동행 중이면 자기 슬롯 레벨, 대기 중이면 배치될 슬롯 레벨을 미리 보여준다.
-      const effLv = game.effectiveCompanionLv(c);
-      const slotIdx = game.previewSlotIndex(c);
+      // 동료 레벨 = 주인공 레벨 (슬롯 레벨 폐지). 동행·대기 가리지 않고 모두 주인공 레벨로 표시한다.
+      const effLv = game.effectiveCompanionLv();
       return `<div class="comp-card ${inParty ? 'in-party' : ''}" style="--g:${g.color};--gs:${g.glow}">
         <div class="av" style="border-color:${g.color}">${cls.icon}</div>
         <div class="info">
           <div class="nm">${c.name} <span style="font-size:9px;color:${g.color}">${g.name}</span></div>
           <div class="cls">${cls.role} · ${cls.name}</div>
-          <div class="lv">Lv.${effLv}${inParty ? ` · 슬롯 ${slotIdx + 1}` : ' · 배치 시'} · 공격 ${Math.round(game.companionAtk(cls, c.grade, effLv))}</div>
+          <div class="lv">Lv.${effLv} · 공격 ${Math.round(game.companionAtk(cls, c.grade, effLv))}</div>
           <div class="lv">체력 ${(() => { const live = (game.companions || []).find((x) => x.data && x.data.id === c.id); return live ? `${Math.round(live.hp)} / ${live.maxHp}` : `${Math.round(game.companionMaxHp(cls, c.grade, effLv))}`; })()}</div>
           <div class="lv">${(() => { const sk = COMPANION_SKILLS[c.skillId] || COMPANION_SKILLS[(COMPANION_SKILL_POOLS[c.cls] || [])[0]]; return sk ? `${sk.icon} ${sk.name} Lv.${game.companionSkillLevel(c)}` : ''; })()}</div>
         </div>
@@ -1295,7 +1294,7 @@ export function createUI(game, THREE) {
         <button class="btn gold" data-pull>뽑기 ✨</button>
       </div>
       ${cards}
-      <div class="hint" style="margin-top:10px">탱커·힐러·근접딜러·마법딜러 중 최대 3명까지 함께 싸워요. 동료마다 고유 스킬이 있어요 — 같은 직업이라도 쓰는 스킬이 다를 수 있어요. 같은 동료가 다시 나오면 등급이 오르고 스킬도 강해져요 (최대 Lv.10). 스킬북은 가방에서 쓸 수 있어요 — 같은 스킬을 쓰는 동료가 강해져요. 스킬 레벨은 등급 + 1 + 보너스 (최대 Lv.10). 동료 레벨은 파티 슬롯에 매겨져요 — 동료를 바꿔도 슬롯 레벨이 이어져요. 대기 중인 동료는 배치될 슬롯의 레벨로 싸워요.</div>`;
+      <div class="hint" style="margin-top:10px">탱커·힐러·근접딜러·마법딜러 중 최대 3명까지 함께 싸워요. 동료마다 고유 스킬이 있어요 — 같은 직업이라도 쓰는 스킬이 다를 수 있어요. 같은 동료가 다시 나오면 등급이 오르고 스킬도 강해져요 (최대 Lv.10). 스킬북은 가방에서 쓸 수 있어요 — 같은 스킬을 쓰는 동료가 강해져요. 스킬 레벨은 등급 + 1 + 보너스 (최대 Lv.10). 동료 레벨은 주인공 레벨을 따라가요 — 동료를 바꿔도 바로 주인공 레벨로 싸워요.</div>`;
     const sheet = openSheet(html, 'hub-sheet');
     sheet.querySelectorAll('[data-comp-tab]').forEach((el) => el.addEventListener('click', () => ui.openCompanions(el.dataset.compTab)));
     sheet.querySelector('[data-pull]').addEventListener('click', () => {
