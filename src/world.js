@@ -1,5 +1,5 @@
 // 3D 월드 · 캐릭터 생성 (2.5D 도트 스프라이트 + 로우폴리 지형)
-import { AVATAR_MAP, GRADES, ARMOR_KINDS, ZONES, EARTH_GATE } from './data.js';
+import { AVATAR_MAP, GRADES, ARMOR_KINDS, ZONES, EARTH_GATE, GYEONGGI_GATE, BORDERS, borderDistrictId } from './data.js';
 import { visualEquip } from './sprites.js';
 import { ASSET_URL, getTexture, aspectOf } from './assets.js';
 const rand = (seed) => {
@@ -13,27 +13,41 @@ const rand = (seed) => {
   };
 };
 
-// ---------- 하나의 연결된 서울 지도 ----------
-// 288×288 월드, 96×96 구역 9개를 3×3으로 배치. 해금 순서대로 뱀처럼 이어진다.
-//   북(z=-144):  강북 사막(3)  한강 심해(4)  북한산 설산(9)
-//   중:          마곡 늪지(2)  남산 유적(5)  도봉 빙하(8)
-//   남(z=+144):  여의도 숲(1)  관악 화산(6)  강남 달표면(7)
-export const WORLD_SIZE = 288;
-export const WORLD_HALF = 144;
-const GRID = [[3, 4, 9], [2, 5, 8], [1, 6, 7]];
+// ---------- 하나의 연결된 판타지 지도 ----------
+// 480×384 월드 (x -240..240, z -144..240), 96×96 구역 18개를 5열×4행으로 배치.
+//   북(z=-144):  마계섬(12)  강북 사막(3)  한강 심해(4)  북한산 설산(9)  수원 화성(13)
+//   중:          강화 마계성(11) 마곡 늪지(2) 남산 유적(5) 도봉 빙하(8) 성남 테크(14)
+//   남(z=+144):  마계 인천항(10) 여의도 숲(1) 관악 화산(6) 강남 달표면(7) 고양 호수(15)
+//   최남(z=+240): (빈 바다) (빈 바다) 가평 산호수(18) 파주 휴전선(17) 용인 테마파크(16)
+// 해금 순서: 서울 1→9 → (지구 귀환 게이트 포탈) → 마계 인천 10→12 → (마계 관문 포탈) → 경기도 13→18.
+// 서울 좌표는 그대로 (기존 저장본 위치 보존). 인천은 서울 서쪽, 경기도는 서울 동쪽·남쪽을 두른다.
+export const WORLD_W = 480;
+export const WORLD_H = 384;
+export const WORLD_BOUNDS = { minX: -240, maxX: 240, minZ: -144, maxZ: 240 };
+const GRID = [
+  [12, 3, 4, 9, 13],
+  [11, 2, 5, 8, 14],
+  [10, 1, 6, 7, 15],
+  // 최남서 모서리 2칸은 빈 바다 (갈 수 없는 곳 — districtAt은 가장 가까운 구역을 돌려준다)
+  [10, 18, 18, 17, 16],
+];
 export function districtAt(x, z) {
-  const col = Math.max(0, Math.min(2, Math.floor((x + WORLD_HALF) / 96)));
-  const row = Math.max(0, Math.min(2, Math.floor((z + WORLD_HALF) / 96)));
+  const col = Math.max(0, Math.min(4, Math.floor((x - WORLD_BOUNDS.minX) / 96)));
+  const row = Math.max(0, Math.min(3, Math.floor((z - WORLD_BOUNDS.minZ) / 96)));
   return ZONES.find((zn) => zn.id === GRID[row][col]) || ZONES[0];
 }
 export function worldPos(zone, lx, lz) {
   return { x: zone.map.cx + lx, z: zone.map.cz + lz };
 }
-// 해금 순서대로 구역 중심을 잇는 메인 길 (뱀 모양)
+// 해금 순서대로 구역 중심을 잇는 메인 길 — 포탈로 건너는 구간(9→10, 12→13)은 길이 이어지지 않는다
 export const PATH_CENTERS = ZONES.filter((z) => z.map).map((z) => ({ x: z.map.cx, z: z.map.cz }));
+const PORTAL_JUMPS = new Set(['9>10', '12>13']);
 const PATH_SEGS = [];
-for (let i = 0; i < PATH_CENTERS.length - 1; i++) PATH_SEGS.push([PATH_CENTERS[i], PATH_CENTERS[i + 1]]);
-// 평탄화 지점: 각 구역의 스폰·NPC·보스·미드·필드·추가보스·게이트 + 지구 귀환 게이트 + 숨은 상자
+for (let i = 0; i < ZONES.length - 1; i++) {
+  if (PORTAL_JUMPS.has(`${ZONES[i].id}>${ZONES[i + 1].id}`)) continue;
+  PATH_SEGS.push([{ x: ZONES[i].map.cx, z: ZONES[i].map.cz }, { x: ZONES[i + 1].map.cx, z: ZONES[i + 1].map.cz }]);
+}
+// 평탄화 지점: 각 구역의 스폰·NPC·보스·미드·필드·추가보스·통로 + 두 포탈 + 숨은 상자
 // (월드 좌표 + 평탄 반경). 스폰·NPC는 작게(3m), 보스 아레나는 넓게(4.5m), 상자는 1.5m —
 // 그 밖은 지형이 그대로 살아 있다.
 const FLAT_POINTS = [];
@@ -46,10 +60,80 @@ for (const zn of ZONES) {
   add(zn.mid, 4.5);
   add(zn.field, 4.5);
   for (const ex of (zn.extraBosses || [])) FLAT_POINTS.push({ x: zn.map.cx + ex.x, z: zn.map.cz + ex.z, r: 4.5 });
-  if (zn.gate) FLAT_POINTS.push({ x: zn.gate.x, z: zn.gate.z, r: 3.5 });
   for (const ch of (zn.chests || [])) FLAT_POINTS.push({ ...worldPos(zn, ch.x, ch.z), r: 1.5 });
 }
+for (const b of BORDERS) FLAT_POINTS.push({ x: b.x, z: b.z, r: 3.5 });
 FLAT_POINTS.push({ x: EARTH_GATE.x, z: EARTH_GATE.z, r: 4 });
+FLAT_POINTS.push({ x: GYEONGGI_GATE.x, z: GYEONGGI_GATE.z, r: 4 });
+
+// ---------- 울퉁불퉁한 구역 경계 ----------
+// 직선 사각 경계 대신, 경계마다 노이즈로 휘어진 곡선을 쓴다 (실제 지도처럼).
+// 휘어짐은 경계의 양 끝 모서리와 통로 중심에서 정확히 0이 된다 —
+// 그래서 이웃 구역의 경계와 빈틈없이 맞물리고, 통로는 정확히 직선 경계 위에 놓인다.
+function borderSeed(b) { return (b.a * 7 + b.b * 13) % 97; }
+export function borderWobble(b, t) {
+  const s = borderSeed(b);
+  // sin(2πt): t=0(모서리)·0.5(통로)·1(모서리)에서 0
+  return Math.sin(2 * Math.PI * t) * (5.5 * Math.sin(2 * Math.PI * 1.3 * t + s) + 3 * Math.sin(2 * Math.PI * 2.7 * t + s * 1.7));
+}
+// 경계 위의 점 (t=0..1, 정방향: along 'x'면 x 증가, 'z'면 z 증가)
+export function borderPoint(b, t) {
+  const w = borderWobble(b, t);
+  if (b.along === 'x') return { x: b.x - 48 + t * 96, z: b.z + w };
+  return { x: b.x + w, z: b.z - 48 + t * 96 };
+}
+// 빈 바다와 맞닿은 경계 (10번·1번 남쪽, 18번 서쪽) — 통로가 없는 자연물 벽.
+// 각 벽은 구역 한 변(96m) 길이로 끊는다: 벽의 양끝이 구역 모서리와 맞아떨어져야
+// 휘어짐(wobble)이 모서리에서 0이 되고, 이웃 구역 윤곽이 어긋나지 않는다.
+const VOID_WALLS = [
+  { x0: -240, z0: 144, x1: -144, z1: 144, seed: 41 }, // 10번 남쪽
+  { x0: -144, z0: 144, x1: -48, z1: 144, seed: 42 }, // 1번 남쪽
+  { x0: -48, z0: 144, x1: -48, z1: 240, seed: 83 }, // 18번 서쪽
+];
+function voidWobble(wall, t) {
+  const s = wall.seed;
+  return Math.sin(Math.PI * t) * (4 * Math.sin(2 * Math.PI * 1.7 * t + s) + 2.5 * Math.sin(2 * Math.PI * 3.1 * t + s * 1.3));
+}
+function voidPoint(wall, t) {
+  const w = voidWobble(wall, t);
+  const dx = wall.x1 - wall.x0, dz = wall.z1 - wall.z0;
+  const len = Math.hypot(dx, dz);
+  const nx = -dz / len, nz = dx / len; // 수직 방향 오프셋
+  return { x: wall.x0 + dx * t + nx * w, z: wall.z0 + dz * t + nz * w };
+}
+// 구역 외곽선 (닫힌 다각형, 시계 방향) — 지면 텍스처·미니맵·월드맵이 같은 모양을 쓴다.
+// 한 변의 각 점마다 그 위치를 지나는 경계(공유 휘어짐)·빈 바다 벽·직선 중 맞는 것을 쓴다.
+// 그래서 이웃 구역끼리 같은 경계 점을 공유해 빈틈없이 맞물리고, 한 변이 경계와 빈 바다로
+// 나뉘는 경우(6번 남쪽 변)도 자연스럽게 이어진다.
+export function districtOutline(zoneId) {
+  const zn = ZONES.find((z) => z.id === zoneId);
+  if (!zn || !zn.map) return [];
+  const { cx, cz } = zn.map;
+  const x0 = cx - 48, x1 = cx + 48, z0 = cz - 48, z1 = cz + 48;
+  const N = 24; // 한 변당 샘플 수
+  // 가로 경계(z 고정) 위의 점: x를 주면 휘어짐(수직 오프셋)을 돌려준다
+  const wobAtX = (x, zEdge) => {
+    const b = BORDERS.find((bb) => bb.along === 'x' && bb.z === zEdge && Math.abs(x - bb.x) <= 48);
+    if (b) return borderWobble(b, (x - (b.x - 48)) / 96);
+    const w = VOID_WALLS.find((ww) => ww.z0 === zEdge && ww.z1 === zEdge && x >= ww.x0 && x <= ww.x1);
+    if (w) return voidWobble(w, (x - w.x0) / (w.x1 - w.x0));
+    return 0;
+  };
+  // 세로 경계(x 고정) 위의 점: z를 주면 휘어짐(수평 오프셋)을 돌려준다
+  const wobAtZ = (z, xEdge) => {
+    const b = BORDERS.find((bb) => bb.along === 'z' && bb.x === xEdge && Math.abs(z - bb.z) <= 48);
+    if (b) return borderWobble(b, (z - (b.z - 48)) / 96);
+    const w = VOID_WALLS.find((ww) => ww.x0 === xEdge && ww.x1 === xEdge && z >= ww.z0 && z <= ww.z1);
+    if (w) return voidWobble(w, (z - w.z0) / (w.z1 - w.z0));
+    return 0;
+  };
+  const pts = [];
+  for (let i = 0; i < N; i++) { const x = x0 + (i / N) * 96; pts.push({ x, z: z0 + wobAtX(x, z0) }); } // 북 (서→동)
+  for (let i = 0; i < N; i++) { const z = z0 + (i / N) * 96; pts.push({ x: x1 + wobAtZ(z, x1), z }); } // 동 (북→남)
+  for (let i = 0; i < N; i++) { const x = x1 - (i / N) * 96; pts.push({ x, z: z1 + wobAtX(x, z1) }); } // 남 (동→서)
+  for (let i = 0; i < N; i++) { const z = z1 - (i / N) * 96; pts.push({ x: x0 + wobAtZ(z, x0), z }); } // 서 (남→북)
+  return pts;
+}
 // 한강: 지도 가로를 흐르는 강 (구역 4 중심선 z=-96 부근, 얕은 수로)
 const RIVER_Z = -96;
 
@@ -189,140 +273,92 @@ function labelSprite(THREE, text, color = '#ffd257') {
   return s;
 }
 
-// ---------- 지면 텍스처 (하나의 서울 지도 전체, 2048) ----------
-// 구역마다 다른 바탕색, 구역 중심을 잇는 뱀 모양 돌길, 한강 물줄기, 구역별 장식을 한 장에 그린다.
+// ---------- 지면 텍스처 (도트 스타일) ----------
+// 저해상도 캔버스(240×192 = 1픽셀 2m)에 구역별 평탄한 도트 색을 그리고,
+// NearestFilter로 확대해 땅이 굵은 픽셀 블록으로 보이게 한다.
+// 높이·경사 음영은 버텍스 컬러가 맡으므로(높은 곳 밝게, 웅덩이 어둡게) 입체감은 그대로 산다.
+// 구역 모양은 울퉁불퉁한 외곽선(districtOutline) 그대로 — 사각 격자는 없다.
 function groundTexture(THREE, zones, rnd) {
-  const S = 2048;
+  const TW = 240, TH = 192;
   const c = document.createElement('canvas');
-  c.width = c.height = S;
+  c.width = TW; c.height = TH;
   const g = c.getContext('2d');
-  const X = (wx) => (wx + WORLD_HALF) / WORLD_SIZE * S;
-  const Y = (wz) => (wz + WORLD_HALF) / WORLD_SIZE * S;
+  const X = (wx) => (wx - WORLD_BOUNDS.minX) / WORLD_W * TW;
+  const Y = (wz) => (wz - WORLD_BOUNDS.minZ) / WORLD_H * TH;
   const hexOf = (n) => '#' + (n >>> 0).toString(16).padStart(6, '0');
-  g.fillStyle = '#101825';
-  g.fillRect(0, 0, S, S);
-  // 구역별 바탕 (중심 잔디색 → 가장자리 ground2)
+  // 바탕: 빈 바다 (최남서 모서리) — 구역 다각형이 그 위를 덮는다
+  g.fillStyle = '#16283e';
+  g.fillRect(0, 0, TW, TH);
+  // 구역별 바탕 (울퉁불퉁한 다각형 + 평탄한 도트 색)
   for (const zn of zones) {
     if (!zn.map) continue;
-    const cx = X(zn.map.cx), cy = Y(zn.map.cz);
-    const R = S / 3 * 0.72;
-    const grd = g.createRadialGradient(cx, cy, R * 0.05, cx, cy, R);
-    grd.addColorStop(0, zn.theme.grass || hexOf(zn.theme.ground));
-    grd.addColorStop(0.55, hexOf(zn.theme.ground));
-    grd.addColorStop(1, zn.theme.ground2);
-    g.fillStyle = grd;
-    g.fillRect(cx - S / 6, cy - S / 6, S / 3, S / 3);
-  }
-  // 바탕 얼룩 (서 있는 구역 색으로)
-  for (let i = 0; i < 4200; i++) {
-    const x = rnd() * S, y = rnd() * S, r = 3 + rnd() * 26;
-    const wx = x / S * WORLD_SIZE - WORLD_HALF, wz = y / S * WORLD_SIZE - WORLD_HALF;
-    const zn = districtAt(wx, wz);
-    g.globalAlpha = 0.06 + rnd() * 0.14;
-    g.fillStyle = rnd() > 0.45 ? hexOf(zn.theme.ground) : (zn.theme.grass || hexOf(zn.theme.ground));
+    const outline = districtOutline(zn.id);
+    if (!outline.length) continue;
     g.beginPath();
-    g.ellipse(x, y, r, r * (0.5 + rnd() * 0.6), rnd() * 3.14, 0, 6.283);
+    outline.forEach((p, i) => { if (i === 0) g.moveTo(X(p.x), Y(p.z)); else g.lineTo(X(p.x), Y(p.z)); });
+    g.closePath();
+    g.fillStyle = hexOf(zn.theme.ground);
     g.fill();
-  }
-  // 잔풀 결
-  for (let i = 0; i < 8000; i++) {
-    const x = rnd() * S, y = rnd() * S;
-    const wx = x / S * WORLD_SIZE - WORLD_HALF, wz = y / S * WORLD_SIZE - WORLD_HALF;
-    const zn = districtAt(wx, wz);
-    g.globalAlpha = 0.12 + rnd() * 0.22;
-    g.strokeStyle = rnd() > 0.5 ? (zn.theme.grass || hexOf(zn.theme.ground)) : zn.theme.ground2;
-    g.lineWidth = 1 + rnd();
-    g.beginPath();
-    g.moveTo(x, y);
-    g.lineTo(x + (rnd() - 0.5) * 6, y - 2 - rnd() * 6);
+    // 구역 안 굵은 얼룩 (도트 결) — ground2·grass 색 2~4픽셀 덩어리
+    g.save();
+    g.clip();
+    for (let i = 0; i < 26; i++) {
+      const px = X(zn.map.cx) + (rnd() - 0.5) * 44, py = Y(zn.map.cz) + (rnd() - 0.5) * 44;
+      const r = 1.5 + rnd() * 2.5;
+      g.globalAlpha = 0.35 + rnd() * 0.4;
+      g.fillStyle = rnd() > 0.5 ? zn.theme.ground2 : (zn.theme.grass || hexOf(zn.theme.ground));
+      g.fillRect(px - r, py - r * 0.7, r * 2, r * 1.4);
+    }
+    g.restore();
+    g.globalAlpha = 1;
+    // 경계선 (구역 색보다 어둡게, 1픽셀)
+    g.strokeStyle = 'rgba(0,0,0,.28)'; g.lineWidth = 1;
     g.stroke();
   }
-  g.globalAlpha = 1;
-  // 한강 물줄기 (z=-96 라인, 가로 전체)
+  // 한강 물줄기 (z=-96 라인, 가로 전체) — 굵은 도트 밴드
   const ry0 = Y(RIVER_Z - 8), ry1 = Y(RIVER_Z + 8);
   g.fillStyle = '#2a7a96';
-  g.fillRect(0, ry0, S, ry1 - ry0);
-  g.globalAlpha = 0.35; g.strokeStyle = '#a8e8ee'; g.lineWidth = 3;
-  for (let i = 0; i < 40; i++) {
-    const y = ry0 + rnd() * (ry1 - ry0);
-    g.beginPath(); g.moveTo(rnd() * S * 0.4, y);
-    g.bezierCurveTo(S * 0.35, y + (rnd() - 0.5) * 14, S * 0.65, y + (rnd() - 0.5) * 14, S * (0.6 + rnd() * 0.4), y);
-    g.stroke();
-  }
-  g.globalAlpha = 1;
-  // 구역별 장식: 늪 웅덩이(2) · 심해 고리(4) · 용암 빛(6) · 달 크레이터(7) · 빙하 반짝임(8)
-  const z2 = zones.find((z) => z.id === 2), z4 = zones.find((z) => z.id === 4);
-  const z6 = zones.find((z) => z.id === 6), z7 = zones.find((z) => z.id === 7);
-  const z8 = zones.find((z) => z.id === 8);
-  if (z2) for (let i = 0; i < 16; i++) {
-    const x = X(z2.map.cx) + (rnd() - 0.5) * S / 3.4, y = Y(z2.map.cz) + (rnd() - 0.5) * S / 3.4, r = 26 + rnd() * 60;
-    g.globalAlpha = 0.5; g.fillStyle = '#2b4a45';
-    g.beginPath(); g.ellipse(x, y, r, r * 0.6, rnd() * 3, 0, 6.283); g.fill();
-    g.globalAlpha = 0.25; g.strokeStyle = '#9bd6bf'; g.lineWidth = 2; g.stroke();
-  }
-  if (z4) {
-    g.globalAlpha = 0.22; g.strokeStyle = '#a8e8ee'; g.lineWidth = 3;
-    for (let i = 0; i < 26; i++) {
-      const x = X(z4.map.cx) + (rnd() - 0.5) * S / 3.4, y = Y(z4.map.cz) + (rnd() - 0.5) * S / 3.4, r = 30 + rnd() * 90;
-      g.beginPath(); g.arc(x, y, r, 0, 6.283); g.stroke();
-    }
-  }
-  if (z6) for (let i = 0; i < 22; i++) {
-    const x = X(z6.map.cx) + (rnd() - 0.5) * S / 3.4, y = Y(z6.map.cz) + (rnd() - 0.5) * S / 3.4, r = 8 + rnd() * 26;
-    g.globalAlpha = 0.35 + rnd() * 0.3; g.fillStyle = rnd() > 0.5 ? '#ff7a3a' : '#ffb03a';
-    g.beginPath(); g.ellipse(x, y, r, r * 0.7, rnd() * 3, 0, 6.283); g.fill();
-  }
-  if (z7) for (let i = 0; i < 18; i++) {
-    const x = X(z7.map.cx) + (rnd() - 0.5) * S / 3.4, y = Y(z7.map.cz) + (rnd() - 0.5) * S / 3.4, r = 14 + rnd() * 34;
-    g.globalAlpha = 0.3; g.fillStyle = '#5a5e68';
-    g.beginPath(); g.arc(x, y, r, 0, 6.283); g.fill();
-    g.globalAlpha = 0.4; g.strokeStyle = '#c9ced8'; g.lineWidth = 2; g.stroke();
-  }
-  if (z8) for (let i = 0; i < 60; i++) {
-    const x = X(z8.map.cx) + (rnd() - 0.5) * S / 3.4, y = Y(z8.map.cz) + (rnd() - 0.5) * S / 3.4;
-    g.globalAlpha = 0.5 + rnd() * 0.4; g.fillStyle = '#ffffff';
-    g.beginPath(); g.arc(x, y, 1.5 + rnd() * 3, 0, 6.283); g.fill();
-  }
-  g.globalAlpha = 1;
-  // 구역 경계선 (은은하게)
-  g.strokeStyle = 'rgba(0,0,0,.16)'; g.lineWidth = 3;
-  for (const b of [-48, 48]) {
-    g.beginPath(); g.moveTo(X(b), 0); g.lineTo(X(b), S); g.stroke();
-    g.beginPath(); g.moveTo(0, Y(b)); g.lineTo(S, Y(b)); g.stroke();
-  }
-  // 메인 길: 구역 중심을 잇는 뱀 모양 돌길
-  const pathW = 30;
-  const trace = () => {
+  g.fillRect(0, ry0, TW, ry1 - ry0);
+  g.fillStyle = 'rgba(168,232,238,.5)';
+  for (let i = 0; i < 46; i++) g.fillRect(rnd() * TW, ry0 + rnd() * (ry1 - ry0), 2, 1);
+  // 메인 길: 구역 중심을 잇는 돌길 (포탈 구간은 끊긴다) — 굵은 도트 선
+  const traceChain = (ids) => {
     g.beginPath();
-    PATH_CENTERS.forEach((p, i) => {
-      const px = X(p.x), py = Y(p.z);
+    ids.forEach((id, i) => {
+      const zn = zones.find((z) => z.id === id);
+      if (!zn || !zn.map) return;
+      const px = X(zn.map.cx), py = Y(zn.map.cz);
       if (i === 0) g.moveTo(px, py);
       else {
-        const prev = PATH_CENTERS[i - 1];
-        g.quadraticCurveTo(X(prev.x), Y(p.z), px, py);
+        const prev = zones.find((z) => z.id === ids[i - 1]);
+        g.quadraticCurveTo(X(prev.map.cx), Y(zn.map.cz), px, py);
       }
     });
   };
-  g.lineCap = 'round';
-  g.strokeStyle = 'rgba(0,0,0,.10)'; g.lineWidth = pathW + 12; trace(); g.stroke();
-  g.strokeStyle = '#9c8a63'; g.lineWidth = pathW; trace(); g.stroke();
-  // 길 위 돌 / 자갈
-  for (let i = 0; i < 1600; i++) {
+  g.lineCap = 'square';
+  g.strokeStyle = 'rgba(0,0,0,.18)'; g.lineWidth = 5;
+  traceChain([1, 2, 3, 4, 5, 6, 7, 8, 9]); traceChain([10, 11, 12]); traceChain([13, 14, 15, 16, 17, 18]);
+  g.stroke();
+  g.strokeStyle = '#9c8a63'; g.lineWidth = 3;
+  traceChain([1, 2, 3, 4, 5, 6, 7, 8, 9]); traceChain([10, 11, 12]); traceChain([13, 14, 15, 16, 17, 18]);
+  g.stroke();
+  // 길 위 자갈 도트
+  for (let i = 0; i < 240; i++) {
+    const seg = PATH_SEGS[Math.floor(rnd() * PATH_SEGS.length)];
+    if (!seg) break;
     const t = rnd();
-    const seg = Math.min(PATH_SEGS.length - 1, Math.floor(t * PATH_SEGS.length));
-    const [a, b] = PATH_SEGS[seg];
-    const lt = t * PATH_SEGS.length - seg;
-    const wx = a.x + (b.x - a.x) * lt + (rnd() - 0.5) * pathW * 0.9 / (S / WORLD_SIZE);
-    const wz = a.z + (b.z - a.z) * lt + (rnd() - 0.5) * pathW * 0.9 / (S / WORLD_SIZE);
-    g.globalAlpha = 0.10 + rnd() * 0.18;
+    const wx = seg[0].x + (seg[1].x - seg[0].x) * t + (rnd() - 0.5) * 5;
+    const wz = seg[0].z + (seg[1].z - seg[0].z) * t + (rnd() - 0.5) * 5;
+    g.globalAlpha = 0.3 + rnd() * 0.4;
     g.fillStyle = rnd() > 0.5 ? '#f2e6c8' : '#5a4a2e';
-    g.beginPath();
-    g.ellipse(X(wx), Y(wz), 1 + rnd() * 4, 1 + rnd() * 3, rnd() * 3, 0, 6.283);
-    g.fill();
+    g.fillRect(X(wx), Y(wz), 1.5, 1.5);
   }
   g.globalAlpha = 1;
   const tex = new THREE.CanvasTexture(c);
-  tex.anisotropy = 4;
+  tex.magFilter = THREE.NearestFilter; // 확대 시 픽셀이 뭉개지지 않고 굵은 블록으로 보인다
+  tex.minFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+  tex.anisotropy = 1;
   return tex;
 }
 
@@ -1341,10 +1377,12 @@ function mergeGeometryParts(THREE, meshes) {
   return geo;
 }
 
-// ---------- 하나의 서울 지도 전체를 짓는다 ----------
-// 288×288 지면 1장 + 구역별 소품(인스턴싱) + 상자 28개 + NPC 9명 + 방벽 게이트 8개 + 지구 귀환 게이트.
-// 포탈은 없다 — 이동은 걸어서, 구역 이동은 게이트를 통해서만.
-export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = false) {
+// ---------- 하나의 판타지 지도 전체를 짓는다 ----------
+// 480×384 지면 1장 + 구역별 소품(인스턴싱) + 경계 자연물 벽 + 상자 55개 + NPC 18명
+// + 방벽 게이트(통로마다) + 지구 귀환 게이트 + 마계 관문.
+// 포탈은 걷는 길이 아니라, 게이트에 다가가 [들어가기]를 눌러 이동한다.
+export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = false, unlockedIds = [], gyeonggiGateOpen = false) {
+  const unlocked = new Set(unlockedIds || []);
   const rnd = rand(987654321);
   const group = new THREE.Group();
   const props = [];
@@ -1352,27 +1390,28 @@ export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = fals
   const npcs = {};
   const gates = [];
 
-  // 지면 (3D 지형: 144x144 분할 후 groundHeight로 높이 적용)
+  // 지면 (3D 지형: 240x192 분할 후 groundHeight로 높이 적용 — 한 칸 2m, 예전과 같다)
+  // 평면은 z 중심이 48이다 (월드 z -144..240). 정점 높이는 월드 좌표로 잰다.
   const gtex = groundTexture(THREE, zones, rnd);
-  const groundGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 144, 144);
+  const groundGeo = new THREE.PlaneGeometry(WORLD_W, WORLD_H, 240, 192);
   const gpos = groundGeo.attributes.position;
   for (let i = 0; i < gpos.count; i++) {
-    gpos.setZ(i, groundHeight(gpos.getX(i), -gpos.getY(i)));
+    gpos.setZ(i, groundHeight(gpos.getX(i), -gpos.getY(i) + 48));
   }
   groundGeo.computeVertexNormals();
   // 높이·경사별 음영 (버텍스 컬러 × 텍스처): 높은 곳은 햇빛 받은 밝은 톤,
   // 웅덩이는 어둡고 차가운 톤, 가파른 경사는 바위빛 — 언덕·구덩이가 눈에 띄게.
   // 경사는 메시 이웃 정점 높이로 잰다 (groundHeight 추가 호출 없이).
   {
-    const SEG = 144, COLS = SEG + 1;
+    const SEGX = 240, SEGZ = 192, COLS = SEGX + 1;
     const colors = new Float32Array(gpos.count * 3);
     for (let i = 0; i < gpos.count; i++) {
       const ix = i % COLS, iz = Math.floor(i / COLS);
       const h = gpos.getZ(i);
       const hx0 = gpos.getZ(iz * COLS + Math.max(0, ix - 1));
-      const hx1 = gpos.getZ(iz * COLS + Math.min(SEG, ix + 1));
+      const hx1 = gpos.getZ(iz * COLS + Math.min(SEGX, ix + 1));
       const hz0 = gpos.getZ(Math.max(0, iz - 1) * COLS + ix);
-      const hz1 = gpos.getZ(Math.min(SEG, iz + 1) * COLS + ix);
+      const hz1 = gpos.getZ(Math.min(SEGZ, iz + 1) * COLS + ix);
       const slope = Math.hypot(hx1 - hx0, hz1 - hz0) / 4; // 4m 구간 기울기
       let r = 1, g = 1, b = 1;
       const hi = smooth(clamp01((h - 1.6) / 2.2)); // 높은 곳 — 밝게
@@ -1390,6 +1429,7 @@ export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = fals
     new THREE.MeshLambertMaterial({ map: gtex, vertexColors: true })
   );
   ground.rotation.x = -Math.PI / 2;
+  ground.position.z = 48;
   ground.receiveShadow = true;
   group.add(ground);
 
@@ -1450,16 +1490,47 @@ export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = fals
       }
     }
   }
-  // 바깥 테두리 (사각 경계선을 따라)
-  for (let i = 0; i < 200; i++) {
-    const t = (i / 200) * WORLD_SIZE * 4;
-    const side = Math.floor(t / WORLD_SIZE);
-    const along = (t % WORLD_SIZE) - WORLD_HALF;
+  // ---------- 구역 경계 자연물 벽 ----------
+  // 경계마다 통로 한 곳만 남기고, 나머지 부분은 산·돌·나무로 빽빽하게 막는다.
+  // (통로 중심 ±6m는 비워 둔다 — 그 자리에 결계 게이트가 선다)
+  const WALL_KINDS = ['rock', 'sandRock', 'bubbleRock', 'tree', 'deadTree', 'pillar', 'ruinPillar', 'wall'];
+  function wallKindFor(zn) {
+    const pool = (zn.theme.prop || []).filter((k) => WALL_KINDS.includes(k));
+    return pool.length ? pool[Math.floor(rnd() * pool.length)] : 'rock';
+  }
+  function addWallRun(points) {
+    for (const p of points) {
+      const zn = districtAt(p.x, p.z);
+      addProp(wallKindFor(zn), p.x, p.z, 2.8 + rnd() * 0.8, rnd() * 6.28);
+    }
+  }
+  function borderWallPoints(b) {
+    const pts = [];
+    for (let d = 0; d <= 96; d += 1.8) {
+      const t = d / 96;
+      // 통로 중심(±6m)에는 벽을 세우지 않는다
+      if (Math.abs((t - 0.5) * 96) < 6) continue;
+      pts.push(borderPoint(b, t));
+    }
+    return pts;
+  }
+  for (const b of BORDERS) addWallRun(borderWallPoints(b));
+  for (const w of VOID_WALLS) {
+    const pts = [];
+    const len = Math.hypot(w.x1 - w.x0, w.z1 - w.z0);
+    for (let d = 0; d <= len; d += 1.8) pts.push(voidPoint(w, d / len));
+    addWallRun(pts);
+  }
+
+  // 바깥 테두리 (월드 직사각형 경계선을 따라)
+  const PERIM = 2 * (WORLD_W + WORLD_H);
+  for (let i = 0; i < 260; i++) {
+    const t = (i / 260) * PERIM;
     let x, z;
-    if (side === 0) { x = along; z = -WORLD_HALF + 1 + rnd() * 2; }
-    else if (side === 1) { x = WORLD_HALF - 1 - rnd() * 2; z = along; }
-    else if (side === 2) { x = along; z = WORLD_HALF - 1 - rnd() * 2; }
-    else { x = -WORLD_HALF + 1 + rnd() * 2; z = along; }
+    if (t < WORLD_W) { x = WORLD_BOUNDS.minX + t; z = WORLD_BOUNDS.minZ + 1 + rnd() * 2; }
+    else if (t < WORLD_W + WORLD_H) { x = WORLD_BOUNDS.maxX - 1 - rnd() * 2; z = WORLD_BOUNDS.minZ + (t - WORLD_W); }
+    else if (t < 2 * WORLD_W + WORLD_H) { x = WORLD_BOUNDS.maxX - (t - WORLD_W - WORLD_H); z = WORLD_BOUNDS.maxZ - 1 - rnd() * 2; }
+    else { x = WORLD_BOUNDS.minX + 1 + rnd() * 2; z = WORLD_BOUNDS.maxZ - (t - 2 * WORLD_W - WORLD_H); }
     const zn = districtAt(x, z);
     const kind = rnd() > 0.55 ? zn.theme.prop[Math.floor(rnd() * zn.theme.prop.length)] : 'rock';
     addProp(kind, x, z, 2.4 + rnd() * 1.4, rnd() * 6.28);
@@ -1543,74 +1614,84 @@ export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = fals
     npcs[zn.id] = npc;
   }
 
-  // 방벽 게이트 (구역 2~9 입구) — 기둥 2개 + 빛나는 결계벽
-  for (const zn of zones) {
-    if (!zn.gate) continue;
+  // 방벽 게이트 (통로마다) — 기둥 2개 + 빛나는 결계벽.
+  // 구역이 열리면 결계는 완전히 사라진다 (기둥까지 통째로 — 열리기 전만 보인다).
+  // 이미 해금된 구역의 통로는 처음부터 게이트가 없다.
+  for (const b of BORDERS) {
+    const did = borderDistrictId(b);
+    const alreadyOpen = unlocked.has(did);
     const g = new THREE.Group();
-    const gy = groundHeight(zn.gate.x, zn.gate.z);
-    const alongX = zn.gate.along === 'x';
+    const gy = groundHeight(b.x, b.z);
+    const alongX = b.along === 'x';
     const off = 5.2;
     const px = alongX ? 0 : off, pz = alongX ? off : 0;
-    for (const sgn of [-1, 1]) {
-      const pil = propMesh(THREE, 'pillar', rnd);
-      pil.position.set(zn.gate.x + px * sgn, groundHeight(zn.gate.x + px * sgn, zn.gate.z + pz * sgn), zn.gate.z + pz * sgn);
-      pil.scale.setScalar(1.5);
-      g.add(pil);
-      props.push({ x: pil.position.x, z: pil.position.z, r: 0.7, kind: 'pillar' });
+    const pillars = [];
+    const pillarProps = [];
+    let barrier = null, barrierMat = null, glowRing = null;
+    if (!alreadyOpen) {
+      for (const sgn of [-1, 1]) {
+        const pil = propMesh(THREE, 'pillar', rnd);
+        pil.position.set(b.x + px * sgn, groundHeight(b.x + px * sgn, b.z + pz * sgn), b.z + pz * sgn);
+        pil.scale.setScalar(1.5);
+        g.add(pil);
+        pillars.push(pil);
+        const pp = { x: pil.position.x, z: pil.position.z, r: 0.7, kind: 'pillar' };
+        props.push(pp);
+        pillarProps.push(pp);
+      }
+      barrierMat = new THREE.MeshBasicMaterial({
+        color: 0x9f7bff, transparent: true, opacity: 0.4,
+        side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending,
+      });
+      barrier = new THREE.Mesh(new THREE.PlaneGeometry(10, 6.4), barrierMat);
+      barrier.position.set(b.x, gy + 2.2, b.z); // 아래로 1m 더 내려 지형 기복에도 바닥이 뜨지 않게
+      barrier.rotation.y = alongX ? 0 : Math.PI / 2;
+      g.add(barrier);
+      glowRing = new THREE.Mesh(
+        new THREE.TorusGeometry(1.6, 0.08, 8, 24),
+        new THREE.MeshBasicMaterial({ color: 0xc9a8ff, transparent: true, opacity: 0.8 })
+      );
+      glowRing.position.set(b.x, gy + 1.6, b.z);
+      glowRing.rotation.y = alongX ? 0 : Math.PI / 2;
+      g.add(glowRing);
     }
-    const barrierMat = new THREE.MeshBasicMaterial({
-      color: 0x9f7bff, transparent: true, opacity: 0.4,
-      side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending,
-    });
-    const barrier = new THREE.Mesh(new THREE.PlaneGeometry(10, 6.4), barrierMat);
-    barrier.position.set(zn.gate.x, gy + 2.2, zn.gate.z); // 아래로 1m 더 내려 지형 기복에도 바닥이 뜨지 않게
-    barrier.rotation.y = alongX ? 0 : Math.PI / 2;
-    g.add(barrier);
-    const glowRing = new THREE.Mesh(
-      new THREE.TorusGeometry(1.6, 0.08, 8, 24),
-      new THREE.MeshBasicMaterial({ color: 0xc9a8ff, transparent: true, opacity: 0.8 })
-    );
-    glowRing.position.set(zn.gate.x, gy + 1.6, zn.gate.z);
-    glowRing.rotation.y = alongX ? 0 : Math.PI / 2;
-    g.add(glowRing);
     group.add(g);
-    gates.push({ districtId: zn.id, x: zn.gate.x, z: zn.gate.z, group: g, barrier, barrierMat, glowRing, open: false, openT: 0 });
+    gates.push({ districtId: did, x: b.x, z: b.z, group: g, barrier, barrierMat, glowRing, pillars, pillarProps, open: alreadyOpen, openT: alreadyOpen ? 1 : 0 });
   }
 
-  // 지구 귀환 게이트 (9구역 북쪽 끝) — 열리면 황금빛으로 빛난다
-  const earthGate = { open: !!earthGateOpen, group: null, disc: null, ring: null };
-  {
+  // 포탈 (지구 귀환 게이트 + 마계 관문) — 열리면 빛나고, 다가가 [들어가기]를 눌러 이동한다
+  function makePortalGate(pos, open, ringColor, discColor) {
     const eg = new THREE.Group();
-    const gy = groundHeight(EARTH_GATE.x, EARTH_GATE.z);
+    const gy = groundHeight(pos.x, pos.z);
     const ring = new THREE.Mesh(
       new THREE.TorusGeometry(2.4, 0.22, 10, 28),
-      new THREE.MeshBasicMaterial({ color: earthGateOpen ? 0xffd257 : 0x8a97a8, transparent: true, opacity: 0.95 })
+      new THREE.MeshBasicMaterial({ color: open ? ringColor : 0x8a97a8, transparent: true, opacity: 0.95 })
     );
-    ring.position.set(EARTH_GATE.x, gy + 2.6, EARTH_GATE.z);
+    ring.position.set(pos.x, gy + 2.6, pos.z);
     eg.add(ring);
     const disc = new THREE.Mesh(
       new THREE.CircleGeometry(2.2, 28),
-      new THREE.MeshBasicMaterial({ color: 0xffd257, transparent: true, opacity: earthGateOpen ? 0.5 : 0.1, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending })
+      new THREE.MeshBasicMaterial({ color: discColor, transparent: true, opacity: open ? 0.5 : 0.1, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending })
     );
-    disc.position.set(EARTH_GATE.x, gy + 2.6, EARTH_GATE.z);
+    disc.position.set(pos.x, gy + 2.6, pos.z);
     eg.add(disc);
     const base = new THREE.Mesh(new THREE.BoxGeometry(6.4, 0.5, 1.6), new THREE.MeshLambertMaterial({ color: 0x6a6f7a, flatShading: true }));
-    base.position.set(EARTH_GATE.x, gy + 0.25, EARTH_GATE.z);
+    base.position.set(pos.x, gy + 0.25, pos.z);
     eg.add(base);
     group.add(eg);
-    earthGate.group = eg;
-    earthGate.disc = disc;
-    earthGate.ring = ring;
+    return { open: !!open, group: eg, disc, ring, ringColor };
   }
+  const earthGate = makePortalGate(EARTH_GATE, earthGateOpen, 0xffd257, 0xffd257);
+  const gyeonggiGate = makePortalGate(GYEONGGI_GATE, gyeonggiGateOpen, 0xb46cff, 0x9f7bff);
 
   // 대기 입자 (지도 전체)
   const pc = 220;
   const pos = new Float32Array(pc * 3);
   const seeds = [];
   for (let i = 0; i < pc; i++) {
-    pos[i * 3] = (rnd() - 0.5) * 270;
+    pos[i * 3] = (rnd() - 0.5) * 470;
     pos[i * 3 + 1] = 0.4 + rnd() * 5;
-    pos[i * 3 + 2] = (rnd() - 0.5) * 270;
+    pos[i * 3 + 2] = 48 + (rnd() - 0.5) * 370;
     seeds.push(0.2 + rnd() * 0.8);
   }
   const pgeo = new THREE.BufferGeometry();
@@ -1645,23 +1726,42 @@ export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = fals
     spawnPoints.push(...list);
   }
 
-  function openGate(districtId) {
-    const gt = gates.find((x) => x.districtId === districtId);
-    if (!gt || gt.open) return false;
-    gt.open = true;
-    gt.openT = 0;
-    return true;
+  // 통로를 연다 — 같은 구역 번호의 통로가 여러 개면(옆통로 포함) 전부 함께 열린다.
+  // instant=true면 (이미 해금된 채로 불러올 때) 연출 없이 즉시 완전히 사라진다.
+  function removeGateVisuals(gt) {
+    // 결계·빛고리·기둥을 통째로 없앤다 (미니맵용 소품 목록에서도 뺀다)
+    if (gt.barrier) gt.barrier.visible = false;
+    if (gt.glowRing) gt.glowRing.visible = false;
+    for (const pil of (gt.pillars || [])) pil.visible = false;
+    for (const pp of (gt.pillarProps || [])) {
+      const i = props.indexOf(pp);
+      if (i >= 0) props.splice(i, 1);
+    }
+    gt.pillarProps = [];
   }
-  function setEarthGate(open) {
-    earthGate.open = !!open;
-    if (earthGate.disc) earthGate.disc.material.opacity = open ? 0.5 : 0.1;
-    if (earthGate.ring) earthGate.ring.material.color.setHex(open ? 0xffd257 : 0x8a97a8);
+  function openGate(districtId, instant = false) {
+    let any = false;
+    for (const gt of gates) {
+      if (gt.districtId !== districtId || gt.open) continue;
+      gt.open = true;
+      gt.openT = instant ? 1 : 0;
+      any = true;
+      if (instant) removeGateVisuals(gt);
+    }
+    return any;
   }
+  function setPortalGate(gate, open) {
+    gate.open = !!open;
+    if (gate.disc) gate.disc.material.opacity = open ? 0.5 : 0.1;
+    if (gate.ring) gate.ring.material.color.setHex(open ? gate.ringColor : 0x8a97a8);
+  }
+  function setEarthGate(open) { setPortalGate(earthGate, open); }
+  function setGyeonggiGate(open) { setPortalGate(gyeonggiGate, open); }
 
   return {
-    group, props, propsNear, chests, npcs, npc: npcs[1] || null, gates, earthGate,
+    group, props, propsNear, chests, npcs, npc: npcs[1] || null, gates, earthGate, gyeonggiGate,
     spawnPoints, spawnPointsByDistrict, particles: points, fieldRing: null, groundHeight,
-    openGate, setEarthGate,
+    openGate, setEarthGate, setGyeonggiGate,
     update(dt, t) {
       const arr = pgeo.attributes.position.array;
       for (let i = 0; i < pc; i++) {
@@ -1672,15 +1772,17 @@ export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = fals
       for (const npc of Object.values(npcs)) {
         npc.userData.marker.position.y = 2.3 + Math.sin(t * 2.2) * 0.12;
       }
-      // 열리는 게이트의 결계벽은 서서히 사라진다
+      // 열리는 게이트의 결계벽은 서서히 사라진다 — 기둥도 함께 가라앉아 완전히 없어진다
       for (const gt of gates) {
-        if (gt.open && gt.barrier.visible) {
+        if (gt.open && gt.openT < 1) {
           gt.openT += dt;
-          gt.barrierMat.opacity = Math.max(0, 0.4 - gt.openT * 0.5);
-          gt.glowRing.material.opacity = Math.max(0, 0.8 - gt.openT * 0.6);
-          if (gt.openT > 0.9) { gt.barrier.visible = false; gt.glowRing.visible = false; }
+          const k = Math.min(1, gt.openT / 0.9);
+          if (gt.barrierMat) gt.barrierMat.opacity = Math.max(0, 0.4 - k * 0.4);
+          if (gt.glowRing) gt.glowRing.material.opacity = Math.max(0, 0.8 - k * 0.8);
+          for (const pil of (gt.pillars || [])) pil.position.y -= dt * 1.2;
+          if (gt.openT >= 0.9) removeGateVisuals(gt);
         } else if (!gt.open) {
-          gt.barrierMat.opacity = 0.34 + Math.sin(t * 2 + gt.districtId) * 0.1;
+          if (gt.barrierMat) gt.barrierMat.opacity = 0.34 + Math.sin(t * 2 + gt.districtId) * 0.1;
         }
       }
     },
