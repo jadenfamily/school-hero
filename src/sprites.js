@@ -1636,7 +1636,7 @@ const PROP_ART = {
     el(g, 46, 16, 3.4, 3.4, '#9fd8ff'); el(g, 46, 16, 1.4, 1.4, '#ffffff');
   },
 };
-function propTexture(THREE, kind) {
+export function propTexture(THREE, kind) {
   const cache = propTexture.cache || (propTexture.cache = new Map());
   if (cache.has(kind)) return cache.get(kind);
   const { c, g } = makeCanvas(PROP_CANVAS, PROP_CANVAS);
