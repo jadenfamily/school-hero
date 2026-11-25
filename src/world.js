@@ -3,7 +3,7 @@
 // 종이 인형처럼 보인다는 피드백 반영). 지면만 2D 텍스처(표면이므로)이며 높낮이
 // 지형 + 높이 음영 + 강한 그림자로 입체감을 낸다.
 import { AVATAR_MAP, GRADES, ARMOR_KINDS, ZONES, EARTH_GATE, GYEONGGI_GATE, BORDERS, borderDistrictId } from './data.js';
-import { visualEquip, COSTUME_VISUAL, PROP_SIZE, PROP_R } from './sprites.js';
+import { visualEquip, COSTUME_VISUAL, PROP_SIZE, PROP_R, faceTextureFor3D } from './sprites.js';
 const rand = (seed) => {
   let s = seed >>> 0;
   return () => {
@@ -280,7 +280,7 @@ function labelSprite(THREE, text, color = '#ffd257') {
 // 큰 평평한 네모는 없고, 1px 스페클·풀잎·꽃·개별 자갈 + 전체 1px 노이즈로 어느 배율에서도
 // 빈 면이 안 보인다. 높이·경사 음영은 버텍스 컬러가 맡으므로(높은 곳 밝게, 웅덩이 어둡게)
 // 입체감은 그대로 산다. 구역 모양은 울퉁불퉁한 외곽선(districtOutline) 그대로 — 사각 격자는 없다.
-function groundTexture(THREE, zones, rnd) {
+export function groundTexture(THREE, zones, rnd) {
   const TW = 1920, TH = 1536; // 1px = 0.25m (예전 0.5m/px의 2배 해상도 — 큰 네모 타일 제거)
   const c = document.createElement('canvas');
   c.width = TW; c.height = TH;
@@ -303,38 +303,107 @@ function groundTexture(THREE, zones, rnd) {
     g.fill();
     g.save();
     g.clip();
-    // 작은 색조 얼룩 — 예전 8×5.5m짜리 딱딱한 네모 대신 0.5~1.2m짜리 옅은 반점만
-    for (let i = 0; i < 30; i++) {
-      const px = X(zn.map.cx) + (rnd() - 0.5) * 352, py = Y(zn.map.cz) + (rnd() - 0.5) * 352;
-      const r = 2 + rnd() * 3;
-      g.globalAlpha = 0.10 + rnd() * 0.12;
-      g.fillStyle = rnd() > 0.5 ? zn.theme.ground2 : (zn.theme.grass || hexOf(zn.theme.ground));
-      g.fillRect(px - r, py - r * 0.7, r * 2, r * 1.4);
-    }
-    // 픽셀 스페클 — 구역 경계 안쪽에 1px 점을 빽빽하게 (모래·눈의 반점, 잔디의 결)
+    // 구역 경계 박스 (디테일은 구역 전체에 깐다)
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const pt of outline) { minX = Math.min(minX, X(pt.x)); maxX = Math.max(maxX, X(pt.x)); minY = Math.min(minY, Y(pt.z)); maxY = Math.max(maxY, Y(pt.z)); }
     minX += 16; maxX -= 16; minY += 16; maxY -= 16;
+    const inX = () => minX + rnd() * (maxX - minX), inY = () => minY + rnd() * (maxY - minY);
+    const mossCol = zn.theme.grass || '#6a7a4a';
+    // 큰 색조 얼룩 — 1~3.5m 크기, 진하게 (게임 줌에서도 읽히는 지면 결)
+    // fillRect 뭉치로 불규칙한 패치를 만든다 (동그란 얼룩이 아니라 들쭉날쭉한 모양)
+    for (let i = 0; i < 160; i++) {
+      const px = inX(), py = inY();
+      const r = 4 + rnd() * 10;
+      const tone = rnd();
+      g.fillStyle = tone < 0.4 ? zn.theme.ground2 : tone < 0.7 ? (zn.theme.grass || hexOf(zn.theme.ground)) : tone < 0.85 ? '#ffffff' : '#000000';
+      g.globalAlpha = 0.22 + rnd() * 0.23;
+      g.fillRect(px - r, py - r * 0.7, r * 2, r * 1.4);
+      g.fillRect(px - r * 0.6, py - r * 1.1, r * 1.2, r * 0.8);
+      g.fillRect(px - r * 0.4, py + r * 0.2, r * 1.4, r * 0.7);
+    }
+    // 균열 — 어두운 지그재그 선 (바위·흙바닥의 갈라짐)
+    g.strokeStyle = 'rgba(0,0,0,0.4)'; g.lineWidth = 1.5;
+    for (let i = 0; i < 20; i++) {
+      let px = inX(), py = inY();
+      g.globalAlpha = 0.35 + rnd() * 0.3;
+      g.beginPath(); g.moveTo(px, py);
+      let a = rnd() * Math.PI * 2;
+      for (let sgm = 0; sgm < 5; sgm++) {
+        a += (rnd() - 0.5) * 1.6;
+        px += Math.cos(a) * (3 + rnd() * 5); py += Math.sin(a) * (3 + rnd() * 5);
+        g.lineTo(px, py);
+      }
+      g.stroke();
+    }
+    // 이끼 패치 — 초록 얼룩 (바위·나무 그늘 아래)
+    for (let i = 0; i < 40; i++) {
+      const px = inX(), py = inY();
+      g.globalAlpha = 0.3 + rnd() * 0.25;
+      g.fillStyle = mossCol;
+      g.beginPath(); g.ellipse(px, py, 3 + rnd() * 6, 2 + rnd() * 4, rnd() * Math.PI, 0, Math.PI * 2); g.fill();
+    }
+    // 자갈 무리 — 2~3px 돌멩이 3~5개씩 뭉쳐서
+    for (let i = 0; i < 120; i++) {
+      const px = inX(), py = inY();
+      g.globalAlpha = 0.4 + rnd() * 0.4;
+      for (let j = 0; j < 3 + Math.floor(rnd() * 3); j++) {
+        g.fillStyle = rnd() > 0.5 ? '#8a8a8a' : '#5a4a3a';
+        g.fillRect(px + (rnd() - 0.5) * 8, py + (rnd() - 0.5) * 8, 2, 2);
+      }
+    }
+    // 픽셀 스페클 — 구역 경계 안쪽에 1px 점을 빽빽하게 (모래·눈의 반점, 잔디의 결)
     for (let i = 0; i < 12000; i++) {
-      const px = minX + rnd() * (maxX - minX), py = minY + rnd() * (maxY - minY);
+      const px = inX(), py = inY();
       const r = rnd();
       if (r < 0.12) { g.globalAlpha = 0.22 + rnd() * 0.13; g.fillStyle = '#000000'; g.fillRect(px, py, 1, 1); }
       else if (r < 0.24) { g.globalAlpha = 0.18 + rnd() * 0.12; g.fillStyle = '#ffffff'; g.fillRect(px, py, 1, 1); }
       else if (r < 0.30) { g.globalAlpha = 0.2 + rnd() * 0.12; g.fillStyle = zn.theme.ground2; g.fillRect(px, py, 1, 1); }
     }
-    // 풀잎 — 잔디 구역에만 작은 풀 무늬 (촘촘하게)
+    // 구역별 특징 — 사막은 모래 능선, 설산·빙하는 눈 더미, 화산은 검은 현무암
+    if (zn.id === 3 || zn.id === 7) { // 사막·달표면: 모래 능선 (긴 곡선 줄무늬)
+      g.strokeStyle = 'rgba(0,0,0,0.22)'; g.lineWidth = 2;
+      for (let i = 0; i < 24; i++) {
+        const px = inX(), py = inY();
+        g.globalAlpha = 0.3 + rnd() * 0.25;
+        g.beginPath(); g.moveTo(px, py);
+        g.quadraticCurveTo(px + 20 + rnd() * 20, py + (rnd() - 0.5) * 12, px + 44 + rnd() * 24, py + (rnd() - 0.5) * 16);
+        g.stroke();
+      }
+    }
+    if (zn.id === 9 || zn.id === 8) { // 설산·빙하: 눈 더미 (흰 타원)
+      for (let i = 0; i < 60; i++) {
+        const px = inX(), py = inY();
+        g.globalAlpha = 0.3 + rnd() * 0.3;
+        g.fillStyle = '#ffffff';
+        g.beginPath(); g.ellipse(px, py, 4 + rnd() * 8, 3 + rnd() * 5, rnd() * Math.PI, 0, Math.PI * 2); g.fill();
+      }
+    }
+    if (zn.id === 6 || zn.id === 12) { // 화산·마계섬: 검은 현무암 덩어리
+      for (let i = 0; i < 50; i++) {
+        const px = inX(), py = inY();
+        g.globalAlpha = 0.4 + rnd() * 0.3;
+        g.fillStyle = '#1c1c22';
+        g.fillRect(px, py, 3 + rnd() * 5, 2 + rnd() * 4);
+      }
+    }
+    // 풀잎 — 잔디 구역에만 (3개 잎이 한 곳에서 나는 풀 무늬, 더 크고 촘촘하게)
     if (zn.theme.grass) {
       g.strokeStyle = zn.theme.grass;
       g.lineWidth = 1;
-      for (let i = 0; i < 500; i++) {
-        const px = X(zn.map.cx) + (rnd() - 0.5) * 352, py = Y(zn.map.cz) + (rnd() - 0.5) * 352;
-        g.globalAlpha = 0.45 + rnd() * 0.3;
-        g.beginPath(); g.moveTo(px, py); g.lineTo(px - 1, py - 3); g.moveTo(px + 1.4, py); g.lineTo(px + 2.4, py - 3); g.stroke();
+      for (let i = 0; i < 1200; i++) {
+        const px = inX(), py = inY();
+        g.globalAlpha = 0.5 + rnd() * 0.35;
+        const h = 3 + rnd() * 3;
+        g.beginPath();
+        g.moveTo(px, py); g.lineTo(px - 1.5, py - h);
+        g.moveTo(px, py); g.lineTo(px + 0.5, py - h * 1.2);
+        g.moveTo(px + 1.5, py); g.lineTo(px + 2.5, py - h * 0.8);
+        g.stroke();
       }
       // 꽃 — 잔디 구역 곳곳에 2px 꽃점
       const FLOWER_COLS = ['#ff9ec4', '#ffd257', '#ffffff', '#ff7a6a'];
-      for (let i = 0; i < 120; i++) {
-        const px = X(zn.map.cx) + (rnd() - 0.5) * 352, py = Y(zn.map.cz) + (rnd() - 0.5) * 352;
+      for (let i = 0; i < 160; i++) {
+        const px = inX(), py = inY();
         g.globalAlpha = 0.75 + rnd() * 0.25;
         g.fillStyle = FLOWER_COLS[Math.floor(rnd() * FLOWER_COLS.length)];
         g.fillRect(px, py, 2, 2);
@@ -614,6 +683,28 @@ function addCostumePieces(THREE, parts, vis, cols) {
 // opts: { avatar, skin, uniform, hair, accent, weaponFam, grade, armorFam, capeColor, scale, polish, costumeId }
 // polish: 주인공·동료만 true — 초상화처럼 다듬은 비율·얼굴. 몬스터 휴머노이드는 polish을
 // 넘기지 않으므로 기존 수치 그대로 만들어진다 (이 함수 안의 P ? A : B는 전부 P=false면 예전 값).
+// 주인공 머리 앞면의 구면 캡 — 초상화 스타일 얼굴 특징(눈·눈썹·코·입·볼)을
+// 캔버스 텍스처로 그려 머리 구(반지름 0.28) 앞면에 딱 붙인다.
+// 캡은 머리 구와 같은 중심의 구면 조각(반지름 0.285)이라 떠 있지 않고,
+// 투명 배경이라 머리 피부색이 그대로 보인다. 실패하면 null을 돌려줘
+// 지오메트리 눈으로 폴백한다 (스텁 환경·텍스처 실패 시에도 얼굴이 있어야 한다).
+function makeFaceCap(THREE, av) {
+  try {
+    if (typeof document === 'undefined' || !av) return null;
+    const texCanvas = faceTextureFor3D(av, 256);
+    if (!texCanvas || !texCanvas.width) return null;
+    const tex = new THREE.CanvasTexture(texCanvas);
+    if ('colorSpace' in tex && THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
+    // phi: 앞면(+Z, π/2) 기준 ±0.75rad / theta: 0.85..2.05rad (이마 위~턱 아래)
+    const geo = new THREE.SphereGeometry(0.285, 24, 16, Math.PI / 2 - 0.75, 1.5, 0.85, 1.2);
+    const m = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
+    const cap = new THREE.Mesh(geo, m);
+    cap.castShadow = false;
+    cap.userData.faceCap = true;
+    return cap;
+  } catch (e) { return null; }
+}
+
 export function makeHumanoid3D(THREE, opts = {}) {
   const av = opts.avatar || null;
   const skin = opts.skin != null ? opts.skin : (av ? av.skin : 0xf2c9a0);
@@ -647,18 +738,22 @@ export function makeHumanoid3D(THREE, opts = {}) {
   const g = new THREE.Group();
   g.add(blobShadow(THREE, 0.42));
 
-  // 다리 (고관절 y=0.55에서 회전) + 부츠
-  const legGeo = new THREE.BoxGeometry(P ? 0.13 : 0.16, 0.5, 0.18);
-  legGeo.translate(0, -0.25, 0);
-  const bootGeo = new THREE.BoxGeometry(P ? 0.16 : 0.18, 0.1, 0.26);
-  const legL = new THREE.Group(); legL.position.set(-0.11 * bulk, 0.55, 0);
-  legL.add(new THREE.Mesh(legGeo, pantsM));
-  const bootL = new THREE.Mesh(bootGeo, darkM); bootL.position.set(0, -0.5, 0.03); legL.add(bootL);
-  g.add(legL);
-  const legR = new THREE.Group(); legR.position.set(0.11 * bulk, 0.55, 0);
-  legR.add(new THREE.Mesh(legGeo, pantsM));
-  const bootR = new THREE.Mesh(bootGeo, darkM); bootR.position.set(0, -0.5, 0.03); legR.add(bootR);
-  g.add(legR);
+  // 다리 (고관절 y=0.55에서 회전) — 허벅지→무릎→종아리→부츠, 굴곡 있게
+  // 피벗(0.55)과 전체 길이(0.5)는 그대로 — 걷기·스윙 애니메이션은 그대로 동작한다.
+  const mkLeg = (sx) => {
+    const leg = new THREE.Group(); leg.position.set(sx * 0.11 * bulk, 0.55, 0);
+    const thigh = new THREE.Mesh(gBox(THREE, P ? 0.14 : 0.16, 0.24, 0.19), pantsM);
+    thigh.position.y = -0.12; leg.add(thigh);
+    const knee = new THREE.Mesh(gBox(THREE, P ? 0.11 : 0.13, 0.07, 0.15), pantsM);
+    knee.position.y = -0.27; leg.add(knee);
+    const calf = new THREE.Mesh(gBox(THREE, P ? 0.1 : 0.12, 0.16, 0.14), pantsM);
+    calf.position.y = -0.38; leg.add(calf);
+    const boot = new THREE.Mesh(gBox(THREE, P ? 0.16 : 0.18, 0.1, 0.26), darkM);
+    boot.position.set(0, -0.5, 0.03); leg.add(boot);
+    return leg;
+  };
+  const legL = mkLeg(-1); g.add(legL);
+  const legR = mkLeg(1); g.add(legR);
   if (opts.robe || (av && av.skirt)) {
     const skirt = cone(THREE, 0.34 * bulk, 0.42, uniform, 8);
     skirt.position.y = 0.62; g.add(skirt);
@@ -672,15 +767,24 @@ export function makeHumanoid3D(THREE, opts = {}) {
 
   // 몸통 그룹 (걷기 바운스·공격 돌진/기울기용, 자식은 절대 높이로 배치)
   const body = new THREE.Group(); body.userData.baseY = 0; g.add(body);
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(P ? 0.46 : 0.52, P ? 0.58 : 0.55, P ? 0.26 : 0.3), outfitM);
-  torso.scale.x = bulk;
-  torso.position.y = 0.85; body.add(torso);
+  // 몸통 — 가슴→허리→엉덩이 테이퍼 (스택 박스, 네모 상자가 아니라 몸처럼)
+  // 전체 높이 0.56–1.14, 중심 0.85는 그대로 — 스윙·바운스 기준점 유지.
   if (P) {
-    // 가슴→허리 테이퍼 (상체가 네모 상자가 아니라 몸처럼 보이게)
-    const chest = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.18, 0.27), outfitM);
-    chest.scale.x = bulk; chest.position.y = 1.06; body.add(chest);
-    const waist = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.16, 0.24), outfitM);
-    waist.scale.x = bulk; waist.position.y = 0.64; body.add(waist);
+    const stack = [
+      [0.48, 0.12, 0.27, 1.08], // 가슴
+      [0.46, 0.16, 0.26, 0.94], // 상체
+      [0.40, 0.16, 0.24, 0.78], // 허리 (좁게)
+      [0.44, 0.14, 0.25, 0.63], // 엉덩이
+    ];
+    for (const [w, h, d, y] of stack) {
+      const part = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), outfitM);
+      part.scale.x = bulk; part.position.y = y; body.add(part);
+    }
+    const shoulderBar = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.08, 0.26), outfitM);
+    shoulderBar.scale.x = bulk; shoulderBar.position.y = 1.1; body.add(shoulderBar);
+  } else {
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.55, 0.3), outfitM);
+    torso.position.y = 0.85; body.add(torso);
   }
   // 가슴 갑주 (금속 판) + 벨트 버클 + 망토 밑단
   const plate = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.34, 0.05), metalM);
@@ -778,35 +882,47 @@ export function makeHumanoid3D(THREE, opts = {}) {
     }
   }
   const irisM = mat(THREE, av ? av.iris : 0x3d6fd6);
-  if (P) {
-    // 초상화 같은 큰 눈: 흰자 + 홍채 + 하이라이트 3겹
-    const whiteM = mat(THREE, 0xffffff);
-    const hlM = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    for (const s of [-1, 1]) {
-      const sc = new THREE.Mesh(new THREE.SphereGeometry(0.058, 8, 6), whiteM);
-      sc.scale.set(1, 1.25, 0.45); sc.position.set(0.11 * s, 0.02, 0.24); head.add(sc);
-      const ir = new THREE.Mesh(new THREE.SphereGeometry(0.048, 8, 6), irisM);
-      ir.scale.set(1, 1.25, 0.5); ir.position.set(0.11 * s, 0.02, 0.26); head.add(ir);
-      const hl = new THREE.Mesh(new THREE.SphereGeometry(0.016, 6, 5), hlM);
-      hl.position.set(0.11 * s - 0.02, 0.06, 0.285); head.add(hl);
+  // 얼굴 특징: 주인공은 초상화 스타일 캔버스 텍스처를 구면 캡에 입히고,
+  // 동료는 커진 지오메트리 눈(흰자+홍채+하이라이트+속눈썹)을 쓴다.
+  // 캡이 없으면(동료·NPC·스텁 환경) 지오메트리 눈으로 폴백한다.
+  let faceCap = null;
+  if (P && av) faceCap = makeFaceCap(THREE, av);
+  if (faceCap) head.add(faceCap);
+  if (!faceCap) {
+    if (P) {
+      // 초상화 같은 큰 눈: 흰자 + 홍채 + 하이라이트 + 속눈썹
+      const whiteM = mat(THREE, 0xffffff);
+      const hlM = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      for (const s of [-1, 1]) {
+        const sc = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 6), whiteM);
+        sc.scale.set(1, 1.3, 0.45); sc.position.set(0.11 * s, 0.02, 0.24); head.add(sc);
+        const ir = new THREE.Mesh(new THREE.SphereGeometry(0.062, 8, 6), irisM);
+        ir.scale.set(1, 1.3, 0.5); ir.position.set(0.11 * s, 0.02, 0.26); head.add(ir);
+        const hl = new THREE.Mesh(new THREE.SphereGeometry(0.02, 6, 5), hlM);
+        hl.position.set(0.11 * s - 0.025, 0.06, 0.285); head.add(hl);
+        const lash = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.018, 0.02), darkM);
+        lash.position.set(0.11 * s, 0.11, 0.27); lash.rotation.z = -s * 0.12; head.add(lash);
+      }
+    } else {
+      const eyeGeo = new THREE.SphereGeometry(0.04, 6, 5);
+      const eyeL = new THREE.Mesh(eyeGeo, irisM); eyeL.position.set(-0.11, 0.02, 0.26); head.add(eyeL);
+      const eyeR = new THREE.Mesh(eyeGeo, irisM); eyeR.position.set(0.11, 0.02, 0.26); head.add(eyeR);
     }
-  } else {
-    const eyeGeo = new THREE.SphereGeometry(0.04, 6, 5);
-    const eyeL = new THREE.Mesh(eyeGeo, irisM); eyeL.position.set(-0.11, 0.02, 0.26); head.add(eyeL);
-    const eyeR = new THREE.Mesh(eyeGeo, irisM); eyeR.position.set(0.11, 0.02, 0.26); head.add(eyeR);
   }
-  if (av) {
+  if (av && !faceCap) {
     // 눈썹 (머리색) — 얼굴 인상 구분 (다듬으면 안쪽이 살짝 올라간 초상화 눈썹)
     const browGeo = new THREE.BoxGeometry(P ? 0.09 : 0.1, P ? 0.02 : 0.025, 0.02);
     const browL = new THREE.Mesh(browGeo, hairM); browL.position.set(-0.11, 0.13, 0.27); if (P) browL.rotation.z = 0.15; head.add(browL);
     const browR = new THREE.Mesh(browGeo, hairM); browR.position.set(0.11, 0.13, 0.27); if (P) browR.rotation.z = -0.15; head.add(browR);
   }
-  // 코·입 (얼굴이 밋밋하다는 피드백 반영)
-  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 0.04), skinM);
-  nose.position.set(0, -0.03, 0.29); head.add(nose);
-  const mouth = new THREE.Mesh(new THREE.BoxGeometry(P ? 0.11 : 0.1, 0.02, 0.02), mat(THREE, 0x8a4a3a));
-  mouth.position.set(0, -0.14, 0.28); head.add(mouth);
-  if (P) {
+  if (!faceCap) {
+    // 코·입 (얼굴이 밋밋하다는 피드백 반영) — 캡이 있으면 텍스처에 이미 있다
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 0.04), skinM);
+    nose.position.set(0, -0.03, 0.29); head.add(nose);
+    const mouth = new THREE.Mesh(new THREE.BoxGeometry(P ? 0.11 : 0.1, 0.02, 0.02), mat(THREE, 0x8a4a3a));
+    mouth.position.set(0, -0.14, 0.28); head.add(mouth);
+  }
+  if (P && !faceCap) {
     // 볼터치 (초상화의 볼 홍조)
     const blushM = mat(THREE, 0xff9aa8);
     for (const s of [-1, 1]) {
@@ -824,17 +940,22 @@ export function makeHumanoid3D(THREE, opts = {}) {
     tuft.position.set(0.08, 0.38, 0.02); tuft.rotation.z = -0.3; head.add(tuft);
   }
 
-  // 팔 (어깨 y=1.08에서 회전)
-  const armGeo = new THREE.BoxGeometry(P ? 0.12 : 0.14, 0.5, P ? 0.14 : 0.16);
-  armGeo.translate(0, -0.22, 0);
-  const armR = new THREE.Group(); armR.position.set((P ? 0.3 : 0.33) * bulk, 1.08, 0);
-  armR.add(new THREE.Mesh(armGeo, outfitM));
-  const handR = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 5), skinM);
-  handR.position.set(0, -0.48, 0); armR.add(handR); body.add(armR);
-  const armL = new THREE.Group(); armL.position.set(-(P ? 0.3 : 0.33) * bulk, 1.08, 0);
-  armL.add(new THREE.Mesh(armGeo, outfitM));
-  const handL = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 5), skinM);
-  handL.position.set(0, -0.48, 0); armL.add(handL); body.add(armL);
+  // 팔 (어깨 y=1.08에서 회전) — 어깨→상완→팔꿈치→전완→손, 굴곡 있게
+  // 피벗(1.08)과 전체 길이(0.5)는 그대로 — 스윙 키프레임은 그대로 동작한다.
+  const mkArm = (sx) => {
+    const arm = new THREE.Group(); arm.position.set(sx * (P ? 0.3 : 0.33) * bulk, 1.08, 0);
+    const upper = new THREE.Mesh(gBox(THREE, P ? 0.13 : 0.15, 0.22, P ? 0.15 : 0.17), outfitM);
+    upper.position.y = -0.11; arm.add(upper);
+    const elbow = new THREE.Mesh(gBox(THREE, P ? 0.1 : 0.12, 0.06, P ? 0.12 : 0.14), outfitM);
+    elbow.position.y = -0.25; arm.add(elbow);
+    const fore = new THREE.Mesh(gBox(THREE, P ? 0.11 : 0.13, 0.2, P ? 0.13 : 0.15), outfitM);
+    fore.position.y = -0.38; arm.add(fore);
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 5), skinM);
+    hand.position.set(0, -0.48, 0); arm.add(hand);
+    return arm;
+  };
+  const armR = mkArm(1); body.add(armR);
+  const armL = mkArm(-1); body.add(armL);
   // 어깨 갑주 (양쪽)
   for (const s of [-1, 1]) {
     const paul = new THREE.Mesh(new THREE.SphereGeometry(P ? 0.11 : 0.13, 8, 6), metalM);
@@ -1760,152 +1881,213 @@ export function buildPropGeometry(THREE, kind) {
   const S = (r, w = 8, h = 6) => new THREE.SphereGeometry(r, w, h);
   const [w0, h0] = PROP_SIZE[kind] || [1.2, 1.2];
   switch (kind) {
-    case 'tree': // 층층 나뭇잎 + 줄기 (컨셉 시트의 겹겹 소나무)
+    case 'tree': // 층층 나뭇잎 + 줄기 — 껍질 능선 + 잎사귀 뭉치 + 열매 + 밑동 이끼
       P(C(0.16, 0.24, 1.2), 0x6a4a22, 0, 0.6, 0);
+      for (let i = 0; i < 3; i++) P(B(0.05, 1.0, 0.06), 0x4a3018, -0.12 + i * 0.12, 0.6, 0.2, -0.07, 0, 0); // 껍질 능선 (앞면)
+      P(S(0.08), 0x2a1c10, 0.1, 0.7, 0.21); // 옹이
       P(K(1.0, 1.4), 0x2a7a3a, 0, 1.8, 0);
       P(K(0.8, 1.2), 0x358a44, 0, 2.5, 0);
       P(K(0.55, 1.0), 0x46a354, 0, 3.1, 0);
+      P(S(0.22), 0x2f8a40, -0.35, 1.9, 0.2); // 잎사귀 뭉치 (층마다 색 다르게, 원뿔 표면에 붙여서)
+      P(S(0.2), 0x3f9a4e, 0.35, 2.5, -0.2);
+      P(S(0.18), 0x55b364, -0.25, 3.0, 0.2);
+      P(S(0.09), 0xff5a4a, 0.18, 2.8, 0.1); // 붉은 열매
+      P(B(0.5, 0.08, 0.5), 0x6a8a4a, 0, 1.25, 0); // 밑동 이끼
       break;
-    case 'pine': // 소나무 (짙은 초록 + 눈 얹은 꼭대기)
+    case 'pine': // 소나무 — 껍질 능선 + 층마다 눈 뭉치 + 솔방울
       P(C(0.14, 0.22, 1.2), 0x4a3423, 0, 0.6, 0);
+      for (let i = 0; i < 2; i++) P(B(0.05, 0.9, 0.05), 0x2a1c10, -0.08 + i * 0.16, 0.6, 0.18, -0.07, 0, 0);
       P(K(0.9, 1.3), 0x1e5a2e, 0, 1.7, 0);
       P(K(0.7, 1.1), 0x276b38, 0, 2.4, 0);
       P(K(0.5, 0.9), 0xe8f0f8, 0, 3.0, 0);
+      P(S(0.13), 0xe8f0f8, 0.55, 1.35, 0.3); // 아랫층 눈 뭉치
+      P(S(0.11), 0xe8f0f8, -0.45, 2.0, -0.35); // 중간층 눈 뭉치
+      P(K(0.12, 0.25), 0x6a4a22, 0.72, 1.12, 0.15, 0.2, 0, 0.3); // 솔방울 (아랫가지 아래에 매달려)
       break;
-    case 'deadTree': // 앙상한 고목 + 가지
+    case 'deadTree': // 앙상한 고목 + 가지 + 부러진 그루터기 + 옹이
       P(C(0.14, 0.22, 1.6), 0x4a3a28, 0, 0.8, 0);
       P(B(0.12, 1.0, 0.12), 0x4a3a28, 0.5, 2.0, 0, 0, 0, -0.7);
       P(B(0.1, 0.8, 0.1), 0x4a3a28, -0.45, 2.1, 0, 0, 0, 0.7);
       P(B(0.1, 0.7, 0.1), 0x4a3a28, 0.1, 2.5, 0, 0.5, 0, 0.2);
+      P(B(0.14, 0.3, 0.14), 0x3a2a18, 0.3, 1.2, 0.1, 0, 0, -0.4); // 부러진 가지 그루터기
+      P(S(0.08), 0x2a1c10, -0.05, 1.5, 0.18); // 옹이
       break;
-    case 'rock': // 회색 바위
-      P(B(1.4, 0.9, 1.1), 0x8d929c, 0, 0.45, 0, 0, 0.3, 0);
+    case 'rock': // 회색 바위 — 면이 꺾인 돌 + 균열 + 이끼 + 하이라이트
+      P(B(1.4, 0.9, 1.1), 0x8d929c, 0, 0.45, 0);
       P(B(0.7, 0.5, 0.6), 0xa8adb8, -0.3, 0.95, 0.1, 0, 0.6, 0);
       P(B(0.5, 0.3, 0.4), 0x6a6f78, 0.45, 0.2, -0.2, 0, -0.4, 0);
+      P(B(0.05, 0.5, 0.02), 0x4a4f58, -0.2, 0.5, 0.56, 0, 0, 0.3); // 균열 (앞면)
+      P(B(0.05, 0.35, 0.02), 0x4a4f58, 0.35, 0.35, 0.56, 0, 0, -0.5);
+      P(B(0.5, 0.08, 0.4), 0x5a7a3a, 0.35, 0.92, 0.2); // 윗면 이끼 (윗돌과 안 겹치게 오른쪽)
+      P(B(0.5, 0.06, 0.4), 0x6a8a4a, 0.4, 0.32, -0.1); // 밑동 이끼
+      P(B(0.4, 0.06, 0.3), 0xc8cdd8, -0.45, 0.92, -0.35); // 윗면 하이라이트 (뒷쪽)
       break;
-    case 'sandRock': // 모래 바위
-      P(B(1.5, 0.9, 1.1), 0xc8a86a, 0, 0.45, 0, 0, 0.3, 0);
+    case 'sandRock': // 모래 바위 — 균열 + 밝은 면
+      P(B(1.5, 0.9, 1.1), 0xc8a86a, 0, 0.45, 0);
       P(B(0.8, 0.5, 0.6), 0xd8b878, -0.3, 0.95, 0, 0, 0.6, 0);
+      P(B(0.05, 0.45, 0.02), 0x8a6a3a, 0.2, 0.5, 0.56, 0, 0, 0.4); // 균열
+      P(B(0.4, 0.06, 0.3), 0xe8c888, 0.45, 0.92, -0.35); // 윗면 하이라이트 (뒷쪽)
       break;
-    case 'bubbleRock': // 푸른 바위 (심해)
-      P(B(1.4, 0.9, 1.1), 0x5a7a9a, 0, 0.45, 0, 0, 0.3, 0);
+    case 'bubbleRock': // 푸른 바위 (심해) — 물방울 + 산호 점
+      P(B(1.4, 0.9, 1.1), 0x5a7a9a, 0, 0.45, 0);
       P(S(0.4), 0x7aa8c8, 0.3, 0.9, 0.1);
+      P(S(0.12), 0x9fd8f8, -0.4, 0.6, 0.56); // 물방울 (앞면)
+      P(S(0.09), 0xff9ec4, 0.5, 0.4, 0.56); // 산호 점 (앞면)
+      P(B(0.05, 0.4, 0.02), 0x3a5a7a, -0.1, 0.5, 0.56, 0, 0, 0.3); // 균열
       break;
-    case 'lavaRock': // 용암 바위 + 주황 균열
-      P(B(1.5, 1.0, 1.2), 0x3a2a2a, 0, 0.5, 0, 0, 0.3, 0);
+    case 'lavaRock': // 용암 바위 + 주황 균열 (2개)
+      P(B(1.5, 1.0, 1.2), 0x3a2a2a, 0, 0.5, 0);
       P(B(0.9, 0.12, 0.5), 0xff6a2a, 0, 1.02, 0, 0, 0.3, 0);
       P(B(0.5, 0.4, 0.4), 0x4a3434, -0.4, 0.3, 0.3, 0, 0.6, 0);
+      P(B(0.08, 0.5, 0.02), 0xff8a2a, 0.4, 0.5, 0.61, 0, 0, 0.4); // 앞면 용암 균열
       break;
-    case 'iceRock': // 얼음 바위
-      P(B(1.4, 0.9, 1.1), 0xa8d8e8, 0, 0.45, 0, 0, 0.3, 0);
+    case 'iceRock': // 얼음 바위 — 균열 + 하이라이트
+      P(B(1.4, 0.9, 1.1), 0xa8d8e8, 0, 0.45, 0);
       P(B(0.7, 0.5, 0.6), 0xc8e8f8, -0.3, 0.95, 0.1, 0, 0.6, 0);
+      P(B(0.05, 0.4, 0.02), 0x6a9ab8, -0.15, 0.5, 0.56, 0, 0, 0.3); // 균열
+      P(B(0.4, 0.06, 0.3), 0xffffff, 0.45, 0.92, -0.35); // 윗면 하이라이트 (뒷쪽)
       break;
-    case 'grass': // 풀잎 다발
+    case 'grass': // 풀잎 다발 — 4개 잎 + 씨앗 머리
       for (let i = -1; i <= 1; i++) P(K(0.14, 0.7), i % 2 ? 0x6fbf58 : 0x4f9a42, i * 0.25, 0.35, 0, 0, 0, i * 0.25);
+      P(K(0.11, 0.55), 0x8adf6a, 0.45, 0.28, 0.1, 0, 0, -0.35);
+      P(S(0.06), 0xd8c878, 0.55, 0.6, 0.12); // 씨앗
       break;
-    case 'flower': // 꽃 4송이
+    case 'flower': // 꽃 4송이 + 잎
       for (let i = 0; i < 4; i++) {
         const x = -0.3 + i * 0.2;
         P(C(0.02, 0.02, 0.4), 0x4f9a42, x, 0.2, 0);
         P(S(0.09), ['#ffe066', '#ff9ec4', '#b9a6ff', '#ff7a6a'][i], x, 0.45, 0);
       }
+      P(B(0.3, 0.04, 0.12), 0x4f9a42, 0, 0.12, 0, 0, 0.3, 0); // 잎
       break;
-    case 'bush': // 덤불
+    case 'bush': // 덤불 — 잎 뭉치 3색 + 열매
       P(S(0.55), 0x3f8a3a, -0.25, 0.4, 0);
       P(S(0.5), 0x4f9a42, 0.3, 0.35, 0.1);
       P(S(0.4), 0x5fa84c, 0, 0.65, -0.1);
+      P(S(0.16), 0x6fbf58, -0.5, 0.6, 0.2);
+      P(S(0.14), 0x2f7a2e, 0.45, 0.6, -0.2);
+      P(S(0.07), 0xff5a4a, 0.1, 0.85, 0.25); // 열매
+      P(S(0.06), 0xffd257, -0.75, 0.55, 0.3); // 열매
       break;
-    case 'reed': // 갈대
+    case 'reed': // 갈대 — 씨앗 머리 2개
       for (let i = -1; i <= 1; i++) P(C(0.05, 0.07, 1.3), 0x8a9a5a, i * 0.28, 0.65, 0, 0, 0, i * 0.12);
       P(K(0.08, 0.3), 0xc8b878, 0.28, 1.45, 0);
+      P(K(0.07, 0.25), 0xd8c888, -0.28, 1.4, 0.05);
       break;
-    case 'cactus': // 선인장
+    case 'cactus': // 선인장 — 가시 + 꽃
       P(C(0.22, 0.26, 1.5), 0x3f8a3a, 0, 0.75, 0);
       P(C(0.12, 0.12, 0.5), 0x3f8a3a, -0.35, 0.7, 0, 0, 0, 0.5);
       P(C(0.12, 0.12, 0.5), 0x3f8a3a, 0.35, 0.9, 0, 0, 0, -0.5);
       P(S(0.1), 0xff9ec4, 0, 1.6, 0);
+      for (let i = 0; i < 4; i++) P(K(0.04, 0.12), 0xd8e8c8, -0.15 + i * 0.1, 1.1 + (i % 2) * 0.3, 0.24, 0.5, 0, 0); // 가시
       break;
-    case 'pillar': // 돌기둥 (밑단 + 기둥 + 머리)
+    case 'pillar': // 돌기둥 (밑단 + 기둥 + 머리) — 균열 + 밑동 이끼
       P(B(0.9, 0.3, 0.9), 0x9a9a9a, 0, 0.15, 0);
       P(B(0.6, 3.0, 0.6), 0xb8b8b8, 0, 1.8, 0);
       P(B(0.9, 0.3, 0.9), 0x9a9a9a, 0, 3.45, 0);
       P(B(0.7, 0.2, 0.7), 0x8a8a8a, 0, 3.7, 0);
+      P(B(0.05, 0.8, 0.02), 0x6a6a6a, -0.1, 2.2, 0.31, 0, 0, 0.2); // 균열 (앞면)
+      P(B(0.5, 0.1, 0.5), 0x5a7a3a, 0.1, 0.32, 0.1); // 밑동 이끼
       break;
-    case 'ruinPillar': // 부서진 기둥 (기울어진 윗조각)
+    case 'ruinPillar': // 부서진 기둥 (기울어진 윗조각) — 균열 + 이끼
       P(B(0.9, 0.3, 0.9), 0x8a8578, 0, 0.15, 0);
       P(B(0.6, 2.2, 0.6), 0xa8a294, 0, 1.25, 0);
       P(B(0.6, 0.5, 0.6), 0x8a8578, 0.25, 2.5, 0, 0, 0, -0.3);
+      P(B(0.05, 0.6, 0.02), 0x6a6558, -0.12, 1.5, 0.31, 0, 0, 0.25); // 균열
+      P(B(0.4, 0.08, 0.4), 0x5a7a3a, -0.1, 0.32, 0.05); // 밑동 이끼
       break;
-    case 'coral': // 산호 가지
+    case 'coral': // 산호 가지 — 폴립 + 파란 점
       for (let i = -1; i <= 1; i++) P(C(0.08, 0.12, 1.1), 0xff7a8a, i * 0.35, 0.55, 0, 0, 0, -i * 0.4);
       P(C(0.07, 0.1, 0.9), 0xffa04a, 0, 0.7, 0.2, 0.3, 0, 0);
       P(S(0.12), 0xffd257, 0.35, 1.2, 0);
+      P(S(0.1), 0xff9ec4, -0.4, 0.9, 0.15); // 산호 폴립
+      P(S(0.08), 0x7fd8ff, 0.1, 1.0, -0.2);
       break;
-    case 'wall': // 돌담
+    case 'wall': // 돌담 — 벽돌 줄눈
       P(B(2.2, 1.5, 0.5), 0x8d8578, 0, 0.75, 0);
       P(B(2.3, 0.25, 0.6), 0x6a6258, 0, 1.6, 0);
       P(B(0.4, 0.5, 0.55), 0x7a7268, -0.7, 1.0, 0);
+      P(B(2.22, 0.06, 0.52), 0x6a6258, 0, 1.1, 0); // 벽돌 줄눈
+      P(B(2.22, 0.06, 0.52), 0x6a6258, 0, 0.5, 0);
       break;
-    case 'dock': // 나무 부두 (판자 + 말뚝)
+    case 'dock': // 나무 부두 (판자 + 말뚝) — 밧줄 뭉치
       for (let i = -1; i <= 1; i++) P(B(2.4, 0.12, 0.5), 0x8a6a3a, 0, 0.55, i * 0.55);
       for (const x of [-1.0, 1.0]) for (const z of [-0.55, 0.55]) P(C(0.09, 0.11, 0.9), 0x6a4a22, x, 0.45, z);
+      P(C(0.16, 0.16, 0.1), 0xc8b878, 0.8, 0.66, 0.3); // 밧줄 뭉치
       break;
-    case 'crate': // 나무 상자 + 테두리
+    case 'crate': // 나무 상자 + 테두리 + 세로 판자
       P(B(1.0, 1.0, 1.0), 0x9a7040, 0, 0.5, 0);
       P(B(1.05, 0.12, 1.05), 0x6a4a22, 0, 0.95, 0);
       P(B(1.05, 0.12, 1.05), 0x6a4a22, 0, 0.12, 0);
+      P(B(0.12, 1.0, 1.02), 0x6a4a22, -0.3, 0.5, 0); // 세로 판자
+      P(B(0.12, 1.0, 1.02), 0x6a4a22, 0.3, 0.5, 0);
       break;
-    case 'barrel': // 술통 + 쇠테
+    case 'barrel': // 술통 + 쇠테 (가운데 추가) + 뚜껑
       P(C(0.42, 0.38, 1.0), 0x8a5a2a, 0, 0.5, 0);
       P(C(0.44, 0.44, 0.08), 0x4a4a4a, 0, 0.85, 0);
       P(C(0.44, 0.44, 0.08), 0x4a4a4a, 0, 0.18, 0);
+      P(C(0.44, 0.44, 0.08), 0x4a4a4a, 0, 0.52, 0); // 가운데 쇠테
+      P(C(0.36, 0.36, 0.04), 0x6a4a22, 0, 1.0, 0); // 뚜껑
       break;
-    case 'anchor': // 닻
+    case 'anchor': // 닻 + 고리
       P(B(0.12, 1.3, 0.12), 0x3a3f4a, 0, 0.65, 0);
       P(B(0.8, 0.12, 0.12), 0x3a3f4a, 0, 1.2, 0);
       P(B(0.7, 0.12, 0.12), 0x3a3f4a, 0, 0.25, 0);
       for (const s of [-1, 1]) P(K(0.14, 0.35), 0x3a3f4a, s * 0.4, 0.15, 0, 0, 0, s * 0.9);
+      P(C(0.16, 0.16, 0.06), 0x2a2f3a, 0, 1.38, 0, 0.5, 0, 0); // 닻 고리
       break;
-    case 'buoy': // 부표 (빨강·흰 줄무늬)
+    case 'buoy': // 부표 (빨강·흰 줄무늬) — 빨간 줄무늬 추가
       P(C(0.3, 0.42, 0.5), 0xc03030, 0, 0.25, 0);
       P(C(0.36, 0.3, 0.35), 0xf2f2f2, 0, 0.65, 0);
       P(K(0.3, 0.4), 0xc03030, 0, 1.0, 0);
       P(S(0.08), 0xffd257, 0, 1.25, 0);
+      P(C(0.34, 0.34, 0.06), 0xc03030, 0, 0.5, 0); // 빨간 줄무늬
       break;
-    case 'boat': // 배 (선체 + 돛대 + 돛)
+    case 'boat': // 배 (선체 + 돛대 + 돛) — 선체 줄무늬 + 깃발
       P(B(2.4, 0.5, 0.9), 0x6a4a22, 0, 0.35, 0);
       P(B(1.8, 0.4, 0.7), 0x8a6a3a, 0, 0.7, 0);
       P(C(0.06, 0.08, 1.4), 0x4a3423, 0, 1.4, 0);
       P(B(0.9, 1.0, 0.04), 0xf2e6c8, 0, 1.5, 0.3, 0, 0.3, 0);
+      P(B(2.42, 0.1, 0.92), 0x4a3423, 0, 0.55, 0); // 선체 줄무늬
+      P(B(0.3, 0.2, 0.02), 0xc03030, 0, 2.15, 0); // 깃발
       break;
-    case 'brazier': // 화로 (받침 + 불꽃)
+    case 'brazier': // 화로 (받침 + 불꽃) — 불씨 추가
       P(C(0.3, 0.4, 0.4), 0x3a3f4a, 0, 0.2, 0);
       P(C(0.08, 0.12, 0.8), 0x3a3f4a, 0, 0.8, 0);
       P(C(0.35, 0.15, 0.35), 0x2a2f3a, 0, 1.3, 0);
       P(K(0.22, 0.5), 0xff8a2a, 0, 1.65, 0);
       P(S(0.1), 0xffd257, 0, 1.5, 0);
+      P(S(0.06), 0xff6a2a, 0.15, 1.85, 0.1); // 불씨
+      P(S(0.05), 0xffd257, -0.12, 1.8, -0.08);
       break;
-    case 'mushroom': // 버섯 (줄기 + 빨간 갓 + 흰 점)
+    case 'mushroom': // 버섯 — 줄기 + 빨간 갓 + 흰 점 + 작은 버섯
       P(C(0.22, 0.3, 0.8), 0xf2ead0, 0, 0.4, 0);
       P(S(0.55), 0xc03030, 0, 0.95, 0);
       P(S(0.09), 0xffffff, -0.25, 1.25, 0.3);
       P(S(0.07), 0xffffff, 0.2, 1.3, 0.35);
       P(S(0.07), 0xffffff, 0.05, 1.1, -0.4);
+      P(C(0.12, 0.16, 0.4), 0xf2ead0, 0.5, 0.2, 0.25); // 작은 버섯 줄기
+      P(S(0.28), 0xd84848, 0.5, 0.5, 0.25); // 작은 버섯 갓
+      P(S(0.05), 0xffffff, 0.4, 0.68, 0.4);
       break;
-    case 'crystal': // 수정 (기울어진 결정 3개)
+    case 'crystal': // 수정 — 기울어진 결정 3개 + 받침
       P(K(0.28, 1.4), 0x7fd8ff, -0.25, 0.7, 0, 0, 0, 0.25);
       P(K(0.24, 1.1), 0x9fe8ff, 0.25, 0.55, 0.1, 0, 0, -0.2);
       P(K(0.18, 0.8), 0x5ab8e8, 0, 0.4, -0.15, 0.2, 0, 0);
+      P(B(0.9, 0.1, 0.9), 0x3a6a8a, 0, 0.05, 0); // 수정 받침
       break;
-    case 'tent': // 천막 (원뿔 + 기둥)
+    case 'tent': // 천막 (원뿔 + 기둥) — 입구 + 깃발
       P(K(1.2, 1.6), 0xc8b878, 0, 1.1, 0);
       P(C(0.06, 0.06, 0.6), 0x6a4a22, 0, 2.1, 0);
       P(B(2.2, 0.15, 1.6), 0x8a7a5a, 0, 0.08, 0);
+      P(B(0.5, 0.9, 0.12), 0x4a3423, 0, 0.45, 1.08); // 입구
+      P(B(0.25, 0.18, 0.02), 0xc03030, 0, 2.45, 0); // 깃발
       break;
-    case 'fence': // 울타리 (말뚝 2개 + 가로대)
+    case 'fence': // 울타리 (말뚝 2개 + 가로대) — 뾰족 머리
       for (const x of [-0.9, 0.9]) P(B(0.12, 1.2, 0.12), 0x8a6a3a, x, 0.6, 0);
       P(B(2.0, 0.12, 0.08), 0x8a6a3a, 0, 1.0, 0);
       P(B(2.0, 0.12, 0.08), 0x8a6a3a, 0, 0.55, 0);
+      for (const x of [-0.9, 0.9]) P(K(0.1, 0.18), 0x6a4a22, x, 1.28, 0); // 말뚝 뾰족 머리
       break;
     default: // 알 수 없는 종류는 회색 상자
       P(B(w0, h0 * 0.7, w0), 0x8a8a8a, 0, h0 * 0.35, 0);
