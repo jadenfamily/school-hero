@@ -841,8 +841,238 @@ export function makePlayer(THREE, family = 'sword', av = null, equip = null, app
     polish: true, costumeId: armor && armor.costume ? armor.costume : null,
   });
 }
+// ---------- 도트(복셀) 스타일 몬스터 도우미 ----------
+// 몬스터는 구·원뿔·원기둥·토러스를 쓰지 않고 상자(복셀)만으로 만든다.
+// 치수는 0.04m 복셀 격자에 맞춰져 도트 스타일 지도 텍스처와 같은 결을 낸다.
+// (주인공·동료의 makeHumanoid3D는 건드리지 않는다 — 몬스터 전용.)
+const VOX = 0.04;
+const vq = (n) => Math.max(VOX, Math.round(n / VOX) * VOX);
+function vBoxMesh(THREE, w, h, d, m) {
+  return new THREE.Mesh(gBox(THREE, vq(w), vq(h), vq(d)), m);
+}
+// 복셀 구: 층층이 쌓은 상자 (작으면 상자 하나)
+function vBall(THREE, r, m) {
+  if (r <= 0.16) return vBoxMesh(THREE, 2 * r, 2 * r, 2 * r, m);
+  const g = new THREE.Group();
+  const layers = r > 0.3
+    ? [[0.62, -0.78], [0.92, -0.42], [1, 0], [0.92, 0.42], [0.62, 0.78]]
+    : [[0.7, -0.6], [1, 0], [0.7, 0.6]];
+  const th = r > 0.3 ? 0.44 * r : 0.8 * r;
+  for (const [f, dy] of layers) {
+    const b = vBoxMesh(THREE, 2 * r * f, th, 2 * r * f, m);
+    b.position.y = dy * r; g.add(b);
+  }
+  return g;
+}
+// 복셀 원뿔(피라미드): 아래가 넓고 위로 좁아지는 층층 상자
+function vPyr(THREE, r, h, m) {
+  if (r <= 0.12 || h <= 0.25) return vBoxMesh(THREE, 2 * r, h, 2 * r, m);
+  const g = new THREE.Group();
+  for (const [f, dy, th] of [[1, -0.3, 0.4], [0.66, 0.05, 0.35], [0.33, 0.35, 0.25]]) {
+    const b = vBoxMesh(THREE, 2 * r * f, th * h, 2 * r * f, m);
+    b.position.y = dy * h; g.add(b);
+  }
+  return g;
+}
+// 복셀 기둥: 네모 단면 상자 (위아래 굵기가 다르면 두 단으로)
+function vRod(THREE, rt, rb, h, m) {
+  if (Math.abs(rt - rb) <= 0.05) return vBoxMesh(THREE, 2 * Math.max(rt, rb), h, 2 * Math.max(rt, rb), m);
+  const g = new THREE.Group();
+  const b = vBoxMesh(THREE, 2 * rb, 0.5 * h, 2 * rb, m); b.position.y = -0.25 * h; g.add(b);
+  const t = vBoxMesh(THREE, 2 * rt, 0.5 * h, 2 * rt, m); t.position.y = 0.25 * h; g.add(t);
+  return g;
+}
+
+// 복셀 무기 8종 (상자만으로 만든 뭉툭한 무기 — 손잡이가 위, 날이 아래로 향한다)
+function buildVoxelWeapon(THREE, fam, accent = 0x4a6bd6) {
+  const g = new THREE.Group();
+  const metal = mat(THREE, 0xdfe7f2);
+  const wood = mat(THREE, 0x8a6a3a);
+  const woodD = mat(THREE, 0x6a4a22);
+  const accentM = mat(THREE, accent);
+  const white = mat(THREE, 0xffffff);
+  const add = (mesh, x = 0, y = 0, z = 0) => { mesh.position.set(x, y, z); g.add(mesh); return mesh; };
+  const bx = (w, h, d, m) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+  switch (fam) {
+    case 'dagger': {
+      add(bx(0.06, 0.12, 0.06, woodD), 0, -0.06, 0);
+      add(bx(0.14, 0.04, 0.06, metal), 0, -0.14, 0);
+      add(bx(0.08, 0.2, 0.03, metal), 0, -0.26, 0);
+      add(bx(0.04, 0.08, 0.03, metal), 0, -0.4, 0);
+      add(bx(0.08, 0.06, 0.06, metal), 0, 0.02, 0);
+      break;
+    }
+    case 'axe': {
+      add(bx(0.06, 0.42, 0.06, wood), 0, -0.26, 0);
+      add(bx(0.3, 0.2, 0.05, metal), 0, -0.48, 0);
+      add(bx(0.22, 0.14, 0.04, metal), 0, -0.48, -0.06);
+      add(bx(0.06, 0.1, 0.06, metal), 0, -0.62, 0);
+      break;
+    }
+    case 'mace': {
+      add(bx(0.06, 0.4, 0.06, wood), 0, -0.25, 0);
+      add(bx(0.2, 0.2, 0.2, metal), 0, -0.47, 0);
+      for (const [sx, sy, sz] of [[0.12, 0, 0], [-0.12, 0, 0], [0, 0.12, 0], [0, -0.12, 0], [0, 0, 0.12], [0, 0, -0.12]]) {
+        add(bx(0.06, 0.06, 0.06, metal), sx, -0.47 + sy, sz);
+      }
+      break;
+    }
+    case 'bow': {
+      const limbT = bx(0.05, 0.4, 0.05, wood); limbT.position.set(0, 0.2, -0.07); limbT.rotation.x = -0.4; g.add(limbT);
+      const limbB = bx(0.05, 0.4, 0.05, wood); limbB.position.set(0, -0.2, -0.07); limbB.rotation.x = 0.4; g.add(limbB);
+      add(bx(0.06, 0.06, 0.06, metal), 0, 0.38, -0.14);
+      add(bx(0.06, 0.06, 0.06, metal), 0, -0.38, -0.14);
+      add(bx(0.02, 0.72, 0.02, mat(THREE, 0xf2ead0)), 0, 0, -0.22);
+      add(bx(0.06, 0.12, 0.06, woodD), 0, 0, 0);
+      add(bx(0.04, 0.04, 0.5, mat(THREE, 0xdcc39a)), 0, 0, 0.12); // 화살 (뭉툭한 상자)
+      break;
+    }
+    case 'crossbow': {
+      add(bx(0.08, 0.08, 0.42, wood), 0, -0.05, 0.05);
+      add(bx(0.44, 0.06, 0.06, metal), 0, -0.02, 0.22);
+      add(bx(0.06, 0.08, 0.06, metal), 0, 0.04, 0.05);
+      add(bx(0.12, 0.04, 0.04, woodD), 0, -0.05, -0.16);
+      add(bx(0.04, 0.04, 0.34, mat(THREE, 0xd7e2f0)), 0, 0.02, 0.12);
+      break;
+    }
+    case 'staff': {
+      add(bx(0.06, 0.85, 0.06, wood), 0, -0.05, 0);
+      add(bx(0.2, 0.2, 0.2, accentM), 0, 0.48, 0);
+      add(bx(0.08, 0.08, 0.08, accentM), 0.22, 0.48, 0);
+      add(bx(0.08, 0.08, 0.08, accentM), -0.22, 0.48, 0);
+      add(bx(0.06, 0.1, 0.06, metal), 0, -0.52, 0);
+      break;
+    }
+    case 'book': {
+      add(bx(0.32, 0.06, 0.42, accentM), 0, -0.12, 0);
+      add(bx(0.27, 0.05, 0.37, mat(THREE, 0xf7f0d8)), 0, -0.1, 0);
+      add(bx(0.34, 0.05, 0.06, woodD), 0, -0.12, -0.19);
+      add(bx(0.05, 0.02, 0.14, mat(THREE, 0xc0392b)), 0.1, -0.1, 0.24);
+      add(bx(0.1, 0.1, 0.1, accentM), 0, 0.22, 0);
+      break;
+    }
+    case 'sword':
+    default: {
+      add(bx(0.06, 0.14, 0.06, woodD), 0, -0.07, 0);
+      add(bx(0.2, 0.05, 0.06, metal), 0, -0.15, 0);
+      add(bx(0.1, 0.3, 0.03, metal), 0, -0.32, 0);
+      add(bx(0.02, 0.26, 0.04, white), 0, -0.32, 0);
+      add(bx(0.05, 0.1, 0.03, metal), 0, -0.5, 0);
+      add(bx(0.08, 0.08, 0.04, accentM), 0, -0.15, 0.05);
+      add(bx(0.08, 0.06, 0.06, metal), 0, 0.02, 0);
+      break;
+    }
+  }
+  return g;
+}
+
+// 복셀 휴머노이드 몬스터 (makeHumanoid3D와 같은 userData 인터페이스·같은 앵커 높이 —
+// 고블린 귀·마녀 모자 등 도형별 특징 코드가 그대로 붙는다. 상자만 쓴다.)
+function makeVoxelHumanoid3D(THREE, opts = {}) {
+  const skin = opts.skin != null ? opts.skin : 0xf2c9a0;
+  const uniform = opts.uniform != null ? opts.uniform : 0x2b3a66;
+  const hairCol = opts.hair != null ? opts.hair : 0x1e2130;
+  const accent = opts.accent != null ? opts.accent : 0x4a6bd6;
+  const fam = opts.weaponFam || 'sword';
+  const bulk = opts.bulk || 1;
+  const eyeCol = opts.eyeColor != null ? opts.eyeColor : 0xffffff;
+  const skinM = mat(THREE, skin);
+  const uniM = mat(THREE, uniform);
+  const hairM = mat(THREE, hairCol);
+  const pantsM = mat(THREE, 0x2c3242);
+  const capeM = mat(THREE, accent);
+  const metalM = mat(THREE, 0xdfe7f2);
+  const darkM = mat(THREE, 0x20242e);
+  const eyeM = mat(THREE, eyeCol);
+  const capeDark = mat(THREE, new THREE.Color(accent).multiplyScalar(0.7).getHex());
+  const mouthM = mat(THREE, 0x8a4a3a);
+
+  const g = new THREE.Group();
+  g.add(blobShadow(THREE, 0.42));
+  const add = (mesh, x, y, z, parent) => { mesh.position.set(x, y, z); (parent || g).add(mesh); return mesh; };
+
+  // 다리 (고관절 y=0.55에서 회전) + 부츠
+  const legGeo = new THREE.BoxGeometry(0.16, 0.5, 0.16);
+  legGeo.translate(0, -0.25, 0);
+  const bootGeo = new THREE.BoxGeometry(0.18, 0.1, 0.26);
+  const legL = new THREE.Group(); legL.position.set(-0.11 * bulk, 0.55, 0);
+  legL.add(new THREE.Mesh(legGeo, pantsM));
+  const bootL = new THREE.Mesh(bootGeo, darkM); bootL.position.set(0, -0.5, 0.03); legL.add(bootL);
+  g.add(legL);
+  const legR = new THREE.Group(); legR.position.set(0.11 * bulk, 0.55, 0);
+  legR.add(new THREE.Mesh(legGeo, pantsM));
+  const bootR = new THREE.Mesh(bootGeo, darkM); bootR.position.set(0, -0.5, 0.03); legR.add(bootR);
+  g.add(legR);
+  if (opts.robe) {
+    // 로브 치마 (층층 상자 — 위 좁고 아래 넓게)
+    const sk1 = new THREE.Mesh(new THREE.BoxGeometry(0.52 * bulk, 0.2, 0.32), uniM);
+    sk1.position.y = 0.72; g.add(sk1);
+    const sk2 = new THREE.Mesh(new THREE.BoxGeometry(0.64 * bulk, 0.24, 0.44), uniM);
+    sk2.position.y = 0.5; g.add(sk2);
+  }
+
+  // 몸통 그룹 (자식은 절대 높이로 배치)
+  const body = new THREE.Group(); body.userData.baseY = 0; g.add(body);
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.56, 0.3), uniM);
+  torso.scale.x = bulk; torso.position.y = 0.85; body.add(torso);
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.34, 0.05), metalM);
+  plate.scale.x = bulk; plate.position.set(0, 0.9, 0.16); body.add(plate);
+  const belt = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.08, 0.32), capeM);
+  belt.scale.x = bulk; belt.position.y = 0.6; body.add(belt);
+  const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.04), metalM);
+  buckle.position.set(0, 0.6, 0.17); body.add(buckle);
+  const cape = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.72, 0.05), capeM);
+  cape.scale.x = bulk; cape.position.set(0, 0.82, -0.19); body.add(cape);
+  const hem = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.1, 0.06), capeDark);
+  hem.scale.x = bulk; hem.position.set(0, 0.48, -0.19); body.add(hem);
+
+  // 머리 (상자 + 박스 눈·코·입 — 도트 얼굴)
+  const head = new THREE.Group(); head.position.y = 1.42; body.add(head);
+  add(new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.48, 0.48), skinM), 0, 0, 0, head);
+  add(new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.2, 0.5), hairM), 0, 0.24, -0.02, head);
+  if (opts.longHair) {
+    add(new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.52, 0.1), hairM), 0, -0.2, -0.26, head);
+  }
+  for (const s of [-1, 1]) {
+    add(new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.04), eyeM), 0.11 * s, 0.02, 0.26, head);
+    add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.03, 0.02), hairM), 0.11 * s, 0.14, 0.26, head);
+  }
+  add(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 0.04), skinM), 0, -0.03, 0.28, head);
+  add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.02, 0.02), mouthM), 0, -0.14, 0.27, head);
+
+  // 팔 (어깨 y=1.08에서 회전) + 어깨 갑주 + 무기
+  const armGeo = new THREE.BoxGeometry(0.14, 0.5, 0.16);
+  armGeo.translate(0, -0.22, 0);
+  const armR = new THREE.Group(); armR.position.set(0.33 * bulk, 1.08, 0);
+  armR.add(new THREE.Mesh(armGeo, uniM));
+  add(new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), skinM), 0, -0.48, 0, armR);
+  body.add(armR);
+  const armL = new THREE.Group(); armL.position.set(-0.33 * bulk, 1.08, 0);
+  armL.add(new THREE.Mesh(armGeo, uniM));
+  add(new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), skinM), 0, -0.48, 0, armL);
+  body.add(armL);
+  for (const s of [-1, 1]) {
+    const paul = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.12, 0.2), metalM);
+    paul.position.set(0.36 * bulk * s, 1.14, 0); body.add(paul);
+  }
+  const weaponGroup = new THREE.Group();
+  weaponGroup.position.set(0, -0.48, 0.04);
+  armR.add(weaponGroup);
+  const weapon = buildVoxelWeapon(THREE, fam, accent);
+  weaponGroup.add(weapon);
+
+  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  if (opts.scale) g.scale.setScalar(opts.scale);
+  g.userData = {
+    avatar: null, height: 1.9, headY: 1.6, radius: 0.42,
+    armR, armL, legL, legR, body, head, weapon, weaponGroup,
+    isHeroSprite: false,
+  };
+  return g;
+}
+
 // ---------- 몬스터 3D ----------
-// 빌보드 스프라이트 대신 로우폴리 3D 모델 (주인공 휴머노이드와 같은 덩어리 스타일).
+// 빌보드 스프라이트 대신 도트(복셀) 3D 모델 — 상자만으로 만든다.
 // 지오메트리는 도형별로 공유(캐시)하고, 재질은 인형마다 새로 만든다
 // (피격 플래시·색상 틴트가 인형별로 동작해야 하기 때문).
 const MONSTER_H = {
@@ -863,10 +1093,11 @@ export function makeMonster3D(THREE, def) {
   const tintMats = [];
   const tm = (c) => { const m = mat(THREE, c); m.userData.base = new THREE.Color(c); tintMats.push(m); return m; };
   const bm = (c) => new THREE.MeshBasicMaterial({ color: c });
-  const pBox = (w, h, d, m) => new THREE.Mesh(gBox(THREE, w, h, d), m);
-  const pSph = (r, m, w = 8, h = 6) => new THREE.Mesh(gSphere(THREE, r, w, h), m);
-  const pCon = (r, h, m, s = 6) => new THREE.Mesh(gCone(THREE, r, h, s), m);
-  const pCyl = (rt, rb, h, m, s = 6) => new THREE.Mesh(gCyl(THREE, rt, rb, h, s), m);
+  // 도트 스타일: 구·원뿔·원기둥 대신 복셀 상자만 쓴다 (vBall/vPyr/vRod).
+  const pBox = (w, h, d, m) => vBoxMesh(THREE, w, h, d, m);
+  const pSph = (r, m) => vBall(THREE, r, m);
+  const pCon = (r, h, m) => vPyr(THREE, r, h, m);
+  const pCyl = (rt, rb, h, m) => vRod(THREE, rt, rb, h, m);
   const bodyM = tm(color);
   const darkM = tm(dark);
   const eyeM = bm(0x1a1a22);
@@ -884,7 +1115,7 @@ export function makeMonster3D(THREE, def) {
     put(pSph(r, eyeM, 6, 5), xOff, y, z);
   };
 
-  // ---- 휴머노이드형 (makeHumanoid3D 변형 + 도형별 특징) ----
+  // ---- 휴머노이드형 (복셀 휴머노이드 + 도형별 특징) ----
   const HUM = {
     goblin: { scale: 0.6, weaponFam: 'dagger', bulk: 0.9 },
     orc: { scale: 0.75, weaponFam: 'mace', bulk: 1.2 },
@@ -901,27 +1132,26 @@ export function makeMonster3D(THREE, def) {
   };
   if (HUM[shape]) {
     const cfg = HUM[shape];
-    const av = (cfg.longHair || cfg.robe)
-      ? { skin: color, uniform: dark, hair: dark, pants: dark, hairStyle: 'long', skirt: !!cfg.robe, ribbon: 0, iris: shape === 'skeleton' ? 0x9fe8ff : shape === 'mummy' ? 0x1a1a22 : 0xffffff }
-      : null;
-    const hg = makeHumanoid3D(THREE, {
-      avatar: av, skin: color, uniform: dark, hair: dark, accent: color,
-      weaponFam: cfg.weaponFam, grade: 0, scale: cfg.scale * bossMul, bulk: cfg.bulk, robe: !!cfg.robe,
+    const hg = makeVoxelHumanoid3D(THREE, {
+      skin: color, uniform: dark, hair: dark, accent: color,
+      weaponFam: cfg.weaponFam, scale: cfg.scale * bossMul, bulk: cfg.bulk,
+      robe: !!cfg.robe, longHair: !!cfg.longHair,
+      eyeColor: shape === 'skeleton' ? 0x9fe8ff : shape === 'mummy' ? 0x1a1a22 : 0xffffff,
     });
     const head = hg.userData.head;
     const hM = mat(THREE, dark);
     if (shape === 'goblin') {
       for (const s of [-1, 1]) {
-        const ear = new THREE.Mesh(gCone(THREE, 0.09, 0.22, 4), hM);
+        const ear = pCon(0.09, 0.22, hM);
         ear.position.set(0.32 * s, 0.12, 0); ear.rotation.z = s * -1.1; head.add(ear);
       }
-      const nose = new THREE.Mesh(gCone(THREE, 0.05, 0.12, 4), hM);
+      const nose = pCon(0.05, 0.12, hM);
       nose.position.set(0, -0.05, 0.32); nose.rotation.x = Math.PI / 2; head.add(nose);
       const teeth = new THREE.Mesh(gBox(THREE, 0.14, 0.04, 0.02), mat(THREE, 0xffffff));
       teeth.position.set(0, -0.2, 0.28); head.add(teeth);
     } else if (shape === 'orc') {
       for (const s of [-1, 1]) {
-        const tusk = new THREE.Mesh(gCone(THREE, 0.035, 0.12, 4), mat(THREE, 0xf2ead0));
+        const tusk = pCon(0.035, 0.12, mat(THREE, 0xf2ead0));
         tusk.position.set(0.09 * s, -0.22, 0.26); head.add(tusk);
       }
       const brow = new THREE.Mesh(gBox(THREE, 0.34, 0.05, 0.04), hM);
@@ -929,15 +1159,15 @@ export function makeMonster3D(THREE, def) {
       const jaw = new THREE.Mesh(gBox(THREE, 0.2, 0.05, 0.03), mat(THREE, 0xf2ead0));
       jaw.position.set(0, -0.24, 0.27); head.add(jaw);
     } else if (shape === 'lizard') {
-      const tail = new THREE.Mesh(gCone(THREE, 0.12, 0.7, 6), darkM);
+      const tail = pCon(0.12, 0.7, darkM);
       tail.position.set(0, 0.5, -0.4); tail.rotation.x = 1.9; hg.add(tail);
       for (let i = 0; i < 3; i++) { // 등 가시
-        const sp = new THREE.Mesh(gCone(THREE, 0.06, 0.18, 4), darkM);
+        const sp = pCon(0.06, 0.18, darkM);
         sp.position.set(0, 0.78 + i * 0.22, -0.2); sp.rotation.x = -0.5; hg.add(sp);
       }
     } else if (shape === 'mummy') {
       for (const s of [-1, 1]) {
-        const ge = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 5), bm(0xffc93c));
+        const ge = pSph(0.06, bm(0xffc93c));
         ge.position.set(0.11 * s, 0.02, 0.27); head.add(ge);
       }
       // 붕대 띠 (몸통 대각선 + 머리)
@@ -949,30 +1179,31 @@ export function makeMonster3D(THREE, def) {
       const hband = new THREE.Mesh(gBox(THREE, 0.5, 0.07, 0.5), bandM);
       hband.position.set(0, 0.18, 0); head.add(hband);
     } else if (shape === 'witch') {
-      const hat = new THREE.Mesh(gCone(THREE, 0.3, 0.55, 8), hM);
+      const hat = pCon(0.3, 0.55, hM);
       hat.position.set(0, 0.42, -0.02); head.add(hat);
-      const brim = new THREE.Mesh(gCyl(THREE, 0.42, 0.42, 0.04, 12), hM);
+      const brim = pCyl(0.42, 0.42, 0.04, hM);
       brim.position.set(0, 0.16, 0); head.add(brim);
-      const wart = new THREE.Mesh(gSphere(THREE, 0.04, 6, 5), mat(THREE, 0x6a8a3a));
+      const wart = pSph(0.04, mat(THREE, 0x6a8a3a));
       wart.position.set(0.05, -0.05, 0.3); head.add(wart);
-      const bottle = new THREE.Mesh(gCyl(THREE, 0.05, 0.05, 0.14, 6), tm(0x7fd06a));
+      const bottle = pCyl(0.05, 0.05, 0.14, tm(0x7fd06a));
       bottle.position.set(0.24, 0.62, 0.16); hg.userData.body.add(bottle);
     } else if (shape === 'anubis') {
       const snout = new THREE.Mesh(gBox(THREE, 0.22, 0.16, 0.3), hM);
       snout.position.set(0, -0.06, 0.3); head.add(snout);
       for (const s of [-1, 1]) {
-        const ear = new THREE.Mesh(gCone(THREE, 0.09, 0.34, 4), hM);
+        const ear = pCon(0.09, 0.34, hM);
         ear.position.set(0.14 * s, 0.36, 0); head.add(ear);
       }
-      const collar = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.035, 6, 14), mat(THREE, 0xd8a93c));
-      collar.rotation.x = Math.PI / 2; collar.position.set(0, 1.22, 0); hg.add(collar);
+      // 목 칼라 (복셀 판 — 토러스 대신 납작한 상자)
+      const collar = pBox(0.44, 0.06, 0.44, mat(THREE, 0xd8a93c));
+      collar.position.set(0, 1.22, 0); hg.add(collar);
       for (const s of [-1, 1]) { // 눈가 줄무늬
         const stripe = new THREE.Mesh(gBox(THREE, 0.05, 0.14, 0.02), hM);
         stripe.position.set(0.17 * s, 0.02, 0.26); stripe.rotation.z = s * 0.4; head.add(stripe);
       }
     } else if (shape === 'barbarian') {
       for (const s of [-1, 1]) {
-        const horn = new THREE.Mesh(gCone(THREE, 0.07, 0.26, 4), mat(THREE, 0xf2ead0));
+        const horn = pCon(0.07, 0.26, mat(THREE, 0xf2ead0));
         horn.position.set(0.3 * s, 0.22, 0); horn.rotation.z = s * -0.9; head.add(horn);
       }
       // 모피 허리띠 + 등 모피
@@ -982,20 +1213,20 @@ export function makeMonster3D(THREE, def) {
       const furBack = new THREE.Mesh(gBox(THREE, 0.4, 0.5, 0.05), furM);
       furBack.position.set(0, 0.85, -0.22); hg.userData.body.add(furBack);
     } else if (shape === 'siren') {
-      const pin = new THREE.Mesh(gSphere(THREE, 0.07, 6, 5), mat(THREE, 0xffffff));
+      const pin = pSph(0.07, mat(THREE, 0xffffff));
       pin.position.set(0.3, 0.14, 0.05); head.add(pin);
-      const shell = new THREE.Mesh(gSphere(THREE, 0.09, 6, 5), mat(THREE, 0xf2d8e8));
+      const shell = pSph(0.09, mat(THREE, 0xf2d8e8));
       shell.position.set(0, 1.0, 0.18); hg.userData.body.add(shell);
     } else if (shape === 'merfolk') {
       for (let i = 0; i < 3; i++) { // 꼬리 지느러미 능선
-        const fin = new THREE.Mesh(gCone(THREE, 0.06, 0.2, 4), darkM);
+        const fin = pCon(0.06, 0.2, darkM);
         fin.position.set(0, 0.55 - i * 0.18, -0.28); fin.rotation.x = -0.7; hg.add(fin);
       }
-      const shell = new THREE.Mesh(gSphere(THREE, 0.09, 6, 5), mat(THREE, 0xf2d8e8));
+      const shell = pSph(0.09, mat(THREE, 0xf2d8e8));
       shell.position.set(0, 1.0, 0.18); hg.userData.body.add(shell);
     } else if (shape === 'naga') {
       for (const s of [-1, 1]) { // 코브라 후드
-        const hood = new THREE.Mesh(gCone(THREE, 0.16, 0.4, 4), darkM);
+        const hood = pCon(0.16, 0.4, darkM);
         hood.position.set(0.2 * s, 0.08, -0.18); hood.rotation.z = s * 0.5; head.add(hood);
       }
       const tongue = new THREE.Mesh(gBox(THREE, 0.04, 0.02, 0.14), mat(THREE, 0xd84a5a));
@@ -1009,14 +1240,14 @@ export function makeMonster3D(THREE, def) {
     if (cfg.noLegs) {
       hg.remove(hg.userData.legL); hg.remove(hg.userData.legR);
       if (cfg.tail === 'fish') {
-        const tail = new THREE.Mesh(gCone(THREE, 0.34, 0.9, 6), tm(color));
+        const tail = pCon(0.34, 0.9, tm(color));
         tail.position.set(0, 0.35, -0.05); tail.rotation.x = Math.PI; hg.add(tail);
         const fin = new THREE.Mesh(gBox(THREE, 0.5, 0.08, 0.3), tm(dark));
         fin.position.set(0, 0.05, -0.15); hg.add(fin);
       } else {
-        const s1 = new THREE.Mesh(gSphere(THREE, 0.34, 8, 6), tm(dark)); s1.position.set(0, 0.32, 0); hg.add(s1);
-        const s2 = new THREE.Mesh(gSphere(THREE, 0.26, 8, 6), tm(dark)); s2.position.set(0, 0.14, -0.08); hg.add(s2);
-        const tip = new THREE.Mesh(gCone(THREE, 0.16, 0.5, 6), tm(dark)); tip.position.set(0, 0.1, -0.3); tip.rotation.x = 1.4; hg.add(tip);
+        const s1 = pSph(0.34, tm(dark)); s1.position.set(0, 0.32, 0); hg.add(s1);
+        const s2 = pSph(0.26, tm(dark)); s2.position.set(0, 0.14, -0.08); hg.add(s2);
+        const tip = pCon(0.16, 0.5, tm(dark)); tip.position.set(0, 0.1, -0.3); tip.rotation.x = 1.4; hg.add(tip);
       }
     }
     hg.traverse((o) => {
@@ -1040,9 +1271,9 @@ export function makeMonster3D(THREE, def) {
     const blob = pSph(0.5, bodyM); blob.scale.set(1, 0.72, 1); put(blob, 0, 0.36, 0);
     put(pCon(0.26, 0.32, bodyM), 0, 0.8, 0);
     eyes(0.45, 0.18, 0.42, 0.06);
-    put(pBox(0.16, 0.03, 0.02, darkM), 0, 0.32, 0.48); // 입
-    const shine = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, depthWrite: false }));
-    shine.scale.set(1, 0.6, 0.6); put(shine, -0.2, 0.6, 0.32); // 광택
+    put(pBox(0.16, 0.03, 0.02, darkM), 0, 0.32, 0.52); // 입 (복셀 몸통 앞면에 닿게)
+    const shine = pBox(0.16, 0.1, 0.04, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, depthWrite: false }));
+    put(shine, -0.2, 0.6, 0.3); // 광택
     top = 0.96; radius = 0.5;
   } else if (shape === 'frog') {
     const b = pSph(0.6, bodyM); b.scale.set(1, 0.62, 1.1); put(b, 0, 0.34, 0);
@@ -1068,7 +1299,7 @@ export function makeMonster3D(THREE, def) {
       const wing = pBox(0.34, 0.1, 0.7, darkM); put(wing, 0.2 * s, 0.52, -0.1);
     }
     put(pBox(0.03, 0.08, 0.7, tm(0x2a4a6a)), 0, 0.54, -0.1); // 날개집 가운데 선
-    put(pSph(0.07, tm(0xffd257), 6, 5), 0, 0.48, 0.6); // 머리 보석
+    put(pSph(0.07, tm(0xffd257), 6, 5), 0, 0.48, 0.66); // 머리 보석 (복셀 머리 앞면에 닿게)
     top = 0.7; radius = 0.55;
   } else if (shape === 'crab') {
     put(pBox(1.15, 0.32, 0.7, bodyM), 0, 0.32, 0);
@@ -1121,8 +1352,8 @@ export function makeMonster3D(THREE, def) {
     }
     put(pSph(0.09, tm(0x5a8a3a), 6, 5), -0.55, 1.7, 0.1);
     put(pSph(0.07, tm(0x5a8a3a), 6, 5), 0.5, 1.68, 0.12);
-    const core = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.85 }));
-    core.position.set(0, 1.2, 0.32); body.add(core);
+    const core = pBox(0.2, 0.2, 0.08, new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.85 }));
+    core.position.set(0, 1.2, 0.34); body.add(core);
     top = 2.15; radius = 0.6;
   } else if (shape === 'ent') {
     put(pCyl(0.32, 0.42, 1.5, bodyM, 8), 0, 0.75, 0);
@@ -1166,7 +1397,7 @@ export function makeMonster3D(THREE, def) {
       const a = (i / 6) * Math.PI * 2;
       const tent = pCon(0.16, 1.0, darkM); tent.position.set(Math.cos(a) * 0.7, 0.55, Math.sin(a) * 0.7);
       tent.rotation.z = Math.cos(a) * 0.35; tent.rotation.x = -Math.sin(a) * 0.35; body.add(tent);
-      put(pSph(0.05, tm(0xf2f2f2), 6, 5), Math.cos(a) * 0.78, 0.3, Math.sin(a) * 0.78); // 빨판
+      put(pSph(0.05, tm(0xf2f2f2), 6, 5), Math.cos(a) * 0.84, 0.3, Math.sin(a) * 0.84); // 빨판 (복셀 촉수 바깥면에 닿게)
     }
     for (const s of [-1, 1]) {
       const up = pCon(0.18, 1.1, darkM); up.position.set(0.85 * s, 1.6, 0); up.rotation.z = s * -0.7; body.add(up);
@@ -1182,7 +1413,7 @@ export function makeMonster3D(THREE, def) {
     put(pBox(0.22, 0.16, 0.3, darkM), 0, 1.94, 1.18);
     for (const s of [-1, 1]) {
       const horn = pCon(0.07, 0.3, tm(0xf2ead0)); horn.position.set(0.14 * s, 2.2, 0.7); horn.rotation.x = -0.5; body.add(horn);
-      const e = pSph(0.05, eyeM, 6, 5); e.position.set(0.12 * s, 2.04, 1.08); body.add(e);
+      const e = pSph(0.05, eyeM, 6, 5); e.position.set(0.12 * s, 2.04, 1.12); body.add(e); // 눈 (복셀 머리 앞면에 닿게)
     }
     for (let i = 0; i < 4; i++) { // 등 가시
       const sp = pCon(0.07, 0.24, darkM, 4); sp.position.set(0, 1.72 - i * 0.06, 0.2 - i * 0.32); sp.rotation.x = -0.3; body.add(sp);
@@ -1211,7 +1442,7 @@ export function makeMonster3D(THREE, def) {
     put(pSph(0.09, tm(0xffffff)), 0.15, 1.66, 0.35);
     const sprout = pCon(0.06, 0.22, tm(0x7fc46a), 4); sprout.position.set(0.2, 1.78, -0.1); body.add(sprout);
     eyes(0.45, 0.12, 0.3, 0.05);
-    put(pBox(0.14, 0.03, 0.02, darkM), 0, 0.32, 0.32); // 입
+    put(pBox(0.14, 0.03, 0.02, darkM), 0, 0.32, 0.36); // 입 (복셀 줄기 앞면에 닿게)
     top = 1.7; radius = 0.7;
   } else if (shape === 'wraith') {
     put(pCon(0.55, 1.35, bodyM, 8), 0, 0.68, 0);
@@ -1226,10 +1457,10 @@ export function makeMonster3D(THREE, def) {
     }
     top = 1.75; radius = 0.5;
   } else {
-    // 알 수 없는 도형은 고블린형 휴머노이드로 폴백
-    const hg = makeHumanoid3D(THREE, {
-      avatar: null, skin: color, uniform: dark, hair: dark, accent: color,
-      weaponFam: 'dagger', grade: 0, scale: 0.62 * bossMul, bulk: 0.9,
+    // 알 수 없는 도형은 고블린형 복셀 휴머노이드로 폴백
+    const hg = makeVoxelHumanoid3D(THREE, {
+      skin: color, uniform: dark, hair: dark, accent: color,
+      weaponFam: 'dagger', scale: 0.62 * bossMul, bulk: 0.9,
     });
     hg.traverse((o) => {
       if (o.isMesh && o.material && o.material.isMeshLambertMaterial) {
