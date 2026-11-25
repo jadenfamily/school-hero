@@ -962,6 +962,22 @@ export function makeMonsterSprite(THREE, def) {
 const HERO_FRAME = 52;
 
 // 장착 장비 + 외형 설정을 실제 그림에 쓰는 형태로 바꾼다
+// 코스튬별 시각 요소 — 3D 인게임 캐릭터(world.js)와 가방 2D 전신(heroFullCanvasDataUrl)이
+// 같은 맵을 보며 그린다. head: 머리 장식 / mask: 복면 / robe: 긴 로브 / cloak: 큰 망토
+// outfit: 몸통 기본색 / extra: 몸통 추가 장식 (coat·armor·plate·sash·rune·flower)
+export const COSTUME_VISUAL = {
+  knight:   { head: 'crest',   outfit: 0xcfd8e6 },
+  mage:     { head: 'none',    robe: true, rune: true, outfit: 0x6a4ac0 },
+  dark:     { head: 'hood',    cloak: true, outfit: 0x2a2438 },
+  royal:    { head: 'crown',   sash: true, outfit: 0xd8b34a },
+  ninja:    { head: 'hood',    mask: true, outfit: 0x1f2a33 },
+  pirate:   { head: 'tricorn', coat: true, outfit: 0x7a2e2e },
+  samurai:  { head: 'kabuto',  armor: true, outfit: 0x8c1f28 },
+  paladin:  { head: 'halo',    plate: true, outfit: 0xf2e6c8 },
+  assassin: { head: 'hood',    mask: true, cloak: true, outfit: 0x3a2a4a },
+  druid:    { head: 'antler',  robe: true, flower: true, outfit: 0x2e6b34 },
+};
+
 export function visualEquip(equip, appearance) {
   const ap = appearance || { mode: 'armor' };
   const weapon = equip && equip.weapon ? equip.weapon : null;
@@ -969,7 +985,7 @@ export function visualEquip(equip, appearance) {
   if (ap.mode === 'uniform') armor = null;
   else if (ap.mode === 'costume' && ap.costumeId && COSTUME_MAP[ap.costumeId]) {
     const c = COSTUME_MAP[ap.costumeId];
-    armor = { fam: c.fam, grade: c.grade || 3, costume: c.id, capeColor: c.cape, trimColor: c.trim };
+    armor = { fam: c.fam, grade: c.grade || 3, costume: c.id, capeColor: c.cape, trimColor: c.trim, visual: COSTUME_VISUAL[c.id] };
   }
   return { weapon, armor, mode: ap.mode || 'armor', costumeId: ap.costumeId || null };
 }
@@ -1518,6 +1534,193 @@ export function heroPortraitDataUrl(av) {
 export function heroFullDataUrl(av) {
   const id = av && HERO_IDS.includes(av.id) ? av.id : 'boyA';
   return ASSET_URL.hero(id);
+}
+
+// ---------- 가방 전신 미리보기 (캔버스 직접 그림) ----------
+// 예전에는 고정 PNG(assets/heroes/<id>.png)를 그대로 보여줘서 장착 무기·방어구·코스튬이
+// 전혀 반영되지 않았다. 이제는 초상화와 같은 drawFace 얼굴 + 몸통 + 무기 + 코스튬 파츠를
+// 캔버스에 직접 그려 데이터 URL로 돌려준다. COSTUME_VISUAL 한 곳만 보고 그리므로
+// 3D 인게임 캐릭터와 가방 아바타가 항상 같은 코스튬 모습을 보여준다.
+// 캔버스 300×400 공간에 그리고 size에 맞춰 확대한다 (가방에서는 150px 너비로 표시).
+export function heroFullCanvasDataUrl(av, eq, size = 150) {
+  const W = size * 2, H = Math.round(size * 2.66);
+  const { c, g } = makeCanvas(W, H);
+  g.scale(W / 300, H / 400);
+  const A = av || AVATAR_MAP.boyA;
+  const cx = 150;
+  const hair = hex(A.hair), skin = hex(A.skin), uni = hex(A.uniform), accent = hex(A.accent || A.uniform);
+  const pants = hex(A.pants);
+  const armor = eq && eq.armor ? eq.armor : null;
+  const weapon = eq && eq.weapon ? eq.weapon : null;
+  const aFam = armor ? armor.fam : null;
+  const aGrade = armor ? armor.grade : 0;
+  const wGrade = weapon ? weapon.grade : 0;
+  const gradeColor = GRADES[Math.min(5, wGrade)].color;
+  const metal = wGrade >= 2 ? mixColor('#e6eefb', gradeColor, 0.5) : '#e6eefb';
+  const cos = armor && armor.costume ? COSTUME_MAP[armor.costume] : null;
+  const vis = cos && COSTUME_VISUAL[cos.id] ? COSTUME_VISUAL[cos.id] : null;
+  const cape = armor && armor.capeColor ? armor.capeColor : shade(uni, -0.3);
+  const trim = armor && armor.trimColor ? armor.trimColor : GRADES[Math.min(5, aGrade)].color;
+  const outfit = vis ? hex(vis.outfit) : uni;
+  const hs3 = A.hair3d || A.hairStyle;
+
+  // 바닥 그림자 + 등급 오라
+  el(g, cx, 372, 60, 12, 'rgba(0,0,0,.25)');
+  if (wGrade >= 2 || cos) {
+    g.strokeStyle = cos ? trim : gradeColor; g.globalAlpha = 0.55; g.lineWidth = 2.4;
+    g.beginPath(); g.ellipse(cx, 368, 56, 11, 0, 0, TAU); g.stroke(); g.globalAlpha = 1;
+  }
+
+  g.save();
+  g.translate(cx, 210); g.rotate(-0.035); g.translate(-cx, -210); // 살짝 기울인 역동적인 자세
+
+  // 망토 (뒤 — 왼쪽으로 흘러내리게)
+  const capeW = vis && vis.cloak ? 92 : 78;
+  g.fillStyle = shade(cape, -0.12);
+  g.beginPath();
+  g.moveTo(cx - 28, 150);
+  g.quadraticCurveTo(cx - capeW, 250, cx - capeW + 16, 352);
+  g.lineTo(cx + capeW - 16, 352);
+  g.quadraticCurveTo(cx + capeW, 250, cx + 28, 150);
+  g.closePath(); g.fill();
+  g.fillStyle = cape;
+  g.beginPath();
+  g.moveTo(cx - 22, 152);
+  g.quadraticCurveTo(cx - capeW + 12, 248, cx - capeW + 24, 344);
+  g.lineTo(cx + capeW - 24, 344);
+  g.quadraticCurveTo(cx + capeW - 12, 248, cx + 22, 152);
+  g.closePath(); g.fill();
+  if (trim && armor) {
+    g.strokeStyle = trim; g.lineWidth = 1.6; g.globalAlpha = 0.8;
+    g.beginPath(); g.moveTo(cx - capeW + 30, 300); g.lineTo(cx - capeW + 36, 338);
+    g.moveTo(cx + capeW - 30, 300); g.lineTo(cx + capeW - 36, 338); g.stroke(); g.globalAlpha = 1;
+  }
+
+  // 다리 · 부츠 (로브 코스튬은 로브가 가린다)
+  if (!(vis && vis.robe)) {
+    el(g, cx - 18, 322, 10, 26, pants); el(g, cx + 18, 328, 10, 26, pants);
+    el(g, cx - 20, 350, 12, 7, '#171a22'); el(g, cx + 20, 356, 12, 7, '#171a22');
+  }
+  // 치마 / 로브
+  if (vis && vis.robe) {
+    g.fillStyle = outfit;
+    g.beginPath(); g.moveTo(cx - 34, 168); g.lineTo(cx + 34, 168); g.lineTo(cx + 44, 352); g.lineTo(cx - 44, 352); g.closePath(); g.fill();
+    g.fillStyle = shade(outfit, -0.18);
+    g.beginPath(); g.moveTo(cx - 20, 200); g.lineTo(cx - 8, 200); g.lineTo(cx - 16, 348); g.lineTo(cx - 30, 348); g.closePath(); g.fill();
+  } else if (A.skirt) {
+    g.fillStyle = outfit;
+    g.beginPath(); g.moveTo(cx - 26, 288); g.lineTo(cx + 26, 288); g.lineTo(cx + 36, 346); g.lineTo(cx - 36, 346); g.closePath(); g.fill();
+  }
+
+  // 몸통
+  el(g, cx, 225, 44, 62, shade(outfit, -0.22));
+  el(g, cx, 225, 40, 58, outfit);
+  if (aFam === 'blunt' || aFam === 'ranged') {
+    el(g, cx, 222, 34, 48, aFam === 'ranged' ? '#c8d3e2' : '#a8b3c4');
+    el(g, cx, 216, 24, 34, shade(aFam === 'ranged' ? '#c8d3e2' : '#a8b3c4', 0.28));
+    ln(g, cx - 22, 222, cx + 22, 222, 'rgba(70,86,110,.8)', 1.4);
+  } else if (aFam === 'magic') {
+    el(g, cx, 228, 38, 54, shade(accent, -0.02));
+    el(g, cx, 200, 16, 10, '#f2f6ff');
+  } else {
+    el(g, cx, 198, 20, 13, '#eef4ff'); // 셔츠
+    g.fillStyle = A.skirt ? (A.ribbon ? hex(A.ribbon) : '#d04848') : '#3d6fd6';
+    g.beginPath(); g.moveTo(cx, 208); g.lineTo(cx + 7, 222); g.lineTo(cx, 244); g.lineTo(cx - 7, 222); g.closePath(); g.fill(); // 넥타이·리본
+  }
+  // 코스튬 몸통 장식
+  if (vis && vis.coat) {
+    for (let i = 0; i < 3; i++) el(g, cx, 206 + i * 16, 2.6, 2.6, '#ffd257'); // 해적 코트 황금 단추
+    ln(g, cx - 26, 180, cx - 26, 270, '#ffd257', 1.6); ln(g, cx + 26, 180, cx + 26, 270, '#ffd257', 1.6);
+  }
+  if (vis && vis.armor) ln(g, cx - 30, 252, cx + 30, 252, '#e8e8e8', 3); // 사무라이 흰 매듭끈
+  if (vis && vis.sash) { // 황금 예복 붉은 띠 (대각선)
+    g.save(); g.translate(cx, 225); g.rotate(0.6); rct(g, -7, -52, 14, 104, '#c03050'); g.restore();
+  }
+  if (vis && vis.flower) { // 드루이드 꽃
+    el(g, cx - 30, 182, 4, 4, '#ff9ec4'); el(g, cx - 22, 174, 3.4, 3.4, '#ffb8d4'); el(g, cx - 36, 192, 3, 3, '#ff9ec4');
+  }
+  if (vis && vis.rune) { // 마법사 빛나는 문양
+    el(g, cx, 222, 9, 9, '#9ff0ff'); el(g, cx, 222, 4, 4, '#ffffff');
+  }
+  if (armor && (aGrade >= 2 || cos)) {
+    g.strokeStyle = trim; g.lineWidth = 1.4; g.globalAlpha = 0.9;
+    g.beginPath(); g.ellipse(cx, 225, 42, 60, 0, 0, TAU); g.stroke(); g.globalAlpha = 1;
+  }
+  // 벨트 + 버클
+  rct(g, cx - 40, 286, 80, 11, trim || GRADES[Math.min(5, aGrade)].color);
+  rct(g, cx - 7, 287, 14, 9, '#dfe7f2');
+
+  // 어깨 보호대 + 팔
+  const pad = (aFam === 'blunt' || aFam === 'ranged') ? '#aab5c6' : accent;
+  el(g, cx - 42, 178, 13, 11, pad); el(g, cx + 42, 178, 13, 11, pad);
+  el(g, cx + 42, 170, 6, 5, shade(pad, 0.4));
+  ln(g, cx - 42, 186, cx - 50, 266, shade(outfit, 0.05), 13); // 왼팔 (내려놓음)
+  el(g, cx - 51, 270, 6.5, 6.5, skin);
+  ln(g, cx + 42, 186, cx + 64, 150, shade(outfit, 0.05), 13); // 오른팔 (무기를 치켜듦)
+  el(g, cx + 66, 146, 6.5, 6.5, skin);
+
+  // 어깨 (목과 몸통 연결) — drawFace의 깃이 위를 덮는다
+  g.fillStyle = outfit;
+  g.beginPath(); g.moveTo(cx - 32, 146); g.lineTo(cx + 32, 146); g.lineTo(cx + 44, 178); g.lineTo(cx - 44, 178); g.closePath(); g.fill();
+
+  // 얼굴 (초상화와 같은 anime 얼굴 — 큰 눈·눈썹·아바타 머리·리본)
+  drawFace(g, A, cx, 100, 1.5, { iris: A.iris });
+
+  // 아바타별 머리 추가 (drawFace는 hairStyle만 보므로 hair3d 차이를 여기서 보완)
+  if (hs3 === 'twin') {
+    el(g, cx - 34, 96, 10, 10, hair); el(g, cx + 34, 96, 10, 10, hair);
+    el(g, cx - 38, 148, 7, 26, hair); el(g, cx + 38, 148, 7, 26, hair);
+    const rb = hex(A.ribbon || 0xc03050);
+    tri(g, cx - 34, 88, cx - 26, 92, cx - 34, 98, rb); tri(g, cx + 34, 88, cx + 26, 92, cx + 34, 98, rb);
+  } else if (hs3 === 'bun') {
+    el(g, cx, 62, 12, 11, hair);
+    const rb = hex(A.ribbon || 0x8a6ad0);
+    el(g, cx, 72, 6, 4, rb);
+  }
+
+  // 코스튬 머리 장식 (얼굴 위에 그린다)
+  if (vis) {
+    if (vis.head === 'hood') {
+      g.strokeStyle = shade(cape, -0.05); g.lineWidth = 10;
+      g.beginPath(); g.ellipse(cx, 99, 33, 35, 0, 0, TAU); g.stroke();
+      tri(g, cx - 12, 66, cx + 12, 66, cx, 50, shade(cape, -0.05));
+    } else if (vis.head === 'tricorn') {
+      el(g, cx, 66, 44, 11, '#2b2b33'); el(g, cx, 60, 20, 12, '#2b2b33');
+      ln(g, cx - 40, 66, cx + 40, 66, '#ffd257', 2);
+      tri(g, cx - 42, 66, cx - 32, 66, cx - 42, 52, '#2b2b33'); tri(g, cx + 42, 66, cx + 32, 66, cx + 42, 52, '#2b2b33');
+    } else if (vis.head === 'kabuto') {
+      el(g, cx, 68, 30, 20, '#8c1f28');
+      tri(g, cx - 28, 64, cx - 50, 42, cx - 22, 56, '#dfe7f2'); tri(g, cx + 28, 64, cx + 50, 42, cx + 22, 56, '#dfe7f2');
+      el(g, cx, 60, 6, 6, '#ffd257');
+    } else if (vis.head === 'crown') {
+      rct(g, cx - 22, 56, 44, 12, '#ffd257');
+      tri(g, cx - 22, 56, cx - 16, 44, cx - 10, 56, '#ffd257');
+      tri(g, cx - 6, 56, cx, 42, cx + 6, 56, '#ffd257');
+      tri(g, cx + 10, 56, cx + 16, 44, cx + 22, 56, '#ffd257');
+    } else if (vis.head === 'halo') {
+      g.strokeStyle = '#ffd257'; g.lineWidth = 3;
+      g.beginPath(); g.ellipse(cx, 50, 24, 7, 0, 0, TAU); g.stroke();
+    } else if (vis.head === 'antler') {
+      ln(g, cx - 24, 74, cx - 38, 44, '#8a6a3a', 4); ln(g, cx - 32, 58, cx - 44, 52, '#8a6a3a', 3);
+      ln(g, cx + 24, 74, cx + 38, 44, '#8a6a3a', 4); ln(g, cx + 32, 58, cx + 44, 52, '#8a6a3a', 3);
+    } else if (vis.head === 'crest') {
+      tri(g, cx - 6, 64, cx + 6, 64, cx, 38, '#ffd257');
+    }
+    if (vis.mask) rct(g, cx - 20, 105, 40, 15, '#20242e'); // 복면 (눈만 보이게)
+  }
+
+  // 무기 (치켜든 오른손)
+  g.save();
+  g.translate(cx + 66, 146); g.rotate(-0.7);
+  weaponArt(g, weapon ? weapon.fam : 'sword', 0, 0, metal, gradeColor);
+  if (weapon && weapon.grade >= 4) {
+    g.strokeStyle = GRADES[weapon.grade].color; g.globalAlpha = 0.45; g.lineWidth = 1.2;
+    g.beginPath(); g.moveTo(1, -2); g.lineTo(1.4, -22); g.stroke(); g.globalAlpha = 1;
+  }
+  g.restore();
+
+  g.restore(); // 기울기 해제
+  return c.toDataURL();
 }
 
 export function avatarPalette(id) {
