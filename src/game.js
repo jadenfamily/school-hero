@@ -11,7 +11,6 @@ import {
 } from './data.js';
 import { buildWorld, makePlayer, makeMonster, makeCompanion, groundHeight, districtAt, worldPos, WORLD_BOUNDS } from './world.js';
 import { ASSET_URL, getTexture, aspectOf } from './assets.js';
-import { BILLBOARD_TILT } from './sprites.js';
 
 const SAVE_KEY = 'school-hero.save.v1';
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -48,18 +47,15 @@ export function createGame(THREE) {
   renderer.setSize(window.innerWidth, window.innerHeight, false);
 
   const scene = new THREE.Scene();
-  // 2D 탑뷰: 직교 투영 (원근 왜곡 없음) — 보이는 세로 18m (ORTHO_SIZE*2). 주인공(2.9m)이 화면 높이의 ~16%로 크게 보인다.
-  const ORTHO_SIZE = 9;
-  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 300);
-  function updateOrthoFrustum() {
-    const aspect = window.innerWidth / Math.max(1, window.innerHeight);
-    camera.left = -ORTHO_SIZE * aspect;
-    camera.right = ORTHO_SIZE * aspect;
-    camera.top = ORTHO_SIZE;
-    camera.bottom = -ORTHO_SIZE;
+  // 3D 볼륨이 읽히는 원근 투영 — 고도 48°, 주인공 위치에서 보이는 세로 ≈18m
+  // (2D 탑뷰 시절과 같은 화면 크기). 주인공(2.9m)이 화면 높이의 ~16%로 크게 보인다.
+  const CAM_FOV = 50;
+  const camera = new THREE.PerspectiveCamera(CAM_FOV, window.innerWidth / Math.max(1, window.innerHeight), 0.1, 400);
+  function updateCameraFrustum() {
+    camera.aspect = window.innerWidth / Math.max(1, window.innerHeight);
     camera.updateProjectionMatrix();
   }
-  updateOrthoFrustum();
+  updateCameraFrustum();
   const hemi = new THREE.HemisphereLight(0xdfefff, 0x3a4a30, 0.62);
   scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xfff6e0, 0.92);
@@ -3584,6 +3580,7 @@ export function createGame(THREE) {
         ud.art.rotation.z = -0.14 * Math.sin(k * Math.PI);
         ud.art.scale.setScalar(1 + 0.14 * Math.sin(k * Math.PI));
       }
+      if (ud.lid) ud.lid.rotation.x = -1.9 * k; // 3D 상자 뚜껑이 뒤로 젖혀진다
       if (ud.mesh) ud.mesh.material.opacity = 1 - 0.25 * k;
       c.mesh.position.y = Math.sin(k * Math.PI) * 0.12;
     }
@@ -3807,11 +3804,12 @@ export function createGame(THREE) {
 
   // ---------- 카메라 ----------
   let camPos = new THREE.Vector3(0, 18, 26);
-  // 카메라 각도 완전 고정 (2D 탑뷰, 고도 62° — 빌보드 기울기 BILLBOARD_TILT와 같은 값). 캐릭터가 움직여도 회전하지 않는다.
-  // 뒤:높이 = 0.85 : 0.85*tan(62°) ≈ 1.6 — 카메라 고도가 빌보드 기울기와 일치해 스프라이트가 화면에 똑바로 선다.
+  // 카메라 각도 완전 고정 (원근 투영, 고도 48°). 캐릭터가 움직여도 회전하지 않는다.
   function camRig() {
-    const back = ORTHO_SIZE * 0.85;
-    return { back, height: back * Math.tan(BILLBOARD_TILT), vis: ORTHO_SIZE * 2 };
+    // 보이는 세로 18m: 거리 = 9 / tan(25°) ≈ 19.3m, 뒤로 12.9m, 높이 14.35m.
+    const dist = 9 / Math.tan((CAM_FOV / 2) * Math.PI / 180);
+    const elev = 48 * Math.PI / 180;
+    return { back: dist * Math.cos(elev), height: dist * Math.sin(elev) };
   }
   function updateCamera(dt) {
     const p = game.player;
@@ -3963,7 +3961,7 @@ export function createGame(THREE) {
   game.resize = function () {
     const w = window.innerWidth, h = window.innerHeight;
     renderer.setSize(w, h, false);
-    updateOrthoFrustum(); // 직교 투영: aspect 대신 좌우 절두체를 다시 계산한다
+    updateCameraFrustum(); // 원근 투영: aspect를 다시 계산한다
   };
   window.addEventListener('resize', () => game.resize());
   document.addEventListener('visibilitychange', () => { if (document.hidden && game._dirty) game.flushSave(); });
