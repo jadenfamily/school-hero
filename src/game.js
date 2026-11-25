@@ -96,11 +96,15 @@ export function createGame(THREE) {
   const HERO_GLB = (() => { try { return new URLSearchParams(window.location.search).get('hero') === 'glb'; } catch (e) { return false; } })();
   const GLB_HERO_URL = 'assets/siwoo.glb';
 
-  // ---------- GLB 탱커 동료 테스트 (?companion=glb) ----------
-  // URL에 ?companion=glb가 있을 때만 Tripo 탱커 GLB(assets/tank.glb)를 탱커 동료로 쓴다.
+  // ---------- GLB 동료 테스트 (?companion=glb) ----------
+  // URL에 ?companion=glb가 있을 때만 Tripo 동료 GLB(assets/tank.glb /
+  // assets/melee.glb / assets/mage.glb)를 해당 클래스 동료로 쓴다.
   // 없으면 아래 코드는 전혀 동작하지 않고, 기존 절차적 동료가 그대로다.
+  // 힐러는 아직 GLB가 없어 절차적 모델 그대로 둔다.
   const COMPANION_GLB = (() => { try { return new URLSearchParams(window.location.search).get('companion') === 'glb'; } catch (e) { return false; } })();
   const GLB_TANK_URL = 'assets/tank.glb';
+  const GLB_MELEE_URL = 'assets/melee.glb';
+  const GLB_MAGE_URL = 'assets/mage.glb';
 
   // ---------- 지형 높이 ----------
   // 3D 지형 높이. 월드가 아직 없으면 평지(0)로 취급한다.
@@ -410,6 +414,74 @@ export function createGame(THREE) {
     if (!COMPANION_GLB) return;
     if (glbTankState === 'ready' && glbTankMesh) swapGlbTankIn();
     else if (glbTankState === 'off') ensureGlbTank();
+  }
+
+  // GLB 근접 동료 상태 (탱커와 같은 패턴 — 기본값 off)
+  let glbMeleeState = 'off'; // off | loading | ready | failed
+  let glbMeleeMesh = null;
+  function ensureGlbMelee() {
+    if (!COMPANION_GLB || glbMeleeState !== 'off') return;
+    glbMeleeState = 'loading';
+    loadGlbCompanion(THREE, GLB_MELEE_URL).then((mesh) => {
+      glbMeleeMesh = mesh;
+      glbMeleeState = 'ready';
+      swapGlbMeleeIn();
+    }).catch((err) => {
+      glbMeleeState = 'failed';
+      console.warn('GLB 근접 모델을 불러오지 못했어요:', err && err.message);
+      if (game.ui) game.ui.toast('GLB 근접 모델을 불러오지 못했어요. 기본 모델로 계속해요.', '');
+    });
+  }
+  // 파티의 첫 번째 근접 동료 메쉬를 GLB로 바꾼다. GLB 메쉬는 하나뿐이라
+  // 근접이 둘 이상이면 첫 번째만 GLB, 나머지는 절차적 모델 그대로 둔다.
+  function swapGlbMeleeIn() {
+    if (!glbMeleeMesh || !game.compObjects) return;
+    const o = game.compObjects.find((x) => x.cls.id === 'melee');
+    if (!o || o.mesh === glbMeleeMesh) return;
+    if (o.mesh) { scene.remove(o.mesh); disposeGroup(o.mesh); }
+    o.mesh = glbMeleeMesh;
+    o.mesh.position.set(o.x, groundY(o.x, o.z), o.z);
+    o.mesh.rotation.y = Math.PI;
+    scene.add(o.mesh);
+  }
+  function maybeSwapGlbMelee() {
+    if (!COMPANION_GLB) return;
+    if (glbMeleeState === 'ready' && glbMeleeMesh) swapGlbMeleeIn();
+    else if (glbMeleeState === 'off') ensureGlbMelee();
+  }
+
+  // GLB 마법 동료 상태 (탱커와 같은 패턴 — 기본값 off)
+  let glbMageState = 'off'; // off | loading | ready | failed
+  let glbMageMesh = null;
+  function ensureGlbMage() {
+    if (!COMPANION_GLB || glbMageState !== 'off') return;
+    glbMageState = 'loading';
+    loadGlbCompanion(THREE, GLB_MAGE_URL).then((mesh) => {
+      glbMageMesh = mesh;
+      glbMageState = 'ready';
+      swapGlbMageIn();
+    }).catch((err) => {
+      glbMageState = 'failed';
+      console.warn('GLB 마법 모델을 불러오지 못했어요:', err && err.message);
+      if (game.ui) game.ui.toast('GLB 마법 모델을 불러오지 못했어요. 기본 모델로 계속해요.', '');
+    });
+  }
+  // 파티의 첫 번째 마법 동료 메쉬를 GLB로 바꾼다. GLB 메쉬는 하나뿐이라
+  // 마법이 둘 이상이면 첫 번째만 GLB, 나머지는 절차적 모델 그대로 둔다.
+  function swapGlbMageIn() {
+    if (!glbMageMesh || !game.compObjects) return;
+    const o = game.compObjects.find((x) => x.cls.id === 'mage');
+    if (!o || o.mesh === glbMageMesh) return;
+    if (o.mesh) { scene.remove(o.mesh); disposeGroup(o.mesh); }
+    o.mesh = glbMageMesh;
+    o.mesh.position.set(o.x, groundY(o.x, o.z), o.z);
+    o.mesh.rotation.y = Math.PI;
+    scene.add(o.mesh);
+  }
+  function maybeSwapGlbMage() {
+    if (!COMPANION_GLB) return;
+    if (glbMageState === 'ready' && glbMageMesh) swapGlbMageIn();
+    else if (glbMageState === 'off') ensureGlbMage();
   }
 
   function rebuildPlayerMesh() {
@@ -768,8 +840,10 @@ export function createGame(THREE) {
       game.companions.push(o);
       if (cls.id === 'tank' && !game.tank) game.tank = o;
     });
-    // GLB 탱커 테스트: 준비된 GLB가 있으면 첫 탱커를 GLB로 바꾼다
+    // GLB 동료 테스트: 준비된 GLB가 있으면 첫 탱커·근접·마법을 GLB로 바꾼다
     maybeSwapGlbTank();
+    maybeSwapGlbMelee();
+    maybeSwapGlbMage();
 
     spawnDistrictMobs(zone);
 
@@ -4321,8 +4395,10 @@ export function createGame(THREE) {
       game.compObjects.push(o); game.companions.push(o);
       if (cls.id === 'tank' && !game.tank) game.tank = o;
     });
-    // GLB 탱커 테스트: 준비된 GLB가 있으면 첫 탱커를 GLB로 바꾼다
+    // GLB 동료 테스트: 준비된 GLB가 있으면 첫 탱커·근접·마법을 GLB로 바꾼다
     maybeSwapGlbTank();
+    maybeSwapGlbMelee();
+    maybeSwapGlbMage();
   }
 
   // 안 쓰는 동료 보내기 (동행 중이면 동행에서도 제외, 환급 없음)
