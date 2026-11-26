@@ -7,7 +7,7 @@ import { TAU, groundY } from './util.js';
 import { ASSET_URL, getTexture } from '../assets.js';
 
 export function installEffects(ctx) {
-  const { game, THREE, scene } = ctx;
+  const { game, THREE, scene, camera } = ctx;
 
 // ---------- 무기별 3D 공격 연출 ----------
 const ATTACK_FX = {
