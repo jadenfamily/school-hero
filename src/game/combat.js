@@ -7,7 +7,7 @@ import { clamp, groundY, fmtNum } from './util.js';
 import { makeMonster } from '../world.js';
 import {
   PLAYABLE, GRADES, WEAPONS, WEAPON_BASE, ARMOR_KINDS, ACCESSORY_KINDS,
-  GRADE_ADJ, MOB_REWARD, ELEM_BEATS, BOSS_TIMER,
+  GRADE_ADJ, MOB_REWARD, ELEM_BEATS, BOSS_TIMER, defaultBalance,
 } from '../data.js';
 import { fmtRemain } from './util.js';
 
