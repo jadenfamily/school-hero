@@ -176,7 +176,7 @@ export function createGame(THREE) {
         e.portalAdds = null; e.portalT = 0; e.buffOn = false;
         e.necroWave = 0; e.necroT = 9; e.splitDone = false;
         if (e.mesh && e.mesh.userData.setColorTint) e.mesh.userData.setColorTint(0xffffff);
-        if (e.group === 'twins') { e.shielded = e.def.key === 'twinA'; setShieldVisual(e, e.shielded); e.twinSwapT = 8; }
+        if (e.group === 'twins') { e.shielded = e.def.key === 'twinA'; ctx.setShieldVisual(e, e.shielded); e.twinSwapT = 8; }
         if (e.group === 'brothers') {
           e.statue = !!e.def.statue;
           if (e.statue && e.mesh && e.mesh.userData.setColorTint) e.mesh.userData.setColorTint(0x8f8f8f);
@@ -231,8 +231,18 @@ export function createGame(THREE) {
     const t = now / 1000;
     let dt = Math.min(0.05, t - last || 0.016);
     last = t;
-    if (!game.paused) step(dt);
-    renderer.render(scene, camera);
+    // 안전망: 한 프레임에서 오류가 나도 루프가 죽지 않게 한다 (오류는 콘솔에 남기고 5초에 한 번만 알린다).
+    // — 예전에는 여기서 던져진 오류가 requestAnimationFrame 예약을 건너뛰어 화면이 영원히 얼어붙었다.
+    try {
+      if (!game.paused) step(dt);
+      renderer.render(scene, camera);
+    } catch (err) {
+      console.error('[school-hero] frame error (loop kept alive):', err);
+      if (!frame._errToastT || game.time - frame._errToastT > 5) {
+        frame._errToastT = game.time;
+        if (game.ui) game.ui.toast('화면에 문제가 생겼어요. 계속 진행할게요.', 'bad');
+      }
+    }
     requestAnimationFrame(frame);
   }
 
@@ -443,7 +453,7 @@ export function createGame(THREE) {
     game.state.evolutions = (game.state.evolutions || 0) + times;
     game.save();
     game.flushSave();
-    if (game.ui) { game.ui.markDirty(true); game.ui.toast(`빨강 진화! ${itemName(kind, fam, 5)} ×${times} 획득`, 'gold'); }
+    if (game.ui) { game.ui.markDirty(true); game.ui.toast(`빨강 진화! ${game.itemName(kind, fam, 5)} ×${times} 획득`, 'gold'); }
     return times;
   };
   game.evolveReady = function () {
@@ -645,10 +655,10 @@ export function createGame(THREE) {
       got.push(`${(SOUL_KINDS[r.soul] || { name: '영혼' }).name} +${n}`);
     }
     if (r.item !== undefined) {
-      const kind = pickKind();
-      const fam = pickFam(kind);
+      const kind = ctx.pickKind();
+      const fam = ctx.pickFam(kind);
       game.addItem(kind, fam, r.item);
-      got.push(itemName(kind, fam, r.item));
+      got.push(game.itemName(kind, fam, r.item));
     }
     if (r.charm) {
       const g = game.grantCharm(r.charm);
@@ -699,7 +709,7 @@ export function createGame(THREE) {
   if (new URLSearchParams(location.search).has('debug')) {
     window.__SH__ = game;
     game.debug = {
-      teleport(x, z) { game.player.x = x; game.player.z = z; snapCompanions(); },
+      teleport(x, z) { game.player.x = x; game.player.z = z; ctx.snapCompanions(); },
       give(kind, fam, grade, n = 1) { game.addItem(kind, fam, grade, n); game.ui.markDirty(true); },
       giveAll(grade, n = 3) { for (const f of Object.keys(WEAPONS)) game.addItem('weapon', f, grade, n); for (const f of Object.keys(ARMOR_KINDS)) game.addItem('armor', f, grade, n); for (const f of Object.keys(ACCESSORY_KINDS)) game.addItem('accessory', f, grade, n); game.ui.markDirty(true); },
       equip(kind, fam, grade) { game.addItem(kind, fam, grade, 1); return game.equipItem(kind, fam, grade); },
@@ -707,8 +717,8 @@ export function createGame(THREE) {
       gold(n) { game.state.gold += n; },
       souls(kind, n) { game.state.souls[kind] = (game.state.souls[kind] || 0) + n; },
       heal() { game.player.hp = game.derived().maxHp; },
-      spawn(key) { const z = game.zone; const all = [...z.mobs.normal, ...z.mobs.elite]; const d = all.find((m) => m.key === key) || all[0]; return spawnEnemy(d, game.player.x + 2, game.player.z - 2); },
-      spawnBoss(type = 'mid') { const z = game.zone; const d = type === 'boss' ? z.mobs.boss : type === 'field' ? z.mobs.field : z.mobs.mid; return spawnEnemy(d, game.player.x + 1.5, game.player.z - 4.5, true); },
+      spawn(key) { const z = game.zone; const all = [...z.mobs.normal, ...z.mobs.elite]; const d = all.find((m) => m.key === key) || all[0]; return ctx.spawnEnemy(d, game.player.x + 2, game.player.z - 2); },
+      spawnBoss(type = 'mid') { const z = game.zone; const d = type === 'boss' ? z.mobs.boss : type === 'field' ? z.mobs.field : z.mobs.mid; return ctx.spawnEnemy(d, game.player.x + 1.5, game.player.z - 4.5, true); },
       killAll() { for (const e of [...game.enemies]) if (e.alive && !e.isBoss) game.dealDamage(e, 99999, { canCrit: false }); },
       state() { return { zone: game.zone.id, level: game.state.level, hp: game.player.hp, maxHp: game.derived().maxHp, attack: game.derived().attack, kills: game.state.kills, medal: game.medalInfo(game.zone.id), enemies: game.enemies.filter((e) => e.alive).length, chests: game.chestInfo(game.zone.id), pos: { x: +game.player.x.toFixed(2), z: +game.player.z.toFixed(2) } }; },
       avatar(id) { return game.setAvatar(id); },
@@ -730,7 +740,7 @@ export function createGame(THREE) {
       tankInfo() { return game.tank ? { hp: game.tank.hp, maxHp: game.tank.maxHp, x: game.tank.x, z: game.tank.z, down: game.tank.hp <= 0 } : null; },
       giveBook(id) { game.state.skillbooks[id] = (game.state.skillbooks[id] || 0) + 1; game.ui && game.ui.markDirty(true); return id; },
       learn(id) { return game.learnSkill(id); },
-      spawnBook(id) { addPickup('book', game.player.x + 1.0, game.player.z, id); return id; },
+      spawnBook(id) { ctx.addPickup('book', game.player.x + 1.0, game.player.z, id); return id; },
       cast(id) { return game.castSkill(id); },
       skills() { return game.skillState(); },
       auto() { return { ok: false, reason: 'companion-only', msg: '주인공 스킬 자동 사용은 없어요. 스킬은 동료만 씁니다.' }; },
@@ -738,12 +748,12 @@ export function createGame(THREE) {
       projectiles() { return game.projectiles.map((p) => ({ style: p.style, skill: p.skill, from: p.from })); },
       admin(on) { if (on === false) return game.disableAdmin(); if (on === true) return game.enableAdmin(game.adminCode); return game.isAdmin(); },
       giveMp(n = 999) { game.player.mp = Math.min(game.derived().maxMp, n); return game.player.mp; },
-      chest(i = 0) { const c = game.world.chests[i]; if (c) { game.player.x = c.x; game.player.z = c.z + 0.6; snapCompanions(); } },
+      chest(i = 0) { const c = game.world.chests[i]; if (c) { game.player.x = c.x; game.player.z = c.z + 0.6; ctx.snapCompanions(); } },
       advance(sec, dt = 1 / 60) { const n = Math.min(3600, Math.round(sec / dt)); for (let i = 0; i < n; i++) step(dt); return game.time; },
       unlockAll() { game.state.unlocked = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]; game.state.earthGateOpen = true; game.state.gyeonggiGateOpen = true; game.grantCharm('aqua', true); if (game.world) { for (let i = 2; i <= 18; i++) game.world.openGate(i); game.world.setEarthGate(true); game.world.setGyeonggiGate(true); } game.ui.markDirty(true); },
       enter(id) { return game.enterZone(id); },
       killZone(n = 1) { const list = game.enemies.filter((e) => e.alive && !e.isBoss && !e.isMid); for (let i = 0; i < Math.min(n, list.length); i++) game.dealDamage(list[i], 999999, { canCrit: false }); },
-      nearNpc() { const n = game.world.npcs[game.zone.id].position; game.player.x = n.x + 1.5; game.player.z = n.z + 0.5; snapCompanions(); },
+      nearNpc() { const n = game.world.npcs[game.zone.id].position; game.player.x = n.x + 1.5; game.player.z = n.z + 0.5; ctx.snapCompanions(); },
       hitOnce() { return ctx.playerAttack(); },
       options(kind, fam, grade) { return itemOptions(kind, fam, grade); },
       bossReset(zoneId = game.zone.id, type) {
@@ -757,7 +767,7 @@ export function createGame(THREE) {
       },
       bossStatus(zoneId = game.zone.id) { return game.bossStatus(zoneId); },
       chestNear() { return game.nearChest ? { id: game.nearChest.id, x: game.nearChest.x, z: game.nearChest.z } : null; },
-      chestGoto(i = 0) { const c = game.world.chests[i]; if (c) { game.player.x = c.x; game.player.z = c.z + 1.2; snapCompanions(); return c.id; } return null; },
+      chestGoto(i = 0) { const c = game.world.chests[i]; if (c) { game.player.x = c.x; game.player.z = c.z + 1.2; ctx.snapCompanions(); return c.id; } return null; },
       openChest() { return game.openChest(game.nearChest); },
       evolve(kind, fam, grade) { return game.evolve(kind, fam, grade); },
       evolveReady() { return game.evolveReady(); },
