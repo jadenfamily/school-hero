@@ -1105,12 +1105,39 @@ function applyGlbSkinFix(src) {
 }
 // [/skin-brightness-fix]
 
+// GLB 월드 바운딩박스: 각 메쉬의 지오메트리 bbox 8개 모서리를 matrixWorld로
+// 변환해 합친다. Box3.setFromObject는 스킨 메쉬의 캐시된 boundingBox(뼈대
+// 기준, 로드 시점 boneMatrices)를 쓰는데, 리깅된 GLB는 노드 체인
+// (node_0 rotY -90° × 메쉬 rotX -90°)이 축을 꼬아서 Y 크기를 키(0.998)가
+// 아니라 깊이(0.456)로 잰다 — 그래서 시우 리깅 GLB 스케일이 6.24(2.19배)가
+// 돼 캐릭터가 화면에서 너무 크게 보이고 발이 땅 아래로 내려갔다.
+// 지오메트리 bbox는 바인드 포즈(렌더러가 매 프레임 skeleton.update() 뒤
+// 실제로 그리는 자세)라 정확하고, 리그 없는 GLB·동료 GLB는 setFromObject와
+// 같은 값을 준다 (검증됨: 4종 동료·리그 없는 시우 모두 배율 변화 1.000x).
+function glbWorldBox(THREE, src) {
+  src.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  const v = new THREE.Vector3();
+  src.traverse((o) => {
+    if (!o.isMesh || !o.geometry) return;
+    const g = o.geometry;
+    if (!g.boundingBox) g.computeBoundingBox();
+    const b = g.boundingBox;
+    for (let i = 0; i < 8; i++) {
+      v.set(i & 1 ? b.max.x : b.min.x, i & 2 ? b.max.y : b.min.y, i & 4 ? b.max.z : b.min.z);
+      v.applyMatrix4(o.matrixWorld);
+      box.expandByPoint(v);
+    }
+  });
+  return box;
+}
+
 // GLB 정적 캐릭터 뼈대 (주인공·동료 공통): 키 맞추기 + 그림자 + 팔다리 피벗 스텁.
 // GLB 원본 높이(약 99 단위, y=0 바닥)를 목표 키로 맞추고, y=0에 세운다.
 // 팔다리 피벗 스텁 — 빈 Object3D라서 돌려도 보이는 부분은 움직이지 않는다.
 // 기존 코드가 userData.armR/armL/legL/legR/head를 찾아도 크래시가 나지 않는다.
 function buildGlbCharacter(THREE, src, targetHeight, headY, radius, tag) {
-  const box = new THREE.Box3().setFromObject(src);
+  const box = glbWorldBox(THREE, src);
   const size = new THREE.Vector3();
   box.getSize(size);
   if (!isFinite(size.y) || size.y <= 0) throw new Error('glb-bad-bounds');
@@ -2097,11 +2124,21 @@ export function makeChest(THREE) {
 }
 
 // NPC — 3D 로브 노인 (지팡이 + 회색 수염). '!' 마커는 그대로 (buildWorld의 update가 marker를 흔든다).
+// polish:true로 몸통이 테이퍼진 몸처럼 보이고(네모 상자 하나가 아니라 가슴→허리→엉덩이
+// 스택 + 어두운 아웃라인), 로브는 발끝까지 내려오는 긴 원뿔로 다리를 가린다.
+// 짧은 치마(robe:true, 반경 0.34)는 긴 로브보다 넓어서 그대로 두면 로브를 뚫고
+// 나오므로 robe:false로 빼고 이 긴 로브만 쓴다. 회색 수염·지팡이·'!' 마커는 그대로.
 export function makeNpc(THREE, icon) {
   const g = makeHumanoid3D(THREE, {
     avatar: null, skin: 0xe8c090, uniform: 0x3a4a6a, hair: 0xd8d8d8, accent: 0x3a4a6a,
-    weaponFam: 'staff', polish: false, scale: 1.35, robe: true, grade: 0,
+    weaponFam: 'staff', polish: true, scale: 1.35, robe: false, grade: 0,
   });
+  // 긴 로브 원뿔 (밑단 반경 0.46, 높이 1.1, 중심 y=0.55 → 발끝 y=0부터 어깨까지)
+  const robe = cone(THREE, 0.46, 1.1, 0x3a4a6a, 8);
+  robe.position.y = 0.55;
+  robe.userData.npcRobe = true;
+  robe.castShadow = true;
+  g.add(robe);
   // 회색 수염 (머리 그룹에 붙여 머리와 함께 움직인다)
   const beard = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.22, 0.06), mat(THREE, 0xd8d8d8));
   beard.position.set(0, -0.14, 0.27); g.userData.head.add(beard);
