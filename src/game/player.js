@@ -3,7 +3,7 @@
 // 이동 차단(canEnter)·키프레임(kf)은 각 함수 안의 로컬 헬퍼다.
 import { clamp, angleDiff, groundY } from './util.js';
 import { PLAYABLE } from '../data.js';
-import { WORLD_BOUNDS } from '../world.js';
+import { WORLD_BOUNDS, districtAt } from '../world.js';
 
 export function installPlayer(ctx) {
   const { game, THREE, scene, camera } = ctx;
