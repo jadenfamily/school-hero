@@ -531,13 +531,19 @@ function buildWeaponMesh(THREE, fam, M) {
       break;
     }
     case 'crossbow': {
-      add(box(THREE, 0.07, 0.07, 0.42, 0x8a6a3a), 0, -0.05, 0.05);
-      add(box(THREE, 0.44, 0.05, 0.05, 0xdfe7f2), 0, -0.02, 0.22);
-      add(box(THREE, 0.05, 0.08, 0.05, 0xdfe7f2), 0, 0.04, 0.05); // 조준기
+      // 손에서 또렷하게 보이는 굵은 석궁 — 어두운 나무 몸통 + 밝은 강철 활 + 현 + 장전된 볼트
+      add(box(THREE, 0.09, 0.09, 0.46, 0x5a3a1a), 0, -0.05, 0.05); // 몸통 (진한 나무)
+      add(box(THREE, 0.54, 0.06, 0.06, 0xe8eef5), 0, -0.02, 0.24); // 활 (밝은 강철)
+      add(box(THREE, 0.05, 0.05, 0.05, 0xe8eef5), -0.27, -0.02, 0.24); // 활 끝
+      add(box(THREE, 0.05, 0.05, 0.05, 0xe8eef5), 0.27, -0.02, 0.24);
+      add(box(THREE, 0.5, 0.015, 0.015, 0xf2ead0), 0, -0.02, 0.2); // 현
+      add(box(THREE, 0.06, 0.1, 0.06, 0xe8eef5), 0, 0.05, 0.05); // 조준기
+      add(box(THREE, 0.09, 0.12, 0.09, 0x3a2a18), 0, -0.12, 0); // 손잡이 감개
       const crank = cyl(THREE, 0.02, 0.02, 0.12, 0x6a4a22, 5);
-      crank.rotation.z = Math.PI / 2; add(crank, 0, -0.05, -0.16); // 감는 손잡이
-      const bolt = cyl(THREE, 0.015, 0.015, 0.34, 0xd7e2f0, 5);
-      bolt.rotation.x = Math.PI / 2; add(bolt, 0, 0.02, 0.12);
+      crank.rotation.z = Math.PI / 2; add(crank, 0, -0.05, -0.18); // 감는 손잡이
+      const bolt = cyl(THREE, 0.02, 0.02, 0.4, 0xffffff, 5);
+      bolt.rotation.x = Math.PI / 2; add(bolt, 0, 0.03, 0.12); // 장전된 볼트 (밝은 강철)
+      add(box(THREE, 0.07, 0.07, 0.08, 0xff7a3c), 0, 0.03, -0.08); // 볼트 깃 (주황)
       break;
     }
     case 'staff': {
@@ -1127,9 +1133,12 @@ function makeGlbHeroRigAnimator(outer, inner, bones) {
     outer.position.y += bobY;
     if (on) {
       const s = Math.sin(k * Math.PI);
-      outer.position.x += Math.sin(p.facing) * 0.3 * s;
-      outer.position.z += Math.cos(p.facing) * 0.3 * s;
-      inner.rotation.x = 0.08 * s; // 살짝 앞으로 숙이기
+      const ranged = p.atkFam === 'bow' || p.atkFam === 'crossbow';
+      // 원거리(활·석궁)는 앞으로 돌진하지 않고 제자리에서 조준 + 발사 반동으로 살짝 뒤로 밀린다
+      const lunge = ranged ? -0.07 : 0.3;
+      outer.position.x += Math.sin(p.facing) * lunge * s;
+      outer.position.z += Math.cos(p.facing) * lunge * s;
+      inner.rotation.x = (ranged ? -0.05 : 0.08) * s; // 원거리는 반동으로 살짝 뒤로 젖히기
       // 키프레임 보간: stops = [진행도, 값, 구간 이징]. 첫 값과 마지막 값은 항상 0이다.
       const kf = (stops) => {
         if (k <= stops[0][0]) return stops[0][1];
@@ -1143,12 +1152,27 @@ function makeGlbHeroRigAnimator(outer, inner, bones) {
         }
         return stops[stops.length - 1][1];
       };
-      // 검: 빠르게 가로 베기 → 반대쪽으로 더 넘어가는 팔로우스루 → 회복
-      const rx = kf([[0, 0], [0.32, -1.1, eoc], [0.62, -0.7, sm], [1, 0, sm]]);
-      const rz = kf([[0, 0], [0.32, 1.5, eoc], [0.62, 1.75, sm], [1, 0, sm]]);
-      setBone(bones.armR, rx, rz);
-      setBone(bones.foreArmR, rx * 0.5, 0);
-      setBone(bones.armL, 0, 0);
+      if (ranged) {
+        // 조준: 오른팔 앞으로 들어 석궁·활을 겨누고 왼팔로 받치기 → 발사 반동 → 회복
+        // (setBone은 rz=앞뒤, rx=좌우 — 앞뒤 음수가 앞으로 드는 방향, 걷기·베기 모션과 같은 부호)
+        const fwdR = kf([[0, 0], [0.25, -1.35, eoc], [0.4, -1.2, eoc], [1, 0, sm]]);
+        const outR = kf([[0, 0], [0.25, -0.1, eoc], [0.4, -0.1, eoc], [1, 0, sm]]);
+        const elR = kf([[0, 0], [0.25, -0.12, eoc], [0.4, -0.12, eoc], [1, 0, sm]]);
+        const fwdL = kf([[0, 0], [0.25, -1.15, eoc], [0.4, -1.05, eoc], [1, 0, sm]]);
+        const outL = kf([[0, 0], [0.25, -0.2, eoc], [0.4, -0.2, eoc], [1, 0, sm]]);
+        const elL = kf([[0, 0], [0.25, -0.6, eoc], [0.4, -0.55, eoc], [1, 0, sm]]);
+        setBone(bones.armR, fwdR, outR);
+        setBone(bones.foreArmR, elR, 0);
+        setBone(bones.armL, fwdL, outL);
+        setBone(bones.foreArmL, elL, 0);
+      } else {
+        // 검: 빠르게 가로 베기 → 반대쪽으로 더 넘어가는 팔로우스루 → 회복
+        const rx = kf([[0, 0], [0.32, -1.1, eoc], [0.62, -0.7, sm], [1, 0, sm]]);
+        const rz = kf([[0, 0], [0.32, 1.5, eoc], [0.62, 1.75, sm], [1, 0, sm]]);
+        setBone(bones.armR, rx, rz);
+        setBone(bones.foreArmR, rx * 0.5, 0);
+        setBone(bones.armL, 0, 0);
+      }
       // 공격 중에는 다리를 디딤 자세로 고정한다
       setBone(bones.upLegL, -0.12, 0);
       setBone(bones.upLegR, 0.12, 0);
