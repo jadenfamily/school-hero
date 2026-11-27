@@ -34,15 +34,15 @@ function buildProjectileMesh(style, color) {
     const trail = add(style === 'pierce' ? (color || 0xbfe6ff) : 0xffe9a8, 0.5)(ctx.fxGeo('box', 0.09, 0.09, 1.9));
     trail.position.z = -0.75; g.add(trail);
   } else if (style === 'bolt') {
-    // 석궁 볼트: 짧고 두껍고 빠르게 보이는 탄환 + 꼬리
-    const shaft = basic(0xd7e2f0)(ctx.fxGeo('box', 0.07, 0.07, 0.56));
+    // 석궁 볼트: 폰에서도 또렷하게 보이는 굵은 화살 — 밝은 강철 몸통 + 주황 깃 + 따뜻한 궤적
+    const shaft = basic(0xe8eef5)(ctx.fxGeo('box', 0.09, 0.09, 0.7));
     shaft.position.z = 0.0; g.add(shaft);
-    const tip = basic(0xffffff)(ctx.fxGeo('cone', 0.09, 0.22, 4));
-    tip.rotation.x = Math.PI / 2; tip.position.z = 0.36; g.add(tip);
-    const fletch = basic(0x8fb8e0)(ctx.fxGeo('box', 0.17, 0.17, 0.09));
-    fletch.position.z = -0.3; g.add(fletch);
-    const trail = add(0xcfe4ff, 0.5)(ctx.fxGeo('box', 0.08, 0.08, 1.1));
-    trail.position.z = -0.5; g.add(trail);
+    const tip = basic(0xffffff)(ctx.fxGeo('cone', 0.11, 0.3, 4));
+    tip.rotation.x = Math.PI / 2; tip.position.z = 0.47; g.add(tip);
+    const fletch = basic(0xff7a3c)(ctx.fxGeo('box', 0.24, 0.24, 0.1));
+    fletch.position.z = -0.38; g.add(fletch);
+    const trail = add(0xffd27f, 0.65)(ctx.fxGeo('box', 0.1, 0.1, 1.6));
+    trail.position.z = -0.7; g.add(trail);
   } else if (style === 'fireball') {
     const core = add(0xff8a3c, 0.95)(ctx.fxGeo('sphere', 0.26, 10, 8));
     g.add(core);
