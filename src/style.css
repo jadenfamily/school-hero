@@ -414,21 +414,32 @@ input,textarea,select{font-family:inherit}
 .cc-lock{font-size:8px;color:#cfd8e6;background:rgba(255,255,255,.12);border-radius:5px;padding:0 4px}
 .cc-bonus{font-size:9px;color:#ffe08a;font-weight:800;margin:1px 0}
 
-/* 아이템 그리드 */
-.item-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(86px,1fr));gap:7px}
-.item{position:relative;border-radius:13px;padding:8px 6px 6px;text-align:center;cursor:pointer;
+/* 의상 도감 (가방과 별도 메뉴) */
+.codex-sheet{width:min(680px,100%)}
+.codex-top{margin-bottom:8px}
+.codex-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px}
+.codex-card2{border-radius:13px;border:1px solid var(--line);background:rgba(255,255,255,.035);padding:6px;cursor:pointer;overflow:hidden}
+.codex-card2.owned{border-color:rgba(140,220,255,.4);background:rgba(80,150,255,.09)}
+.codex-card2.locked{opacity:.9}
+.cc2-photo{position:relative;border-radius:9px;overflow:hidden;background:radial-gradient(circle at 50% 40%,rgba(120,180,255,.18),rgba(8,12,22,.4))}
+.cc2-photo img{display:block;width:100%;height:auto}
+.codex-card2.locked .cc2-photo img{filter:grayscale(1) brightness(.55)}
+.cc2-lock{position:absolute;left:0;right:0;bottom:0;text-align:center;font-size:9px;font-weight:900;color:#fff;background:rgba(0,0,0,.55);padding:2px 0}
+.cc2-name{font-size:11px;font-weight:900;margin-top:5px;text-align:center}
+.cc2-sub{font-size:9px;color:var(--txt-dim);font-weight:800;text-align:center;margin-top:1px}
+.codex-detail-photo{margin-top:11px;border-radius:12px;overflow:hidden;background:radial-gradient(circle at 50% 40%,rgba(120,180,255,.18),rgba(8,12,22,.4))}
+.codex-detail-photo img{display:block;width:100%;max-height:320px;object-fit:contain}
+.codex-detail-photo.locked img{filter:grayscale(1) brightness(.6)}
+
+/* 아이템 그리드 — 작은 등급색 아이콘 (한 화면에 다 보이게, 스크롤 없이) */
+.item-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:5px}
+.item{position:relative;border-radius:11px;padding:0;min-height:44px;display:flex;align-items:center;justify-content:center;cursor:pointer;
   background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.02));
-  border:2px solid var(--g,#555);box-shadow:0 0 10px var(--gs,transparent), inset 0 0 10px rgba(0,0,0,.35)}
-.item .ico{font-size:22px;line-height:1.1}
-.item .nm{font-size:9.5px;font-weight:800;margin-top:3px;color:#fff;line-height:1.25;min-height:22px;word-break:keep-all}
-.item .sub{font-size:9px;font-weight:900;color:var(--g)}
-.item .cnt{position:absolute;right:5px;top:4px;font-size:9px;font-weight:900;background:rgba(0,0,0,.6);border-radius:6px;padding:0 4px;border:1px solid var(--g)}
+  border:2px solid var(--g,#555);box-shadow:0 0 8px var(--gs,transparent), inset 0 0 10px rgba(0,0,0,.35)}
+.item .ico{font-size:20px;line-height:1}
+.item .cnt{position:absolute;right:2px;bottom:1px;font-size:8px;font-weight:900;background:rgba(0,0,0,.65);border-radius:5px;padding:0 3px;border:1px solid var(--g);line-height:1.5}
+.item .evo-dot{position:absolute;left:3px;top:1px;font-size:8px;color:#ff5566;text-shadow:0 0 4px rgba(255,85,102,.9)}
 .item.evo-ready{border-color:#ff5566;box-shadow:0 0 14px rgba(255,85,102,.5)}
-.evo-bar{height:4px;border-radius:3px;background:rgba(0,0,0,.5);margin:4px 2px 2px;overflow:hidden}
-.evo-bar i{display:block;height:100%;background:linear-gradient(90deg,#ff8a9a,#ff3346)}
-.evo-txt{font-size:7.5px;color:#cfd8e6;font-weight:800;line-height:1.2}
-.evo-ready .evo-txt{color:#ffb0ba}
-.evo-btn{width:100%;margin-top:4px;padding:4px 3px;border-radius:8px;border:1px solid rgba(255,120,140,.7);background:linear-gradient(180deg,#ff5566,#c02038);color:#fff;font-size:9px;font-weight:900;cursor:pointer;font-family:inherit}
 
 /* 장비 상세/스탯 */
 .stat-line{display:flex;justify-content:space-between;font-size:11.5px;padding:5px 2px;border-bottom:1px dashed rgba(255,255,255,.08)}
@@ -682,7 +693,7 @@ input.num{width:58px;padding:5px 6px;border-radius:8px;border:1px solid rgba(255
   .hub-tabs{grid-template-columns:repeat(4,minmax(0,1fr))}
   .hub-tab{font-size:9px;padding:6px 2px}
   .hub-tab span{font-size:12px}
-  .item-grid{grid-template-columns:repeat(auto-fill,minmax(78px,1fr))}
+  .item-grid{grid-template-columns:repeat(auto-fill,minmax(40px,1fr))}
   .codex{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
 }
 @media (max-width:380px){
