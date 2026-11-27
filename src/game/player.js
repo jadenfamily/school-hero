@@ -257,8 +257,10 @@ function playerAttack() {
   if (game.tutorialHook) game.tutorialHook('attack');
   if (W.projectile) {
     const style = fam === 'bow' ? 'arrow' : fam === 'crossbow' ? 'bolt' : fam === 'staff' ? 'orb' : 'orb';
+    // 활·석궁은 손끝(총구)에서 발사 — 가슴 한가운데서 튀어나오는 것처럼 보이지 않게
+    const muzzle = (fam === 'bow' || fam === 'crossbow') ? 0.7 : 0;
     ctx.spawnProjectile({
-      from: 'player', x: p.x, y: 1.1, z: p.z, targetX: target.x, targetZ: target.z,
+      from: 'player', x: p.x + Math.sin(a) * muzzle, y: 1.1, z: p.z + Math.cos(a) * muzzle, targetX: target.x, targetZ: target.z,
       speed: fam === 'crossbow' ? 22 : fam === 'bow' ? 19 : 15,
       color: fam === 'staff' ? 0xb58cff : fam === 'book' ? 0x9ff0ff : 0xffd27f,
       dmg: dmgBase, range: W.range + 1, style,
