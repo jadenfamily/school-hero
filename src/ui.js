@@ -1907,49 +1907,68 @@ export function createUI(game, THREE) {
   };
 
   // ---------- 업적 도감 ----------
+  // 같은 조건의 업적은 한 가족으로 묶여 한 칸(타일)에 쌓인다.
+  // 타일은 현재 단계(아직 수령하지 않은 가장 낮은 단계)를 보여주고,
+  // 단계를 수령하면 다음 단계로 진화한다 (아이콘·이름·목표·보상이 바뀐다).
   ui.openAch = function () {
     const list = game.achList();
-    const done = list.filter((a) => a.progress >= a.goal).length;
+    const totalTiers = list.reduce((n, f) => n + f.tiers.length, 0);
+    const claimedTiers = list.reduce((n, f) => n + f.claimedCount, 0);
     // 업적은 정사각형 타일 격자로만 — 누르면 상세 팝업이 뜬다.
-    const tiles = list.map((a) => {
-      const achieved = a.progress >= a.goal;
-      const claimable = achieved && !a.claimed;
-      return `<div class="ach-tile ${achieved ? 'done' : ''} ${a.claimed ? 'claimed' : ''} ${claimable ? 'claimable' : ''}" data-ach-tile="${a.id}" title="${a.name}">
-        <div class="ach-tile-ico">${achieved ? a.icon : '🔒'}</div>
-        <div class="ach-tile-nm">${a.name}</div>
-        ${a.claimed ? '<span class="ach-tile-ok">✓</span>' : claimable ? '<span class="ach-tile-claim">!</span>' : ''}
+    const tiles = list.map((f) => {
+      // 한 번이라도 진화했거나 현재 단계를 달성했으면 아이콘을 보여준다.
+      const showIcon = f.done || f.claimedCount > 0;
+      const badge = f.allClaimed ? '<span class="ach-tile-ok">✓</span>'
+        : f.claimable ? '<span class="ach-tile-claim">!</span>' : '';
+      const tierTag = f.tiers.length > 1 ? `<div class="ach-tile-tier">${f.tier}/${f.tiers.length}단계</div>` : '';
+      return `<div class="ach-tile ${f.done ? 'done' : ''} ${f.allClaimed ? 'claimed' : ''} ${f.claimable ? 'claimable' : ''}" data-ach-tile="${f.fam}" title="${f.name}">
+        <div class="ach-tile-ico">${showIcon ? f.cur.icon : '🔒'}</div>
+        <div class="ach-tile-nm">${f.cur.name}</div>
+        ${tierTag}
+        ${badge}
       </div>`;
     }).join('');
-    const sheet = openSheet(`${head('🏆 업적', `${done}/${list.length} 달성`, 'ach')}
-      <div class="hint" style="margin-bottom:10px">모험 기록이 자동으로 쌓입니다. 달성한 업적마다 골드와 스탯 포인트 +1을 받을 수 있어요. 타일을 누르면 설명과 보상을 볼 수 있어요.</div>
+    const sheet = openSheet(`${head('🏆 업적', `${claimedTiers}/${totalTiers} 단계 달성`, 'ach')}
+      <div class="hint" style="margin-bottom:10px">같은 업적은 한 칸에 쌓여 단계가 올라가요. 단계를 달성하면 진화하며 보상이 커져요. 달성한 단계마다 골드와 스탯 포인트 +1을 받을 수 있어요. 타일을 누르면 진화 단계를 볼 수 있어요.</div>
       <div class="ach-grid">${tiles}</div>`, 'hub-sheet');
     sheet.querySelectorAll('[data-ach-tile]').forEach((el) => el.addEventListener('click', () => ui.achDetail(el.dataset.achTile)));
   };
 
-  // 업적 상세 팝업 — 설명·진행도·보상, 달성했으면 여기서 받는다.
-  ui.achDetail = function (id) {
-    const a = game.achList().find((x) => x.id === id);
-    if (!a) return;
-    const r = Math.min(1, a.progress / a.goal);
-    const claimable = a.progress >= a.goal && !a.claimed;
+  // 업적 상세 팝업 — 가족의 진화 단계 목록 + 현재 단계 설명·진행도·보상.
+  ui.achDetail = function (famId) {
+    const f = game.achList().find((x) => x.fam === famId);
+    if (!f) return;
+    const cur = f.cur;
+    const r = Math.min(1, f.progress / cur.goal);
+    const tierRows = f.tiers.map((t, i) => {
+      const reached = f.progress >= t.goal;
+      const state = t.claimed ? '<span class="ach-ok">✓ 수령</span>'
+        : reached ? '<span class="ach-rw">달성</span>' : '<span class="ach-lock">🔒</span>';
+      return `<div class="ach-tier-row ${t.claimed ? 'claimed' : reached ? 'done' : ''}">
+        <span class="ach-tier-ico">${reached || t.claimed ? t.icon : '🔒'}</span>
+        <span class="ach-tier-nm">${i + 1}단계 · ${t.name}<em>${t.desc}</em></span>
+        <span class="ach-tier-rw">${t.reward}G · 스탯+1</span>${state}
+      </div>`;
+    }).join('');
     const el = document.createElement('div');
     el.className = 'item-sheet';
     el.innerHTML = `
       <div class="islot">
         <div class="islot-head">
-          <div class="islot-ico">${a.progress >= a.goal ? a.icon : '🔒'}</div>
+          <div class="islot-ico">${f.done || f.claimedCount > 0 ? cur.icon : '🔒'}</div>
           <div class="islot-tt">
-            <div class="islot-name">${a.name}</div>
-            <div class="islot-sub">${a.reward}G · 스탯 포인트 +1</div>
+            <div class="islot-name">${f.name} · ${f.tier}/${f.tiers.length}단계</div>
+            <div class="islot-sub">${cur.name} — ${cur.reward}G · 스탯 포인트 +1</div>
           </div>
           <button class="islot-x" data-close>✕</button>
         </div>
-        <div class="islot-desc">${a.desc}</div>
+        <div class="islot-desc">${cur.desc}</div>
         <div class="ach-bar"><i style="width:${r * 100}%"></i></div>
-        <div class="ach-num">${Math.min(a.progress, a.goal)} / ${a.goal}</div>
+        <div class="ach-num">${Math.min(f.progress, cur.goal)} / ${cur.goal}</div>
+        ${f.tiers.length > 1 ? `<div class="ach-tiers">${tierRows}</div>` : ''}
         <div class="islot-actions">
           <button class="btn ghost" data-close>닫기</button>
-          ${claimable ? '<button class="btn gold" data-ach-claim>보상 받기</button>' : a.claimed ? '<span class="ach-ok">완료</span>' : ''}
+          ${f.claimable ? '<button class="btn gold" data-ach-claim>보상 받기</button>' : f.allClaimed ? '<span class="ach-ok">전 단계 완료</span>' : ''}
         </div>
       </div>`;
     document.getElementById('modalRoot').appendChild(el);
@@ -1957,9 +1976,15 @@ export function createUI(game, THREE) {
     el.addEventListener('click', (ev) => { if (ev.target === el) el.remove(); });
     const claimBtnEl = el.querySelector('[data-ach-claim]');
     if (claimBtnEl) claimBtnEl.addEventListener('click', () => {
-      const r2 = game.claimAch(id);
+      const r2 = game.claimAch(cur.id);
       el.remove();
-      if (r2.ok) { ui.toast(`업적 보상 +${r2.reward}G · 스탯 포인트 +1`, 'gold'); ui.openAch(); }
+      if (r2.ok) {
+        ui.toast(`업적 보상 +${r2.reward}G · 스탯 포인트 +1`, 'gold');
+        // 다음 단계도 이미 달성했으면 상세 팝업을 다시 열어 바로 받을 수 있게 한다.
+        const nf = game.achList().find((x) => x.fam === famId);
+        if (nf && nf.claimable) ui.achDetail(famId);
+        else ui.openAch();
+      }
     });
   };
 
