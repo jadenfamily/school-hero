@@ -3,7 +3,7 @@
 // 종이 인형처럼 보인다는 피드백 반영). 지면만 2D 텍스처(표면이므로)이며 높낮이
 // 지형 + 높이 음영 + 강한 그림자로 입체감을 낸다.
 import { AVATAR_MAP, GRADES, ARMOR_KINDS, ZONES, EARTH_GATE, GYEONGGI_GATE, BORDERS, borderDistrictId } from './data.js';
-import { visualEquip, COSTUME_VISUAL, PROP_SIZE, PROP_R, faceTextureFor3D } from './sprites.js';
+import { visualEquip, PROP_SIZE, PROP_R, faceTextureFor3D } from './sprites.js';
 const rand = (seed) => {
   let s = seed >>> 0;
   return () => {
@@ -581,106 +581,9 @@ function buildWeaponMesh(THREE, fam, M) {
   return g;
 }
 
-// 코스튬 고유 파츠 — COSTUME_VISUAL(sprites.js) 한 곳만 보고 3D에 붙인다.
-// (가방 2D 전신도 같은 맵을 쓴다.) 파츠에는 userData.costumePiece 이름을 달아
-// 스모크 테스트에서 코스튬마다 붙었는지 확인할 수 있게 한다.
-function addCostumePieces(THREE, parts, vis, cols) {
-  const { head, body } = parts;
-  const tag = (m, name) => { m.userData.costumePiece = name; return m; };
-  const capeM = mat(THREE, cols.cape);
-  const goldM = mat(THREE, 0xffd257);
-  const darkM = mat(THREE, 0x20242e);
-  const add = (parent, mesh, x, y, z) => { mesh.position.set(x, y, z); parent.add(mesh); return mesh; };
-  if (vis.head === 'hood') {
-    // 후드 (얼굴 앞은 트인 반구) — 닌자·암살자·어둠 망토
-    const hood = new THREE.Mesh(new THREE.SphereGeometry(0.34, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.62), capeM);
-    add(head, tag(hood, 'hood'), 0, 0.1, -0.08);
-  } else if (vis.head === 'tricorn') {
-    // 해적 삼각모 (챙 + 돔 + 금테)
-    add(head, tag(new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.44, 0.05, 12), darkM), 'tricorn'), 0, 0.2, 0);
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), darkM);
-    dome.scale.set(1, 0.55, 1); add(head, tag(dome, 'tricorn'), 0, 0.22, 0);
-    const band = new THREE.Mesh(new THREE.TorusGeometry(0.21, 0.02, 6, 12), goldM);
-    band.rotation.x = Math.PI / 2; add(head, tag(band, 'tricorn'), 0, 0.24, 0);
-  } else if (vis.head === 'kabuto') {
-    // 사무라이 투구 (돔 + 뿔 + 금빛 앞장식)
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(0.32, 10, 8), mat(THREE, 0x8c1f28));
-    dome.scale.set(1, 0.62, 1); add(head, tag(dome, 'kabuto'), 0, 0.2, 0);
-    for (const s of [-1, 1]) {
-      const horn = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.26, 4), mat(THREE, 0xdfe7f2));
-      horn.position.set(0.3 * s, 0.32, 0); horn.rotation.z = -s * 0.9; head.add(tag(horn, 'kabuto'));
-    }
-    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.03, 8), goldM);
-    disc.rotation.x = Math.PI / 2; add(head, tag(disc, 'kabuto'), 0, 0.14, 0.3);
-  } else if (vis.head === 'crown') {
-    // 황금 왕관
-    add(head, tag(new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.09, 8), goldM), 'crown'), 0, 0.34, 0);
-    for (let i = 0; i < 4; i++) {
-      const a = (i / 4) * Math.PI * 2;
-      add(head, tag(new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.1, 4), goldM), 'crown'), Math.cos(a) * 0.2, 0.42, Math.sin(a) * 0.2);
-    }
-  } else if (vis.head === 'halo') {
-    // 성기사 후광 (머리 위 금빛 고리)
-    const halo = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.025, 6, 16), goldM);
-    halo.rotation.x = Math.PI / 2 - 0.2; add(head, tag(halo, 'halo'), 0, 0.52, 0);
-  } else if (vis.head === 'antler') {
-    // 드루이드 뿔 (가지 달린 뿔 2개)
-    for (const s of [-1, 1]) {
-      const a = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.3, 4), mat(THREE, 0x8a6a3a));
-      a.position.set(0.22 * s, 0.4, 0); a.rotation.z = -s * 0.5; head.add(tag(a, 'antler'));
-      const b = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.14, 4), mat(THREE, 0x8a6a3a));
-      b.position.set(0.3 * s, 0.46, 0); b.rotation.z = -s * 1.2; head.add(tag(b, 'antler'));
-    }
-  } else if (vis.head === 'crest') {
-    // 기사 투구 장식 (금빛 깃)
-    add(head, tag(new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.22, 6), goldM), 'crest'), 0, 0.42, 0);
-  }
-  if (vis.mask) {
-    // 복면 (눈만 보이는 어두운 면포)
-    add(head, tag(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 0.05), darkM), 'mask'), 0, -0.1, 0.27);
-  }
-  if (vis.cloak) {
-    // 큰 망토 (기존 망토보다 넓고 길게)
-    add(body, tag(new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.9, 0.05), capeM), 'cloak'), 0, 0.78, -0.24);
-  }
-  if (vis.coat) {
-    // 해적 코트 (빨간 앞판 + 황금 단추)
-    add(body, tag(new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.04), mat(THREE, 0x7a2e2e)), 'coat'), 0, 0.88, 0.15);
-    for (let i = 0; i < 3; i++) {
-      add(body, tag(new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 5), goldM), 'coat'), 0, 1.0 - i * 0.12, 0.18);
-    }
-  }
-  if (vis.armor) {
-    // 사무라이 갑주 (붉은 판 + 흰 매듭끈)
-    add(body, tag(new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.36, 0.05), mat(THREE, 0x8c1f28)), 'armor'), 0, 0.9, 0.15);
-    add(body, tag(new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.05), mat(THREE, 0xe8e8e8)), 'armor'), 0, 0.78, 0.15);
-  }
-  if (vis.plate) {
-    // 성기사 판금 (흰 판 + 금테)
-    add(body, tag(new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.38, 0.05), mat(THREE, 0xf2e6c8)), 'plate'), 0, 0.9, 0.15);
-    add(body, tag(new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.05), goldM), 'plate'), 0, 1.06, 0.15);
-  }
-  if (vis.sash) {
-    // 황금 예복 붉은 띠 (대각선)
-    const sash = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.6, 0.04), mat(THREE, 0xc03050));
-    sash.rotation.z = 0.6; add(body, tag(sash, 'sash'), 0, 0.88, 0.15);
-  }
-  if (vis.rune) {
-    // 마법사 빛나는 문양 (가슴 원반)
-    const rune = new THREE.Mesh(new THREE.CircleGeometry(0.09, 12),
-      new THREE.MeshBasicMaterial({ color: 0x9ff0ff, transparent: true, opacity: 0.85 }));
-    add(body, tag(rune, 'rune'), 0, 0.95, 0.16);
-  }
-  if (vis.flower) {
-    // 드루이드 꽃 (어깨·가슴 분홍 꽃 3송이)
-    for (let i = 0; i < 3; i++) {
-      add(body, tag(new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 5), mat(THREE, 0xff9ec4)), 'flower'), -0.16 + i * 0.16, 1.08 - (i % 2) * 0.06, 0.16);
-    }
-  }
-}
 
 // 로우폴리 치비 휴머노이드. 정면은 +z (rotation.y = atan2(dx,dz)가 이동 방향을 향한다).
-// opts: { avatar, skin, uniform, hair, accent, weaponFam, grade, armorFam, capeColor, scale, polish, costumeId }
+// opts: { avatar, skin, uniform, hair, accent, weaponFam, grade, armorFam, capeColor, scale, polish }
 // polish: 주인공·동료만 true — 초상화처럼 다듬은 비율·얼굴. 몬스터 휴머노이드는 polish을
 // 넘기지 않으므로 기존 수치 그대로 만들어진다 (이 함수 안의 P ? A : B는 전부 P=false면 예전 값).
 // 주인공 머리 앞면의 구면 캡 — 초상화 스타일 얼굴 특징(눈·눈썹·코·입·볼)을
@@ -719,14 +622,13 @@ export function makeHumanoid3D(THREE, opts = {}) {
   let capeCol = opts.capeColor || null;
   if (!capeCol && opts.armorFam && ARMOR_KINDS[opts.armorFam]) capeCol = ARMOR_KINDS[opts.armorFam].cape;
   if (!capeCol) capeCol = accent;
-  const trimCol = opts.trimColor || null; // 코스튬 장식색 (벨트·오라에 반영)
+  const trimCol = opts.trimColor || null; // 장식색 (벨트·오라에 반영)
   const P = !!opts.polish; // 주인공·동료만: 초상화처럼 다듬은 비율·얼굴 (몬스터는 기존 그대로)
-  const vis = opts.costumeId && COSTUME_VISUAL[opts.costumeId] ? COSTUME_VISUAL[opts.costumeId] : null;
-  const outfitCol = vis ? vis.outfit : null;
+  // 의상 수집 전환 (2026-11-27): 코스튬은 외형에 반영되지 않는다 — 몸통은 항상 기본 교복 색이다.
 
   const skinM = mat(THREE, skin);
   const uniM = mat(THREE, uniform);
-  const outfitM = outfitCol != null ? mat(THREE, outfitCol) : uniM; // 코스튬을 입으면 몸통은 코스튬 색
+  const outfitM = uniM; // 기본 교복 색 (코스튬 색 변경 없음)
   const hairM = mat(THREE, hairCol);
   const pantsM = mat(THREE, av ? av.pants : 0x2c3242);
   const capeM = mat(THREE, capeCol);
@@ -757,12 +659,6 @@ export function makeHumanoid3D(THREE, opts = {}) {
   if (opts.robe || (av && av.skirt)) {
     const skirt = cone(THREE, 0.34 * bulk, 0.42, uniform, 8);
     skirt.position.y = 0.62; g.add(skirt);
-  }
-  if (vis && vis.robe) {
-    // 코스튬 로브 (발끝까지 내려오는 긴 로브 — 치마보다 크고 길어서 치마를 가린다)
-    const robe = cone(THREE, 0.38 * bulk, 0.62, outfitCol, 8);
-    robe.userData.costumePiece = 'robe';
-    robe.position.y = 0.55; g.add(robe);
   }
 
   // 몸통 그룹 (걷기 바운스·공격 돌진/기울기용, 자식은 절대 높이로 배치)
@@ -973,9 +869,6 @@ export function makeHumanoid3D(THREE, opts = {}) {
   weaponGroup.add(weapon);
   if (P) weaponGroup.scale.setScalar(1.12); // 무기가 더 또렷하게 보이게
 
-  // 코스튬 고유 장식 (입으면 바로 보인다 — 망토/벨트 색만 바꾸던 예전 방식과 달리 머리·몸통에 실제 파츠가 붙는다)
-  if (vis) addCostumePieces(THREE, { head, body }, vis, { cape: capeCol, trim: trimCol, outfit: outfitCol });
-
   // 등급 오라 (희귀 이상)
   if (grade >= 2) {
     const aura = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.52, 24),
@@ -1017,7 +910,7 @@ export function makePlayer(THREE, family = 'sword', av = null, equip = null, app
     armorFam: armor ? armor.fam : null,
     capeColor: armor && armor.capeColor ? armor.capeColor : null,
     trimColor: armor && armor.trimColor ? armor.trimColor : null,
-    costumeId: eq.costumeId, grade: eq.weapon ? (eq.weapon.grade || 0) : 0,
+    grade: eq.weapon ? (eq.weapon.grade || 0) : 0,
   });
 }
 // ---------- GLB 주인공 테스트 (?hero=glb) ----------
@@ -1027,7 +920,8 @@ export function makePlayer(THREE, family = 'sword', av = null, equip = null, app
 // 걷기·공격할 때 팔·다리 뼈를 코드로 직접 움직인다 (makeGlbHeroRigAnimator).
 // 리깅이 없는 GLB가 들어오면 기존 전신 애니메이터(바운스 + 돌진)로 폴백한다.
 // 구워진 검은 로드 때 제거하고 장착 무기를 오른손에 붙인다 (attachGlbHandWeapon).
-// 코스튬 교체는 applyGlbHeroCostume이 COSTUME_VISUAL 파츠를 GLB에 붙여 반영한다.
+// 의상 수집 전환 (2026-11-27): GLB 주인공은 항상 기본 교복이다. 코스튬 3D 파츠는
+// 붙이지 않는다 (예전 applyGlbHeroCostume은 삭제됨).
 // 얼굴은 +Z를 향한다 (절차적 플레이어의 앞면과 같은 방향 — 소프트웨어 렌더로 확인됨).
 export const GLB_HERO_TARGET_HEIGHT = 2.85; // 절차적 주인공과 같은 키 (makePlayer 1.9 × 1.5)
 const GLTF_LOADER_URLS = [
@@ -1538,64 +1432,6 @@ export function attachGlbHandWeapon(THREE, outer, fam, grade) {
   return weaponGroup;
 }
 
-// [glb-costume] GLB 주인공에 코스튬 3D 파츠를 붙인다.
-// GLB는 고정 텍스처라 교복 자체는 못 바꾸지만, 절차적 주인공과 같은
-// COSTUME_VISUAL 파츠(후드·왕관·망토·어깨 갑주·로브 등)를 붙여 코스튬이
-// 보이게 한다. 절차적 주인공(키 1.9) 좌표계를 1.5배(키 2.85) 해서
-// inner(게임 미터 공간)에 붙인다 — 머리 앵커 1.44, 몸통 앵커 원점.
-// 코스튬을 바꾸면 이전 파츠 그룹을 통째로 떼고 새로 붙인다.
-// 기본 교복·교복 모드면 파츠가 없다 (그룹 제거만).
-// 뼈(Head/Hand/Spine)에는 붙이지 않는다 — 애니메이터가 건드리는
-// 팔·다리 뼈와도 무관한 inner 자식이라 움직임에 영향이 없다.
-export function applyGlbHeroCostume(THREE, outer, equip, appearance) {
-  if (!outer) return;
-  const inner = outer.userData && outer.userData.body;
-  if (!inner) return;
-  // 이전 코스튬 파츠 그룹 제거
-  for (const ch of [...inner.children]) {
-    if (ch.userData && ch.userData.glbCostumeGroup) {
-      inner.remove(ch);
-      ch.traverse((o) => {
-        if (!o.isMesh) return;
-        if (o.geometry) o.geometry.dispose();
-        const mats = Array.isArray(o.material) ? o.material : [o.material];
-        for (const mm of mats) if (mm && mm.dispose) mm.dispose();
-      });
-    }
-  }
-  const eq = visualEquip(equip, appearance);
-  const costumeId = eq && eq.armor && eq.armor.costume;
-  const vis = costumeId && COSTUME_VISUAL[costumeId] ? COSTUME_VISUAL[costumeId] : null;
-  if (!vis) { outer.userData.glbCostumeId = null; return; }
-  const armor = eq.armor;
-  const capeCol = (armor && armor.capeColor) || 0x2b3a66;
-  const trimCol = (armor && armor.trimColor) || null;
-  const outfitCol = vis.outfit != null ? vis.outfit : null;
-  const group = new THREE.Group();
-  group.userData.glbCostumeGroup = true;
-  group.scale.setScalar(1.5); // 절차적 주인공(1.9m) -> GLB 주인공(2.85m)
-  const headAnchor = new THREE.Group();
-  headAnchor.position.set(0, 1.44, 0);
-  const bodyAnchor = new THREE.Group();
-  group.add(headAnchor, bodyAnchor);
-  addCostumePieces(THREE, { head: headAnchor, body: bodyAnchor }, vis, { cape: capeCol, trim: trimCol, outfit: outfitCol });
-  // 후드는 돔(반구)이라 1.5배 그대로면 GLB 머리(얼굴 반지름 ~0.3m)를 통째로
-  // 삼키는 검은 공처럼 보인다 (뒷모습 실측). 얼굴에 맞게 0.72배로 줄인다 —
-  // 머리 위를 덮고 얼굴은 트인 후드 실루엣이 된다. 왕관·투구 등 다른
-  // 머리 파츠는 1.5배가 머리숱(뾰족한 머리)과 어울려 그대로 둔다.
-  group.traverse((o) => {
-    if (o.isMesh && o.userData && o.userData.costumePiece === 'hood') o.scale.setScalar(0.72);
-  });
-  if (vis.robe) {
-    // 마법사·드루이드 로브 (절차적 주인공 makeHumanoid3D와 같은 원뿔)
-    const robe = cone(THREE, 0.38, 0.62, outfitCol != null ? outfitCol : 0x6a4ac0, 8);
-    robe.userData.costumePiece = 'robe';
-    robe.position.y = 0.55;
-    bodyAnchor.add(robe);
-  }
-  inner.add(group);
-  outer.userData.glbCostumeId = costumeId;
-}
 
 // ---------- GLB 탱커 동료 테스트 (?companion=glb) ----------
 // Tripo 탱커 GLB(assets/tank.glb)를 탱커 동료 대신 쓴다. 주인공 GLB와 같은
