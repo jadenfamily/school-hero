@@ -1413,6 +1413,12 @@ export function createUI(game, THREE) {
       const cls = COMPANION_CLASSES[c.cls];
       const g = GRADES[c.grade] || GRADES[0];
       const inParty = s.party.includes(c.id);
+      // 직업별 1명만 동행 (2026-11-27): 같은 직업이 이미 동행 중이면 이 동료의
+      // 동행 버튼을 비활성화한다 (토글 차단과 같은 규칙 — 방어적 이중 적용).
+      const clsTaken = !inParty && s.party.some((pid) => {
+        const p = s.companions.find((x) => x.id === pid);
+        return p && p.cls === c.cls;
+      });
       // 동료 레벨 = 주인공 레벨 (슬롯 레벨 폐지). 동행·대기 가리지 않고 모두 주인공 레벨로 표시한다.
       const effLv = game.effectiveCompanionLv();
       return `<div class="comp-card ${inParty ? 'in-party' : ''}" style="--g:${g.color};--gs:${g.glow}">
@@ -1425,7 +1431,7 @@ export function createUI(game, THREE) {
           <div class="lv">${(() => { const sk = COMPANION_SKILLS[c.skillId] || COMPANION_SKILLS[(COMPANION_SKILL_POOLS[c.cls] || [])[0]]; return sk ? `${sk.icon} ${sk.name} Lv.${game.companionSkillLevel(c)}` : ''; })()}</div>
         </div>
         <div style="display:flex;flex-direction:column;gap:5px">
-          <button class="btn ${inParty ? 'ghost' : ''}" data-party="${c.id}">${inParty ? '대기' : '동행'}</button>
+          <button class="btn ${inParty ? 'ghost' : ''}" data-party="${c.id}" ${clsTaken ? 'disabled' : ''}>${inParty ? '대기' : clsTaken ? '직업 중복' : '동행'}</button>
           <button class="mini-btn danger" data-dismiss="${c.id}">보내기</button>
         </div>
       </div>`;
@@ -1437,7 +1443,7 @@ export function createUI(game, THREE) {
         <button class="btn gold" data-pull>뽑기 ✨</button>
       </div>
       ${cards}
-      <div class="hint" style="margin-top:10px">탱커·힐러·근접딜러·마법딜러 중 최대 4명까지 함께 싸워요. 동료마다 고유 스킬이 있어요 — 같은 직업이라도 쓰는 스킬이 다를 수 있어요. 같은 동료가 다시 나오면 등급이 오르고 스킬도 강해져요 (최대 Lv.10). 스킬북은 가방에서 쓸 수 있어요 — 같은 스킬을 쓰는 동료가 강해져요. 스킬 레벨은 등급 + 1 + 보너스 (최대 Lv.10). 동료 레벨은 주인공 레벨을 따라가요 — 동료를 바꿔도 바로 주인공 레벨로 싸워요.</div>`;
+      <div class="hint" style="margin-top:10px">직업별로 1명씩, 최대 4명까지 함께 싸워요. 없는 직업 자리는 비워 둬요. 동료마다 고유 스킬이 있어요 — 같은 직업이라도 동료마다 쓰는 스킬이 다를 수 있어요. 같은 동료가 다시 나오면 등급이 오르고 스킬도 강해져요 (최대 Lv.10). 스킬북은 가방에서 쓸 수 있어요 — 같은 스킬을 쓰는 동료가 강해져요. 스킬 레벨은 등급 + 1 + 보너스 (최대 Lv.10). 동료 레벨은 주인공 레벨을 따라가요 — 동료를 바꿔도 바로 주인공 레벨로 싸워요.</div>`;
     const sheet = openSheet(html, 'hub-sheet');
     sheet.querySelectorAll('[data-comp-tab]').forEach((el) => el.addEventListener('click', () => ui.openCompanions(el.dataset.compTab)));
     sheet.querySelector('[data-pull]').addEventListener('click', () => {
