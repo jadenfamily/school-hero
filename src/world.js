@@ -243,6 +243,12 @@ const gSphere = (T, r, w = 8, h = 6) => sharedGeo(`s${r},${w},${h}`, () => new T
 const gCone = (T, r, h, s = 6) => sharedGeo(`c${r},${h},${s}`, () => new T.ConeGeometry(r, h, s));
 const gCyl = (T, rt, rb, h, s = 6) => sharedGeo(`y${rt},${rb},${h},${s}`, () => new T.CylinderGeometry(rt, rb, h, s));
 const gRing = (T, ri, ro) => sharedGeo(`r${ri},${ro}`, () => new T.RingGeometry(ri, ro, 24));
+// 깎인 바위 (골렘용) — roughPoly 다면체 + 스케일, 공유 지오메트리로 캐시
+const gRock = (T, r, sx, sy, sz, seed) => sharedGeo(`rock${r}|${sx}|${sy}|${sz}|${seed}`, () => {
+  const g = roughPoly(T, r, 1, 0.18, seed);
+  g.scale(sx, sy, sz);
+  return g;
+});
 
 function dotTexture(THREE) {
   const c = document.createElement('canvas');
@@ -285,6 +291,8 @@ export function groundTexture(THREE, zones, rnd) {
   const c = document.createElement('canvas');
   c.width = TW; c.height = TH;
   const g = c.getContext('2d');
+  // 추가 지면 디테일 전용 난수 — 공유 rnd 스트림을 건드리지 않는다 (소품 배치·개수가 그대로 유지된다)
+  const xrnd = rand(20261128);
   const X = (wx) => (wx - WORLD_BOUNDS.minX) / WORLD_W * TW;
   const Y = (wz) => (wz - WORLD_BOUNDS.minZ) / WORLD_H * TH;
   const hexOf = (n) => '#' + (n >>> 0).toString(16).padStart(6, '0');
@@ -308,6 +316,7 @@ export function groundTexture(THREE, zones, rnd) {
     for (const pt of outline) { minX = Math.min(minX, X(pt.x)); maxX = Math.max(maxX, X(pt.x)); minY = Math.min(minY, Y(pt.z)); maxY = Math.max(maxY, Y(pt.z)); }
     minX += 16; maxX -= 16; minY += 16; maxY -= 16;
     const inX = () => minX + rnd() * (maxX - minX), inY = () => minY + rnd() * (maxY - minY);
+    const xin = () => minX + xrnd() * (maxX - minX), yin = () => minY + xrnd() * (maxY - minY);
     const mossCol = zn.theme.grass || '#6a7a4a';
     // 큰 색조 얼룩 — 1~3.5m 크기, 진하게 (게임 줌에서도 읽히는 지면 결)
     // fillRect 뭉치로 불규칙한 패치를 만든다 (동그란 얼룩이 아니라 들쭉날쭉한 모양)
@@ -378,12 +387,62 @@ export function groundTexture(THREE, zones, rnd) {
         g.beginPath(); g.ellipse(px, py, 4 + rnd() * 8, 3 + rnd() * 5, rnd() * Math.PI, 0, Math.PI * 2); g.fill();
       }
     }
-    if (zn.id === 6 || zn.id === 12) { // 화산·마계섬: 검은 현무암 덩어리
+    if (zn.id === 6 || zn.id === 12) { // 화산·마계섬: 검은 현무암 덩어리 (더 빽빽하게)
       for (let i = 0; i < 65; i++) {
         const px = inX(), py = inY();
         g.globalAlpha = 0.4 + rnd() * 0.3;
         g.fillStyle = '#1c1c22';
         g.fillRect(px, py, 3 + rnd() * 5, 2 + rnd() * 4);
+      }
+      for (let i = 0; i < 45; i++) { // 추가분은 전용 난수 (공유 스트림 유지)
+        const px = xin(), py = yin();
+        g.globalAlpha = 0.4 + xrnd() * 0.3;
+        g.fillStyle = '#1c1c22';
+        g.fillRect(px, py, 3 + xrnd() * 6, 2 + xrnd() * 4);
+      }
+    }
+    if (zn.id === 6) { // 화산: 용암 균열 + 불씨 (평평한 주황 땅 아님) — 전부 전용 난수 (공유 스트림 유지)
+      for (let i = 0; i < 22; i++) {
+        let px = xin(), py = yin();
+        g.globalAlpha = 0.55 + xrnd() * 0.3;
+        g.strokeStyle = xrnd() > 0.5 ? '#ff6a2a' : '#ffa040';
+        g.lineWidth = 2.5;
+        g.beginPath(); g.moveTo(px, py);
+        let a = xrnd() * Math.PI * 2;
+        for (let sgm = 0; sgm < 4; sgm++) {
+          a += (xrnd() - 0.5) * 1.4;
+          px += Math.cos(a) * (4 + xrnd() * 6); py += Math.sin(a) * (4 + xrnd() * 6);
+          g.lineTo(px, py);
+        }
+        g.stroke();
+      }
+      for (let i = 0; i < 200; i++) {
+        const px = xin(), py = yin();
+        g.globalAlpha = 0.6 + xrnd() * 0.4;
+        g.fillStyle = xrnd() > 0.5 ? '#ff8a2a' : '#ffd257';
+        g.fillRect(px, py, 2, 2);
+      }
+    }
+    if (zn.id === 12) { // 마계섬: 보라 균열 (어두운 보라 땅의 틈) — 전부 전용 난수 (공유 스트림 유지)
+      for (let i = 0; i < 16; i++) {
+        let px = xin(), py = yin();
+        g.globalAlpha = 0.5 + xrnd() * 0.3;
+        g.strokeStyle = xrnd() > 0.5 ? '#a06aff' : '#7a4ad8';
+        g.lineWidth = 2.5;
+        g.beginPath(); g.moveTo(px, py);
+        let a = xrnd() * Math.PI * 2;
+        for (let sgm = 0; sgm < 4; sgm++) {
+          a += (xrnd() - 0.5) * 1.4;
+          px += Math.cos(a) * (4 + xrnd() * 6); py += Math.sin(a) * (4 + xrnd() * 6);
+          g.lineTo(px, py);
+        }
+        g.stroke();
+      }
+      for (let i = 0; i < 120; i++) {
+        const px = xin(), py = yin();
+        g.globalAlpha = 0.5 + xrnd() * 0.35;
+        g.fillStyle = xrnd() > 0.5 ? '#b08aff' : '#7a4ad8';
+        g.fillRect(px, py, 2, 2);
       }
     }
     // 풀잎 — 잔디 구역에만 (3개 잎이 한 곳에서 나는 풀 무늬, 더 크고 촘촘하게)
@@ -2061,27 +2120,43 @@ export function makeMonster3D(THREE, def) {
     eyes(0.38, 0.14, 0.5, 0.045);
     top = 1.05; radius = 0.6;
   } else if (shape === 'golem') {
+    // 깎인 바위 골렘 — 몸통·팔다리·머리를 roughPoly 바위로 (네모 상자 아님), 용암 균열 + 큰 빛나는 눈
+    const rock = (r, sx, sy, sz, m, seed) => new THREE.Mesh(gRock(THREE, r, sx, sy, sz, seed), m);
     legL = new THREE.Group(); legL.position.set(-0.24, 0.55, 0); body.add(legL);
-    put(pBox(0.3, 0.55, 0.35, darkM), 0, -0.27, 0, legL);
+    put(rock(0.2, 1.0, 1.3, 1.1, darkM, 61), 0, -0.27, 0, legL); // 다리 바위
     legR = new THREE.Group(); legR.position.set(0.24, 0.55, 0); body.add(legR);
-    put(pBox(0.3, 0.55, 0.35, darkM), 0, -0.27, 0, legR);
-    put(pBox(1.0, 1.1, 0.65, bodyM), 0, 1.15, 0);
-    put(pBox(0.45, 0.4, 0.4, darkM), 0, 1.95, 0);
+    put(rock(0.2, 1.0, 1.3, 1.1, darkM, 63), 0, -0.27, 0, legR);
+    // 몸통 — 큰 바위 + 어깨 바위
+    put(rock(0.5, 1.0, 0.95, 0.6, bodyM, 67), 0, 1.15, 0);
+    put(rock(0.35, 1.1, 0.6, 0.8, bodyM, 71), -0.5, 1.55, 0);
+    put(rock(0.35, 1.1, 0.6, 0.8, bodyM, 73), 0.5, 1.55, 0);
+    // 머리 — 바위 + 이마 능선
+    put(rock(0.3, 1.0, 0.85, 0.9, darkM, 79), 0, 1.95, 0);
+    put(rock(0.16, 1.2, 0.5, 0.8, darkM, 83), 0, 2.12, 0.05); // 이마 바위
     armL = new THREE.Group(); armL.position.set(-0.64, 1.5, 0); body.add(armL);
-    put(pBox(0.28, 0.9, 0.3, bodyM), 0, -0.4, 0, armL);
+    put(rock(0.24, 1.0, 1.7, 1.1, bodyM, 89), 0, -0.4, 0, armL); // 팔 바위
+    put(rock(0.2, 1.0, 0.9, 1.0, darkM, 97), 0, -0.85, 0, armL); // 주먹 바위
     armR = new THREE.Group(); armR.position.set(0.64, 1.5, 0); body.add(armR);
-    put(pBox(0.28, 0.9, 0.3, bodyM), 0, -0.4, 0, armR);
-    put(pSph(0.25, darkM), -0.6, 1.62, 0);
-    put(pSph(0.25, darkM), 0.6, 1.62, 0);
-    for (const s of [-1, 1]) put(pSph(0.06, bm(0xffc93c), 6, 5), 0.11 * s, 1.95, 0.21);
-    // 바위 금 + 이끼 + 가슴 속 빛나는 핵
-    for (const [cy, rz] of [[1.0, 0.6], [1.35, -0.5], [0.85, 1.2]]) {
-      const crack = pBox(0.03, 0.3, 0.02, darkM); crack.position.set(0.15, cy, 0.34); crack.rotation.z = rz; body.add(crack);
-    }
-    put(pSph(0.09, tm(0x5a8a3a), 6, 5), -0.55, 1.7, 0.1);
-    put(pSph(0.07, tm(0x5a8a3a), 6, 5), 0.5, 1.68, 0.12);
-    const core = pBox(0.2, 0.2, 0.08, new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.85 }));
-    core.position.set(0, 1.2, 0.34); body.add(core);
+    put(rock(0.24, 1.0, 1.7, 1.1, bodyM, 101), 0, -0.4, 0, armR);
+    put(rock(0.2, 1.0, 0.9, 1.0, darkM, 103), 0, -0.85, 0, armR); // 주먹 바위
+    // 어깨 — 바위 뭉치
+    put(rock(0.26, 1.0, 0.8, 1.0, darkM, 107), -0.6, 1.62, 0);
+    put(rock(0.26, 1.0, 0.8, 1.0, darkM, 109), 0.6, 1.62, 0);
+    // 눈 — 크고 빛나는 주황 눈 (두 개로 분리돼 보이게 ±0.15)
+    for (const s of [-1, 1]) put(pSph(0.09, bm(0xffa040), 6, 5), 0.15 * s, 1.95, 0.28);
+    // 용암 균열 — 빛나는 주황 금 (가슴, 이끼 대신)
+    const lavaCrack = (x, y, z, rz, len) => {
+      const c = pBox(0.04, len, 0.03, bm(0xff6a2a));
+      c.position.set(x, y, z); c.rotation.z = rz; body.add(c);
+    };
+    lavaCrack(0.18, 1.15, 0.34, 0.5, 0.35);
+    lavaCrack(-0.12, 1.4, 0.34, -0.4, 0.3);
+    lavaCrack(0.05, 0.85, 0.34, 1.1, 0.28);
+    // 가슴 속 빛나는 핵 (돌 테두리 + 더 밝게)
+    const coreFrame = pBox(0.28, 0.28, 0.06, darkM);
+    coreFrame.position.set(0, 1.2, 0.33); body.add(coreFrame);
+    const core = pBox(0.2, 0.2, 0.08, new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.9 }));
+    core.position.set(0, 1.2, 0.36); body.add(core);
     top = 2.15; radius = 0.6;
   } else if (shape === 'ent') {
     put(pCyl(0.32, 0.42, 1.5, bodyM, 8), 0, 0.75, 0);
@@ -2485,14 +2560,25 @@ export function buildPropGeometry(THREE, kind) {
       P(S(0.11), 0xe8f0f8, -0.45, 2.0, -0.35); // 중간층 눈 뭉치
       P(K(0.12, 0.25), 0x6a4a22, 0.72, 1.12, 0.15, 0.2, 0, 0.3); // 솔방울 (아랫가지 아래에 매달려)
       break;
-    case 'deadTree': // 앙상한 고목 + 가지 + 부러진 그루터기 + 옹이
-      P(C(0.14, 0.22, 1.6), 0x4a3a28, 0, 0.8, 0);
-      P(B(0.12, 1.0, 0.12), 0x4a3a28, 0.5, 2.0, 0, 0, 0, -0.7);
-      P(B(0.1, 0.8, 0.1), 0x4a3a28, -0.45, 2.1, 0, 0, 0, 0.7);
-      P(B(0.1, 0.7, 0.1), 0x4a3a28, 0.1, 2.5, 0, 0.5, 0, 0.2);
-      P(B(0.14, 0.3, 0.14), 0x3a2a18, 0.3, 1.2, 0.1, 0, 0, -0.4); // 부러진 가지 그루터기
+    case 'deadTree': { // 앙상한 고목 — 굽은 줄기 + 테이퍼 가지 + 뿌리 + 옹이 (상자 가지·막대기 인형 아님)
+      // 줄기 — 3단 테이퍼 원기둥, 위로 갈수록 가늘어지며 살짝 기운다 (꼭대기까지 이어진다)
+      P(C(0.16, 0.26, 1.4), 0x4a3a28, 0, 0.7, 0); // 줄기 아래 (굵게)
+      P(C(0.11, 0.16, 1.2), 0x4a3a28, 0.05, 1.9, 0, 0, 0, -0.08); // 줄기 중간
+      P(C(0.07, 0.11, 0.6), 0x3a2a18, 0.12, 2.7, 0, 0, 0, -0.2); // 줄기 위 — 부러진 듯 기운 꼭대기
+      // 뿌리 — 땅으로 퍼지는 3개 (지하로 안 내려가게 y≈0.2)
+      P(C(0.05, 0.09, 0.5), 0x3a2a18, 0.3, 0.2, 0.1, 0, 0, -1.1);
+      P(C(0.05, 0.09, 0.5), 0x3a2a18, -0.28, 0.2, -0.08, 0.3, 0, 1.05);
+      P(C(0.04, 0.08, 0.45), 0x3a2a18, 0.05, 0.18, 0.3, 0.9, 0, 0.1);
+      // 가지 — 테이퍼 원기둥, 아랫끝이 줄기(또는 큰 가지)에 닿는다
+      P(C(0.04, 0.08, 0.9), 0x4a3a28, 0.45, 2.0, 0, 0, 0, -0.7); // 오른쪽 큰 가지
+      P(C(0.03, 0.05, 0.6), 0x4a3a28, 0.78, 2.3, 0.05, 0, 0, -1.0); // 그 가지의 잔가지
+      P(C(0.04, 0.07, 0.8), 0x4a3a28, -0.42, 2.1, 0, 0, 0, 0.7); // 왼쪽 가지
+      P(C(0.03, 0.05, 0.55), 0x4a3a28, -0.7, 2.4, -0.05, 0.2, 0, 1.0); // 왼쪽 잔가지
+      P(C(0.035, 0.06, 0.6), 0x4a3a28, 0.1, 2.55, -0.1, 0.5, 0, 0.3); // 위쪽 가지
+      P(C(0.05, 0.08, 0.3), 0x3a2a18, 0.28, 1.3, 0.1, 0, 0, -0.9); // 부러진 가지 그루터기
       P(S(0.08), 0x2a1c10, -0.05, 1.5, 0.18); // 옹이
       break;
+    }
     case 'rock': { // 울퉁불퉁한 바위 — 깎인 면의 큰 돌 + 작은 돌 + 표면에 붙은 이끼 (상자 아님)
       const boulder = roughPoly(THREE, 0.72, 1, 0.22, 3); boulder.scale(1.0, 0.62, 0.85);
       P(boulder, 0x8a8f9a, 0, 0.5, 0); // 큰 돌
@@ -2510,31 +2596,62 @@ export function buildPropGeometry(THREE, kind) {
       P(K(0.09, 0.35), 0x5aae4c, 0.62, 0.18, 0.38, 0, 0, -0.2); // 밑동 풀 한 포기
       break;
     }
-    case 'sandRock': // 모래 바위 — 균열 + 밝은 면
-      P(B(1.5, 0.9, 1.1), 0xc8a86a, 0, 0.45, 0);
-      P(B(0.8, 0.5, 0.6), 0xd8b878, -0.3, 0.95, 0, 0, 0.6, 0);
-      P(B(0.05, 0.45, 0.02), 0x8a6a3a, 0.2, 0.5, 0.56, 0, 0, 0.4); // 균열
-      P(B(0.4, 0.06, 0.3), 0xe8c888, 0.45, 0.92, -0.35); // 윗면 하이라이트 (뒷쪽)
+    case 'sandRock': { // 모래 바위 — 깎인 면의 모래 돌 + 밝은 면 + 균열 (상자 아님)
+      const boulder = roughPoly(THREE, 0.72, 1, 0.22, 21); boulder.scale(1.0, 0.62, 0.85);
+      P(boulder, 0xc8a86a, 0, 0.5, 0); // 큰 돌
+      const boulder2 = roughPoly(THREE, 0.46, 0, 0.14, 23); boulder2.scale(1.1, 0.65, 0.9);
+      P(boulder2, 0xd8b878, -0.55, 0.28, 0.28); // 밝은 작은 돌
+      const stone = roughPoly(THREE, 0.28, 0, 0.09, 29); stone.scale(1.15, 0.6, 0.9);
+      P(stone, 0xb89a5a, 0.55, 0.16, -0.32); // 어두운 조약돌
+      const crack = S(0.1, 8, 6); crack.scale(1.7, 0.55, 0.4);
+      P(crack, 0x8a6a3a, 0.2, 0.5, 0.6); // 앞면 어두운 금 (돌 표면에 박힌 납작한 타원)
+      P(S(0.16), 0xe8c888, 0.35, 0.98, -0.1); // 윗면 밝은 면 (둥근 하이라이트 — 평평한 판 아님)
       break;
-    case 'bubbleRock': // 푸른 바위 (심해) — 물방울 + 산호 점
-      P(B(1.4, 0.9, 1.1), 0x5a7a9a, 0, 0.45, 0);
-      P(S(0.4), 0x7aa8c8, 0.3, 0.9, 0.1);
-      P(S(0.12), 0x9fd8f8, -0.4, 0.6, 0.56); // 물방울 (앞면)
-      P(S(0.09), 0xff9ec4, 0.5, 0.4, 0.56); // 산호 점 (앞면)
-      P(B(0.05, 0.4, 0.02), 0x3a5a7a, -0.1, 0.5, 0.56, 0, 0, 0.3); // 균열
+    }
+    case 'bubbleRock': { // 푸른 바위 (심해) — 깎인 면의 푸른 돌 + 물방울 + 산호 점 (상자 아님)
+      const boulder = roughPoly(THREE, 0.68, 1, 0.2, 31); boulder.scale(1.0, 0.62, 0.85);
+      P(boulder, 0x5a7a9a, 0, 0.48, 0); // 큰 돌
+      const boulder2 = roughPoly(THREE, 0.44, 0, 0.13, 33); boulder2.scale(1.1, 0.65, 0.9);
+      P(boulder2, 0x7aa8c8, -0.5, 0.26, 0.25); // 밝은 작은 돌
+      const stone = roughPoly(THREE, 0.26, 0, 0.08, 37); stone.scale(1.15, 0.6, 0.9);
+      P(stone, 0x4a6a8a, 0.5, 0.15, -0.3); // 어두운 조약돌
+      P(S(0.12), 0x9fd8f8, -0.4, 0.6, 0.58); // 물방울 (앞면)
+      P(S(0.09), 0x9fd8f8, 0.45, 0.85, 0.42); // 물방울 2
+      P(S(0.09), 0xff9ec4, 0.5, 0.4, 0.58); // 산호 점 (앞면)
+      P(S(0.07), 0xff7a8a, -0.2, 0.9, 0.32); // 산호 점 2
+      const crack = S(0.09, 8, 6); crack.scale(1.7, 0.55, 0.4);
+      P(crack, 0x3a5a7a, -0.1, 0.5, 0.58); // 앞면 어두운 금
       break;
-    case 'lavaRock': // 용암 바위 + 주황 균열 (2개)
-      P(B(1.5, 1.0, 1.2), 0x3a2a2a, 0, 0.5, 0);
-      P(B(0.9, 0.12, 0.5), 0xff6a2a, 0, 1.02, 0, 0, 0.3, 0);
-      P(B(0.5, 0.4, 0.4), 0x4a3434, -0.4, 0.3, 0.3, 0, 0.6, 0);
-      P(B(0.08, 0.5, 0.02), 0xff8a2a, 0.4, 0.5, 0.61, 0, 0, 0.4); // 앞면 용암 균열
+    }
+    case 'lavaRock': { // 용암 바위 — 검은 현무암 덩어리 + 용암 균열 (상자·주황 판 아님)
+      const boulder = roughPoly(THREE, 0.72, 1, 0.24, 41); boulder.scale(1.0, 0.68, 0.85);
+      P(boulder, 0x3a2a2a, 0, 0.55, 0); // 큰 현무암
+      const boulder2 = roughPoly(THREE, 0.46, 0, 0.15, 43); boulder2.scale(1.1, 0.65, 0.9);
+      P(boulder2, 0x4a3434, -0.55, 0.3, 0.28); // 밝은 작은 돌
+      const stone = roughPoly(THREE, 0.28, 0, 0.1, 47); stone.scale(1.15, 0.6, 0.9);
+      P(stone, 0x2a1a1a, 0.55, 0.17, -0.32); // 어두운 조약돌
+      // 용암 균열 — 밝은 주황, 바위 표면에 박힌 납작한 금 (밝아서 녹은 틈처럼 읽힌다)
+      const crack1 = S(0.09, 8, 6); crack1.scale(2.2, 0.5, 0.35);
+      P(crack1, 0xff6a2a, 0.15, 0.75, 0.58, 0, 0, 0.15);
+      const crack2 = S(0.07, 8, 6); crack2.scale(1.6, 0.5, 0.35);
+      P(crack2, 0xff8a2a, -0.35, 0.45, 0.55, 0, 0, -0.5);
+      const crack3 = S(0.06, 8, 6); crack3.scale(1.8, 0.4, 0.35);
+      P(crack3, 0xffa040, 0.3, 1.05, 0.2, 0, 0, 0.4); // 윗면 균열
+      P(S(0.08), 0xffd257, 0.5, 0.3, 0.45); // 불씨 (작은 밝은 점)
       break;
-    case 'iceRock': // 얼음 바위 — 균열 + 하이라이트
-      P(B(1.4, 0.9, 1.1), 0xa8d8e8, 0, 0.45, 0);
-      P(B(0.7, 0.5, 0.6), 0xc8e8f8, -0.3, 0.95, 0.1, 0, 0.6, 0);
-      P(B(0.05, 0.4, 0.02), 0x6a9ab8, -0.15, 0.5, 0.56, 0, 0, 0.3); // 균열
-      P(B(0.4, 0.06, 0.3), 0xffffff, 0.45, 0.92, -0.35); // 윗면 하이라이트 (뒷쪽)
+    }
+    case 'iceRock': { // 얼음 바위 — 깎인 면의 얼음 돌 + 균열 + 하이라이트 (상자 아님)
+      const boulder = roughPoly(THREE, 0.68, 1, 0.2, 51); boulder.scale(1.0, 0.62, 0.85);
+      P(boulder, 0xa8d8e8, 0, 0.48, 0); // 큰 돌
+      const boulder2 = roughPoly(THREE, 0.44, 0, 0.13, 53); boulder2.scale(1.1, 0.65, 0.9);
+      P(boulder2, 0xc8e8f8, -0.5, 0.26, 0.25); // 밝은 작은 돌
+      const stone = roughPoly(THREE, 0.26, 0, 0.08, 59); stone.scale(1.15, 0.6, 0.9);
+      P(stone, 0x8ab8d8, 0.5, 0.15, -0.3); // 어두운 조약돌
+      const crack = S(0.09, 8, 6); crack.scale(1.7, 0.55, 0.4);
+      P(crack, 0x6a9ab8, -0.15, 0.5, 0.58); // 앞면 어두운 금
+      P(S(0.16), 0xffffff, 0.35, 0.95, -0.1); // 윗면 하이라이트 (둥근 눈빛 — 평평한 판 아님)
       break;
+    }
     case 'grass': // 풀잎 다발 — 4개 잎 + 씨앗 머리
       for (let i = -1; i <= 1; i++) P(K(0.14, 0.7), i % 2 ? 0x7ccb5e : 0x5aae4c, i * 0.25, 0.35, 0, 0, 0, i * 0.25);
       P(K(0.11, 0.55), 0x96e06a, 0.45, 0.28, 0.1, 0, 0, -0.35);
