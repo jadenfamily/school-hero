@@ -1026,7 +1026,8 @@ export function makePlayer(THREE, family = 'sword', av = null, equip = null, app
 // 주인공 GLB는 Tripo Studio에서 리깅된 모델(assets/siwoo.glb)이라 뼈대가 있다 —
 // 걷기·공격할 때 팔·다리 뼈를 코드로 직접 움직인다 (makeGlbHeroRigAnimator).
 // 리깅이 없는 GLB가 들어오면 기존 전신 애니메이터(바운스 + 돌진)로 폴백한다.
-// 코스튬·무기 교체는 GLB에 반영되지 않는다 (테스트 한계).
+// 구워진 검은 로드 때 제거하고 장착 무기를 오른손에 붙인다 (attachGlbHandWeapon).
+// 코스튬 교체는 GLB에 반영되지 않는다 (테스트 한계).
 // 얼굴은 +Z를 향한다 (절차적 플레이어의 앞면과 같은 방향 — 소프트웨어 렌더로 확인됨).
 export const GLB_HERO_TARGET_HEIGHT = 2.85; // 절차적 주인공과 같은 키 (makePlayer 1.9 × 1.5)
 const GLTF_LOADER_URLS = [
@@ -1160,7 +1161,7 @@ function buildGlbCharacter(THREE, src, targetHeight, headY, radius, tag) {
   const legR = stub(0.11, 0.55, 0);
   const head = stub(0, 1.44, 0);
   outer.userData = {
-    avatar: null, height: targetHeight, headY, radius,
+    avatar: null, height: targetHeight, headY, radius, glbScale: scale,
     armR, armL, legL, legR, body: inner, head, weapon: null, weaponGroup: null,
     isHeroSprite: false, [tag]: true,
   };
@@ -1284,9 +1285,8 @@ function makeGlbHeroRigAnimator(outer, inner, bones) {
 // 정점 중 오른손 근처 상자 안에 있는 것. 손가락·팔뚝 정점이 섞여 들어와도
 // 해롭지 않다 — 손가락·팔뚝 뼈는 애니메이터가 건드리지 않아 손 뼈와
 // 완전히 같은 움직임이라, 손에 100% 묶어도 위치가 그대로이다.
-// (무기를 바꿔도 구워진 검이 보이는 것은 별개 한계 — 게임 무기 오브젝트는
-// GLB 주인공에 붙지 않는다. 완전히 없애려면 무기 없는 이미지로 Tripo에서
-// 다시 만드는 것이 깔끔하다.)
+// (무기를 바꿔도 구워진 검이 보이는 것은 removeGlbSword + attachGlbHandWeapon이
+// 해결한다 — 구워진 검날은 로드 때 제거하고 게임 무기를 오른손에 붙인다.)
 function makeTexelSamplerFromImage(img) {
   try {
     if (!img || !img.complete || !img.naturalWidth || !img.naturalHeight) return null;
@@ -1359,6 +1359,70 @@ export function fixGlbSwordSkinning(THREE, src, texelAt) {
   return fixed;
 }
 
+// [glb-sword-remove] 구워진 검날 정점을 오른손 관절 위치로 접어 검날을
+// 사실상 사라지게 한다. 검날 정점은 손가락·다리 등 몸통 정점과 삼각형을
+// 공유해 인덱스 버퍼로 지우면 손·다리에 구멍이 나므로, 정점 자체를 손
+// 관절(손 메쉬 안에 숨는 한 점)으로 옮기는 방식을 쓴다. 남은 삼각형은
+// 손 관절에서 몸통 접촉점까지 이어지는 얇은 조각(sliver)이 되지만,
+// 대부분이 몸통색이고 게임 카메라 거리에서는 거의 보이지 않는다
+// (소프트웨어 렌더로 확인: 전신·뒷모습에서 검날이 사라지고 캐릭터가
+// 깨끗하게 보인다). 자루(손잡이)는 색이 피부와 겹쳐 안정적으로 구분할
+// 수 없어 남겨 둔다 — 게임 무기(attachGlbHandWeapon)의 자루가 같은
+// 자리를 덮는다. fixGlbSwordSkinning 뒤에 부른다 (이미 손에 100% 묶인
+// 정점을 접는다). 반환: 접은 검날 정점 수.
+export function removeGlbSword(THREE, src, texelAt) {
+  if (!texelAt) return 0;
+  let skinned = null;
+  src.traverse((o) => { if (!skinned && o.isSkinnedMesh && o.skeleton) skinned = o; });
+  if (!skinned) return 0;
+  const skel = skinned.skeleton;
+  const norm = (s) => (s || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+  let handIdx = -1;
+  for (let i = 0; i < skel.bones.length; i++) {
+    if (norm(skel.bones[i].name) === norm('mixamorig:RightHand')) { handIdx = i; break; }
+  }
+  if (handIdx < 0) return 0;
+  const pos = skinned.geometry.attributes.position;
+  const uv = skinned.geometry.attributes.uv;
+  const skinIndex = skinned.geometry.attributes.skinIndex;
+  const skinWeight = skinned.geometry.attributes.skinWeight;
+  if (!pos || !uv || !skinIndex || !skinWeight) return 0;
+  const noTouch = new Set(['mixamorig:Hips', 'mixamorig:Spine', 'mixamorig:Spine1', 'mixamorig:Spine2', 'mixamorig:Neck', 'mixamorig:Head', 'mixamorig:LeftUpLeg', 'mixamorig:LeftLeg', 'mixamorig:LeftFoot', 'mixamorig:LeftShoulder'].map(norm));
+  src.updateMatrixWorld(true);
+  const hp = new THREE.Vector3();
+  skel.bones[handIdx].getWorldPosition(hp);
+  // 손 관절의 바인드 위치를 메쉬 로컬(원본 GLB) 좌표로 바꾼다
+  const handLocal = new THREE.Vector3().copy(hp);
+  skinned.worldToLocal(handLocal);
+  const v = new THREE.Vector3();
+  let removed = 0;
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i).applyMatrix4(skinned.matrixWorld);
+    // 오른손 근처 상자 (검날이 손에서 다리 앞까지 걸쳐 있는 범위)
+    if (v.x < hp.x - 0.25 || v.x > hp.x + 0.38 || v.y < hp.y - 0.55 || v.y > hp.y + 0.10 || v.z < hp.z || v.z > hp.z + 0.40) continue;
+    let topIdx = -1, topW = -1;
+    for (let k = 0; k < 4; k++) {
+      const w = skinWeight.getComponent(i, k);
+      if (w > topW) { topW = w; topIdx = skinIndex.getComponent(i, k); }
+    }
+    if (topIdx < 0 || !skel.bones[topIdx] || noTouch.has(norm(skel.bones[topIdx].name))) continue;
+    const c = texelAt(uv.getX(i), uv.getY(i));
+    if (!c) continue;
+    // 푸른 강철색 검날 (fixGlbSwordSkinning과 같은 판별식)
+    if (!(c[2] > 95 && c[2] > c[0] + 25 && c[2] > c[1] + 10 && c[0] < 150)) continue;
+    pos.setXYZ(i, handLocal.x, handLocal.y, handLocal.z);
+    skinIndex.setXYZW(i, handIdx, 0, 0, 0);
+    skinWeight.setXYZW(i, 1, 0, 0, 0);
+    removed++;
+  }
+  if (removed > 0) {
+    pos.needsUpdate = true;
+    skinIndex.needsUpdate = true;
+    skinWeight.needsUpdate = true;
+  }
+  return removed;
+}
+
 export async function loadGlbHero(THREE, url, opts = {}) {
   const LoaderClass = await importGlTFLoader();
   const gltf = await loadGlbWithLoader(LoaderClass, url);
@@ -1367,6 +1431,7 @@ export async function loadGlbHero(THREE, url, opts = {}) {
   const { outer, inner } = buildGlbCharacter(THREE, src, GLB_HERO_TARGET_HEIGHT, 2.4, 0.63, 'glbHero');
   // [glb-sword-fix] 구워진 검날을 오른손에 다시 묶는다 (다리를 따라가지 않게)
   let swordFixed = 0;
+  let swordRemoved = 0;
   if (opts.fixSword !== false) {
     outer.updateMatrixWorld(true);
     let img = null;
@@ -1375,9 +1440,13 @@ export async function loadGlbHero(THREE, url, opts = {}) {
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       for (const m of mats) { if (m && m.map && m.map.image) { img = m.map.image; break; } }
     });
-    swordFixed = fixGlbSwordSkinning(THREE, src, makeTexelSamplerFromImage(img));
+    const sampler = makeTexelSamplerFromImage(img);
+    swordFixed = fixGlbSwordSkinning(THREE, src, sampler);
+    // [glb-sword-remove] 검날 정점을 손 관절로 접어 검날을 사라지게 한다
+    if (swordFixed > 0) swordRemoved = removeGlbSword(THREE, src, sampler);
   }
   outer.userData.swordFixed = swordFixed;
+  outer.userData.swordRemoved = swordRemoved;
   // 리깅된 GLB면 뼈대 애니메이터를, 아니면 기존 전신 애니메이터를 쓴다
   const bones = findRigBones(src);
   outer.userData.animate = bones
@@ -1385,6 +1454,56 @@ export async function loadGlbHero(THREE, url, opts = {}) {
     : makeGlbHeroAnimator(outer, inner);
   outer.userData.rigBones = bones;
   return outer;
+}
+
+// [glb-hand-weapon] GLB 주인공의 오른손 뼈에 게임 무기를 붙인다.
+// buildWeaponMesh로 만든 무기(자루가 원점, 날이 로컬 -Y)는 절차적
+// 주인공이 armR 피벗에 붙는 것과 같은 방식이다. GLB 손 뼈의 로컬 공간은
+// 원본 GLB 단위(약 1 단위)라 무기 그룹을 1/스케일로 줄여 게임 크기
+// (날 0.5m)로 맞춘다. 검날 방향은 구워진 검의 손 로컬 방향
+// (-0.104, 0.731, 0.675 — 프로브 실측)을 이용해 맞춘다.
+// 장착 무기를 바꾸면 다시 불러 이전 무기를 떼고 새 무기를 붙인다.
+// 손 뼈 자체는 건드리지 않는다 (애니메이터가 팔·팔뚝만 움직인다).
+export function attachGlbHandWeapon(THREE, outer, fam, grade) {
+  if (!outer) return null;
+  let skinned = null;
+  outer.traverse((o) => { if (!skinned && o.isSkinnedMesh && o.skeleton) skinned = o; });
+  if (!skinned) return null;
+  const skel = skinned.skeleton;
+  const norm = (s) => (s || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+  let hand = null;
+  for (const b of skel.bones) {
+    if (norm(b.name) === norm('mixamorig:RightHand')) { hand = b; break; }
+  }
+  if (!hand) return null;
+  // 이전 무기 떼기 (지오메트리·재질 정리)
+  for (const p of hand.children.filter((c) => c.userData && c.userData.glbHandWeapon)) {
+    hand.remove(p);
+    p.traverse((o) => {
+      if (!o.isMesh) return;
+      if (o.geometry) o.geometry.dispose();
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      for (const mm of mats) if (mm && mm.dispose) mm.dispose();
+    });
+  }
+  const g = Math.min(5, Math.max(0, grade || 0));
+  const M = { grade: mat(THREE, GRADES[g].color), metal: mat(THREE, 0xdfe7f2) };
+  const weaponGroup = new THREE.Group();
+  weaponGroup.userData.glbHandWeapon = true;
+  weaponGroup.add(buildWeaponMesh(THREE, fam || 'sword', M));
+  // 검날 방향: 구워진 검의 손 로컬 방향 (프로브 실측)
+  const bladeDir = new THREE.Vector3(-0.104, 0.731, 0.675).normalize();
+  weaponGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), bladeDir);
+  // 손 뼈 로컬 공간은 원본 GLB 단위라 1/스케일로 줄인다
+  outer.updateMatrixWorld(true);
+  const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), s = new THREE.Vector3();
+  new THREE.Matrix4().copy(hand.matrixWorld).decompose(_p, _q, s);
+  const effScale = (s.x > 0 && isFinite(s.x)) ? s.x : (outer.userData.glbScale || 1);
+  weaponGroup.scale.setScalar(1 / effScale);
+  hand.add(weaponGroup);
+  outer.userData.weapon = weaponGroup.children[0] || null;
+  outer.userData.weaponGroup = weaponGroup;
+  return weaponGroup;
 }
 
 // ---------- GLB 탱커 동료 테스트 (?companion=glb) ----------
