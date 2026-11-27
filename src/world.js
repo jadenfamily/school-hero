@@ -1420,12 +1420,15 @@ export function attachGlbHandWeapon(THREE, outer, fam, grade) {
     bladeDir = new THREE.Vector3(-0.104, 0.731, 0.675).normalize();
   }
   weaponGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), bladeDir);
-  // 손 뼈 로컬 공간은 원본 GLB 단위라 1/스케일로 줄인다
+  // 손 뼈 로컬 공간은 원본 GLB 단위라 1/스케일로 줄인다.
+  // 게임 무기(날 0.5m)가 2.85m 주인공 손에서 너무 작게 보여서 1.5배로 키운다 (날 ~0.75m).
+  // 날이 위·앞을 향하는 기본 자세라 몸에 닿지 않고, 새 검 없는 siwoo.glb로
+  // 바꿔도 같은 손 뼈에 붙으므로 이 배율은 그대로 이어진다.
   outer.updateMatrixWorld(true);
   const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), s = new THREE.Vector3();
   new THREE.Matrix4().copy(hand.matrixWorld).decompose(_p, _q, s);
   const effScale = (s.x > 0 && isFinite(s.x)) ? s.x : (outer.userData.glbScale || 1);
-  weaponGroup.scale.setScalar(1 / effScale);
+  weaponGroup.scale.setScalar(1.5 / effScale);
   hand.add(weaponGroup);
   outer.userData.weapon = weaponGroup.children[0] || null;
   outer.userData.weaponGroup = weaponGroup;
