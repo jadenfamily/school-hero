@@ -267,6 +267,17 @@ input,textarea,select{font-family:inherit}
 .ach-claim{padding:6px 12px !important;font-size:11px !important}
 .ach-ok{font-size:11px;font-weight:900;color:#57e08d}
 
+/* 업적 — 정사각형 타일 격자 (누르면 상세 팝업) */
+.ach-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px}
+.ach-tile{position:relative;aspect-ratio:1/1;border-radius:13px;border:1px solid var(--line);background:rgba(255,255,255,.035);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:6px 3px;overflow:hidden}
+.ach-tile-ico{font-size:24px;line-height:1}
+.ach-tile-nm{font-size:8px;font-weight:800;color:var(--txt-dim);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.ach-tile.done{border-color:rgba(255,210,87,.45);background:rgba(255,210,87,.07)}
+.ach-tile.claimable{border-color:#ffd257;box-shadow:0 0 10px rgba(255,210,87,.35)}
+.ach-tile.claimed{opacity:.75}
+.ach-tile-ok{position:absolute;top:3px;right:5px;font-size:10px;font-weight:900;color:#57e08d}
+.ach-tile-claim{position:absolute;top:3px;right:5px;font-size:10px;font-weight:900;color:#ffd257}
+
 /* ---------- 보스 바 위치 (HUD와 겹치지 않게) ---------- *//* ---------- 오른쪽 메뉴 (퀘스트만) ---------- */
 .side-menu{position:absolute;right:clamp(8px,2.4vw,16px);bottom:calc(var(--bar-h) + 16px + var(--safe-b));display:flex;flex-direction:column;gap:7px;z-index:6}
 .round-btn,.square-btn{
@@ -417,18 +428,18 @@ input,textarea,select{font-family:inherit}
 /* 의상 도감 (가방과 별도 메뉴) */
 .codex-sheet{width:min(680px,100%)}
 .codex-top{margin-bottom:8px}
-.codex-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px}
+.codex-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .codex-card2{border-radius:13px;border:1px solid var(--line);background:rgba(255,255,255,.035);padding:6px;cursor:pointer;overflow:hidden}
 .codex-card2.owned{border-color:rgba(140,220,255,.4);background:rgba(80,150,255,.09)}
 .codex-card2.locked{opacity:.9}
-.cc2-photo{position:relative;border-radius:9px;overflow:hidden;background:radial-gradient(circle at 50% 40%,rgba(120,180,255,.18),rgba(8,12,22,.4))}
-.cc2-photo img{display:block;width:100%;height:auto}
+.cc2-photo{position:relative;border-radius:9px;overflow:hidden;background:radial-gradient(circle at 50% 40%,rgba(120,180,255,.18),rgba(8,12,22,.4));height:132px}
+.cc2-photo img{display:block;width:100%;height:100%;object-fit:cover;object-position:top}
 .codex-card2.locked .cc2-photo img{filter:grayscale(1) brightness(.55)}
 .cc2-lock{position:absolute;left:0;right:0;bottom:0;text-align:center;font-size:9px;font-weight:900;color:#fff;background:rgba(0,0,0,.55);padding:2px 0}
 .cc2-name{font-size:11px;font-weight:900;margin-top:5px;text-align:center}
 .cc2-sub{font-size:9px;color:var(--txt-dim);font-weight:800;text-align:center;margin-top:1px}
 .codex-detail-photo{margin-top:11px;border-radius:12px;overflow:hidden;background:radial-gradient(circle at 50% 40%,rgba(120,180,255,.18),rgba(8,12,22,.4))}
-.codex-detail-photo img{display:block;width:100%;max-height:320px;object-fit:contain}
+.codex-detail-photo img{display:block;width:100%;max-height:200px;object-fit:contain}
 .codex-detail-photo.locked img{filter:grayscale(1) brightness(.6)}
 
 /* 아이템 그리드 — 작은 등급색 아이콘 (한 화면에 다 보이게, 스크롤 없이) */
@@ -440,6 +451,12 @@ input,textarea,select{font-family:inherit}
 .item .cnt{position:absolute;right:2px;bottom:1px;font-size:8px;font-weight:900;background:rgba(0,0,0,.65);border-radius:5px;padding:0 3px;border:1px solid var(--g);line-height:1.5}
 .item .evo-dot{position:absolute;left:3px;top:1px;font-size:8px;color:#ff5566;text-shadow:0 0 4px rgba(255,85,102,.9)}
 .item.evo-ready{border-color:#ff5566;box-shadow:0 0 14px rgba(255,85,102,.5)}
+
+/* 장착 장비 — 가로 아이콘 행 (누르면 설명 팝업, 거기서 해제) */
+.equip-icons{display:flex;gap:6px;margin-bottom:10px}
+.equip-icons .item{flex:0 0 44px;width:44px;height:44px;min-height:44px}
+.equip-icons .item.empty{opacity:.5;border-style:dashed;box-shadow:none;cursor:default}
+.equip-icons .item .slot-lb{font-size:9px;font-weight:800;color:var(--txt-dim)}
 
 /* 장비 상세/스탯 */
 .stat-line{display:flex;justify-content:space-between;font-size:11.5px;padding:5px 2px;border-bottom:1px dashed rgba(255,255,255,.08)}
@@ -461,6 +478,11 @@ input,textarea,select{font-family:inherit}
 .node .cost{font-size:8px;color:#ffd257;font-weight:800}
 .node.on .cost{color:#7dffb0}
 
+/* 특성 페이지 숫자 (화면 맨 아래, 숫자만 작게) */
+.page-nums{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-top:14px}
+.page-num{min-width:32px;height:32px;padding:0 8px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--txt);font-size:13px;font-weight:900;cursor:pointer;font-family:inherit}
+.page-num.on{background:rgba(90,160,255,.28);border-color:#5aa0ff;color:#d6eaff}
+
 /* 동료 */
 .comp-card{display:flex;gap:10px;align-items:center;padding:10px;border-radius:14px;border:2px solid var(--g,#444);background:rgba(255,255,255,.04);margin-bottom:8px;box-shadow:0 0 12px var(--gs,transparent)}
 .comp-card .av{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;background:rgba(0,0,0,.35);border:1px solid var(--g)}
@@ -469,6 +491,14 @@ input,textarea,select{font-family:inherit}
 .comp-card .cls{font-size:10px;color:var(--txt-dim);margin-top:1px}
 .comp-card .lv{font-size:10px;font-weight:800;color:#ffe08a;margin-top:2px}
 .comp-card.in-party{box-shadow:0 0 0 2px var(--good),0 0 16px var(--g)}
+
+/* 동료 목록 — 이미지+이름만 작은 셀 격자 (누르면 상세 팝업) */
+.comp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:8px}
+.comp-cell{position:relative;border-radius:13px;border:1px solid var(--line);background:rgba(255,255,255,.035);padding:8px 4px 7px;cursor:pointer;text-align:center;overflow:hidden}
+.comp-cell .av{width:44px;height:44px;margin:0 auto;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;background:rgba(0,0,0,.35);border:2px solid var(--g,#888)}
+.comp-cell .nm{font-size:11px;font-weight:900;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.comp-cell.in-party{border-color:rgba(87,224,141,.55);box-shadow:0 0 0 1px rgba(87,224,141,.35),0 0 14px rgba(87,224,141,.18)}
+.comp-badge{position:absolute;top:4px;right:4px;font-size:8px;font-weight:900;color:#06281a;background:#57e08d;border-radius:8px;padding:1px 5px}
 
 /* 스킬북 */
 .skill-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap}
