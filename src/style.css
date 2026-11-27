@@ -444,6 +444,7 @@ input,textarea,select{font-family:inherit}
 
 /* 아이템 그리드 — 작은 등급색 아이콘 (한 화면에 다 보이게, 스크롤 없이) */
 .item-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:5px}
+.item-grid .hint{grid-column:1/-1}
 .item{position:relative;border-radius:11px;padding:0;min-height:44px;display:flex;align-items:center;justify-content:center;cursor:pointer;
   background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.02));
   border:2px solid var(--g,#555);box-shadow:0 0 8px var(--gs,transparent), inset 0 0 10px rgba(0,0,0,.35)}
