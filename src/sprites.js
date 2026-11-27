@@ -1945,6 +1945,11 @@ export function heroFullDataUrl(av) {
 // 사진 로드가 진짜 실패했을 때만 기존 캔버스 그림이 폴백으로 보인다.
 const AVATAR_PHOTO_URL = {
   base: 'assets/siwoo-avatar.png',
+  // 캐릭터별 가방 아바타 사진 (히어로 id -> 사진). boyA는 base와 같은 파일.
+  boyA: 'assets/siwoo-avatar.png',
+  girlA: 'assets/avatar-haneul.png',
+  boyB: 'assets/avatar-doyun.png',
+  girlB: 'assets/avatar-seoyeon.png',
   knight: 'assets/avatar-siwoo-knight.png',
   mage: 'assets/avatar-siwoo-mage.png',
   dark: 'assets/avatar-siwoo-dark.png',
@@ -2043,14 +2048,14 @@ export function heroFullCanvas(av, eq, size = 150, opts = {}) {
     el(g, cx, 210, 96, 116, 'rgba(255,255,255,0.06)');
   }
 
-  // 시우 실사 아바타 — 사진이 준비됐으면 캔버스 그림 대신 사진을 그린다.
+  // 캐릭터별 실사 아바타 — 사진이 준비됐으면 캔버스 그림 대신 사진을 그린다.
   // (빌보드는 기존 그림 유지 — 인게임 3D는 건드리지 않는다)
-  // 가방 아바타는 항상 기본 교복 사진(base)이다. 사진이 로딩 중이면 만화가 먼저
-  // 그려지는 깜빡임을 막기 위해 빈 캔버스를 반환한다 (사진이 준비되면
-  // onAvatarPhotoReady가 가방 아바타를 다시 그린다). 사진 로드가 진짜 실패했을
-  // 때만 아래 캔버스 만화를 폴백으로 그린다.
-  if (!opts.billboard && A.id === 'boyA') {
-    const photo = readyAvatarPhoto('base');
+  // 가방 아바타는 선택한 히어로의 사진을 쓴다 (AVATAR_PHOTO_URL에 사진이 있는
+  // 히어로만). 사진이 로딩 중이면 만화가 먼저 그려지는 깜빡임을 막기 위해 빈
+  // 캔버스를 반환한다 (사진이 준비되면 onAvatarPhotoReady가 가방 아바타를 다시
+  // 그린다). 사진 로드가 진짜 실패했을 때만 아래 캔버스 만화를 폴백으로 그린다.
+  if (!opts.billboard && AVATAR_PHOTO_URL[A.id]) {
+    const photo = readyAvatarPhoto(A.id);
     if (photo) {
       const ih = 400 * 0.97, iw = ih * (photo.naturalWidth / photo.naturalHeight);
       g.imageSmoothingEnabled = false; // 도트 질감 유지
@@ -2058,7 +2063,7 @@ export function heroFullCanvas(av, eq, size = 150, opts = {}) {
       g.imageSmoothingEnabled = true;
       return c;
     }
-    const e = loadAvatarPhoto('base'); // 아직 안 뜬 사진 — 로딩 시작 (준비되면 가방이 다시 그린다)
+    const e = loadAvatarPhoto(A.id); // 아직 안 뜬 사진 — 로딩 시작 (준비되면 가방이 다시 그린다)
     if (e && e.state === 'error') {
       // 사진 로드 실패 — 아래 캔버스 만화를 폴백으로 그린다
     } else {
