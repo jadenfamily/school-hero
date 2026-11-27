@@ -910,11 +910,12 @@ export function createUI(game, THREE) {
       .map(([key, n]) => { const [kind, fam, g] = key.split(':'); return { key, kind, fam, grade: parseInt(g, 10), n }; })
       .sort((a, b) => b.grade - a.grade || a.kind.localeCompare(b.kind));
     const slotLabels = { weapon: '무기', armor: '방어구', necklace: '목걸이', ring: '반지', earring: '귀걸이', charm: '부적' };
-    const equipRows = ['weapon', 'armor', 'necklace', 'ring', 'earring', 'charm'].map((k) => {
+    // 장착 장비는 가로 아이콘 행으로만 — 누르면 설명 팝업(itemDetail)이 뜨고, 거기서 해제할 수 있다.
+    const equipIcons = ['weapon', 'armor', 'necklace', 'ring', 'earring', 'charm'].map((k) => {
       const it = s.equip[k];
-      if (!it) return `<div class="row-line eq-row"><span class="hint">${slotLabels[k]} · 비어 있음</span></div>`;
+      if (!it) return `<div class="item empty" title="${slotLabels[k]} · 비어 있음"><span class="slot-lb">${slotLabels[k]}</span></div>`;
       const g = GRADES[it.grade] || GRADES[0];
-      return `<div class="row-line eq-row"><span><b style="color:${g.color}">${it.kind === 'charm' ? CHARMS[it.fam].name : game.itemName(it.kind, it.fam, it.grade)}</b><br><span class="hint">${equipStatText(it)}</span></span><button class="btn ghost" data-unequip="${k}">해제</button></div>`;
+      return `<div class="item" data-eq-slot="${k}" style="--g:${g.color};--gs:${g.glow}" title="${it.kind === 'charm' ? CHARMS[it.fam].name : game.itemName(it.kind, it.fam, it.grade)} · ${g.name}"><div class="ico">${itemIcon(it.kind, it.fam)}</div></div>`;
     }).join('');
     // 보유 부적 교체 (장착 슬롯은 1개지만 얻은 부적은 전부 보관한다)
     const charmBtns = (s.charms || []).map((fam) => {
@@ -971,10 +972,10 @@ export function createUI(game, THREE) {
           <div class="cur-chips"><span class="cur-chip gold"><i></i>골드 <b>${fmt(s.gold)}</b></span>${soulChips()}</div>
         </div>
       </div>
-      <div class="equip-block">${equipRows}</div>
+      <div class="equip-icons">${equipIcons}</div>
       ${charmBtns ? `<div class="charm-box"><b>🧿 보유 부적</b><div class="charm-row">${charmBtns}</div><div class="hint">눌러서 장착 중인 부적을 교체할 수 있어요. 해독 부적은 늪지 독을 막고, 수중호흡 아티팩트는 한강 심해 유적을 열어줘요.</div></div>` : ''}
       ${bookBox}
-      <div class="hint" style="margin:6px 2px 9px">아이템을 누르면 <b>설명 · 스탯 비교</b>가 열리고, <b>[장착하기]</b>를 눌러야 장착됩니다. 같은 등급·같은 아이템을 모으면 <b style="color:#ff5566">빨강(신화)</b>으로 진화해요. <button class="link-btn" data-hub="merge">합성·진화 →</button> <button class="link-btn" data-hub="codex">📖 의상 도감 →</button></div>
+      <div class="hint" style="margin:6px 2px 9px">위 장착 아이콘을 누르면 설명이 열리고 <b>해제</b>할 수 있어요. 아이템을 누르면 <b>설명 · 스탯 비교</b>가 열리고, <b>[장착하기]</b>를 눌러야 장착됩니다. 같은 등급·같은 아이템을 모으면 <b style="color:#ff5566">빨강(신화)</b>으로 진화해요. <button class="link-btn" data-hub="merge">합성·진화 →</button> <button class="link-btn" data-hub="codex">📖 의상 도감 →</button></div>
       <div class="item-grid">${grid}</div>`;
 
     const sheet = openSheet(html, 'bag-sheet');
@@ -986,8 +987,11 @@ export function createUI(game, THREE) {
         ui.itemDetail(kind, fam, parseInt(g, 10));
       });
     });
-    sheet.querySelectorAll('[data-unequip]').forEach((el) => {
-      el.addEventListener('click', () => { game.unequip(el.dataset.unequip); ui.openBag(); });
+    sheet.querySelectorAll('[data-eq-slot]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const it = game.state.equip[el.dataset.eqSlot];
+        if (it) ui.itemDetail(it.kind, it.fam, it.grade);
+      });
     });
     sheet.querySelectorAll('[data-charm]').forEach((el) => {
       el.addEventListener('click', () => { if (game.equipCharm(el.dataset.charm)) ui.openBag(); });
@@ -1124,9 +1128,13 @@ export function createUI(game, THREE) {
         ? ((CHARMS[fam] || {}).desc || '')
         : `${equipStatText(it)}`)
       : '이 아이템은 지금 버전에서 찾을 수 없는 종류예요. 장착할 수 없고, 삭제하는 게 좋아요.';
-    const equipBtn = valid
-      ? '<button class="btn gold" data-equip>장착하기</button>'
-      : '<button class="btn gold" data-delete-item>삭제하기</button>';
+    // 지금 장착 중인 아이템이면 [장착하기] 대신 [해제하기]를 보여준다.
+    const isEquipped = !!(cur && cur.kind === kind && cur.fam === fam && cur.grade === grade);
+    const equipBtn = !valid
+      ? '<button class="btn gold" data-delete-item>삭제하기</button>'
+      : isEquipped
+        ? '<button class="btn gold" data-unequip-item>해제하기</button>'
+        : '<button class="btn gold" data-equip>장착하기</button>';
     // 빨강 진화 — 작은 아이콘 격자에서는 진화 버튼이 없어졌으니 팝업에서 진화한다.
     const bagN = (s.bag && s.bag[`${kind}:${fam}:${grade}`]) || 0;
     const evo = valid && grade < 5 ? game.evoInfo(kind, fam, grade) : null;
@@ -1176,6 +1184,13 @@ export function createUI(game, THREE) {
       game.save();
       el.remove();
       ui.toast('알 수 없는 아이템을 삭제했어요.', 'good');
+      ui.openBag();
+    });
+    const unequipBtnEl = el.querySelector('[data-unequip-item]');
+    if (unequipBtnEl) unequipBtnEl.addEventListener('click', () => {
+      game.unequip(slot);
+      el.remove();
+      ui.toast('장비를 해제했어요.', 'good');
       ui.openBag();
     });
     const evoBtnEl = el.querySelector('[data-evolve-item]');
@@ -1272,9 +1287,9 @@ export function createUI(game, THREE) {
     const need = EVOLVE_NEED.map((n, i) => `<span class="evo-need" style="color:${GRADES[i].color}">${GRADES[i].name} ${n}개</span>`).join('<span class="hint"> · </span>');
     const html = `${head('⚗️ 합성 · 진화', '3개 합성 / 개수 모아 빨강 진화', 'merge')}
       <div class="hint" style="margin-bottom:10px">흰 일반 → 초 고급 → 파 희귀 → 보 에픽 → 노 전설 → <b style="color:#ff5566">빨강 신화</b></div>
+      <div style="display:flex;gap:8px;margin-bottom:10px"><button class="btn gold" data-merge-all style="flex:1">한 번에 모두 합성</button></div>
       <div class="sec-title">합성 (같은 등급 3개 → 상위 1개)</div>
       ${rows}
-      <div style="display:flex;gap:8px;margin-top:10px"><button class="btn gold" data-merge-all style="flex:1">한 번에 모두 합성</button></div>
       <div class="sec-title" style="margin-top:16px">빨강 진화 (개수 모으기)</div>
       <div class="hint" style="margin-bottom:8px">${need}</div>
       ${evoRows}`;
@@ -1319,7 +1334,6 @@ export function createUI(game, THREE) {
         <div class="plus-btns"><button data-stat="${k}" ${s.statPts <= 0 ? 'disabled' : ''}>+</button></div></div>
       </div>`).join('');
     const html = `${head('💪 스탯', `레벨 ${s.level} · 남은 포인트 ${s.statPts} P`, 'stats')}
-      <div style="margin-bottom:8px">${rows}</div>
       <div>
         <div class="stat-line"><span>무기</span><b>${d.weapon.icon} ${d.weapon.name} · ${clsLabel}</b></div>
         <div class="stat-line"><span>공격력 (기본 ${d.baseAtk} + 무기 ${d.weaponAtk})</span><b>${d.attack}</b></div>
@@ -1331,7 +1345,8 @@ export function createUI(game, THREE) {
         <div class="stat-line"><span>공격 속도</span><b>${(d.atkSpeed * 100).toFixed(0)}%</b></div>
         <div class="stat-line"><span>구역 메달</span><b>${(() => { const m = game.medalInfo(game.zone.id); return `${m.tier}등급 (+${Math.round(m.bonus * 100)}%)`; })()}</b></div>
         <div class="hint" style="margin-top:8px">근접은 힘·민첩, 원거리는 민첩·힘, 마법은 지력이 공격력을 올려줍니다.</div>
-      </div>`;
+      </div>
+      <div style="margin-top:12px">${rows}</div>`;
     const sheet = openSheet(html, 'hub-sheet');
     sheet.querySelectorAll('[data-stat]').forEach((el) => el.addEventListener('click', () => {
       if (game.spendPoint(el.dataset.stat)) ui.openStats();
@@ -1348,13 +1363,12 @@ export function createUI(game, THREE) {
     const list = TALENTS.filter((t) => (t.page || 1) === cur);
     const soulRow = Object.entries(SOUL_KINDS).map(([k, v]) =>
       `<div class="zi-box" style="border-color:${v.color}55"><div class="big" style="color:${v.color};font-size:18px">${s.souls[k] || 0}</div><div class="lbl">${v.name}</div></div>`).join('');
+    // 페이지는 숫자만 작게, 화면 맨 아래에 — 큰 버튼 격자는 없앤다.
     const tabs = [];
     for (let p = 1; p <= game.talentPageCount(); p++) {
       const open = game.isTalentPageUnlocked(p);
       const done = game.isTalentPageComplete(p);
-      const tot = game.talentPageTalents(p).length;
-      const got = game.talentPageTalents(p).filter((t) => s.talents.includes(t.id)).length;
-      tabs.push(`<button class="tab ${p === cur ? 'on' : ''}" data-soul-page="${p}" style="${open ? '' : 'opacity:.45'}">${open ? `${p}페이지` : `🔒 ${p}페이지`} ${done ? '✓' : `(${got}/${tot})`}</button>`);
+      tabs.push(`<button class="page-num ${p === cur ? 'on' : ''}" data-soul-page="${p}" style="${open ? '' : 'opacity:.45'}">${open ? `${p}${done ? ' ✓' : ''}` : `🔒${p}`}</button>`);
     }
     const svgLines = list.filter((t) => t.req.length).map((t) => t.req.map((r) => {
       const a = list.find((x) => x.id === r);
@@ -1372,9 +1386,9 @@ export function createUI(game, THREE) {
     }).join('');
     const html = `${head('🌳 영혼 특성', `영혼으로 능력을 해금하세요 · ${cur}페이지`, 'souls')}
       <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">${soulRow}</div>
-      <div class="tab-row">${tabs.join('')}</div>
       <div class="board"><svg viewBox="0 0 100 100" preserveAspectRatio="none">${svgLines}</svg>${nodes}</div>
-      <div class="hint" id="talentHint">노드를 누르면 영혼을 사용해 해금합니다. 앞의 노드를 먼저 열어야 다음 노드가 열려요. 한 페이지를 모두 해금하면 다음 페이지가 열려요.</div>`;
+      <div class="hint" id="talentHint">노드를 누르면 영혼을 사용해 해금합니다. 앞의 노드를 먼저 열어야 다음 노드가 열려요. 한 페이지를 모두 해금하면 다음 페이지가 열려요.</div>
+      <div class="page-nums">${tabs.join('')}</div>`;
     const sheet = openSheet(html, 'hub-sheet');
     sheet.querySelectorAll('[data-soul-page]').forEach((el) => el.addEventListener('click', () => {
       const p = Number(el.dataset.soulPage);
@@ -1408,42 +1422,35 @@ export function createUI(game, THREE) {
     const f = ui._compFilter || 'all';
     const tabs = [['all', '전체'], ['tank', '🛡️ 탱커'], ['healer', '💗 힐러'], ['melee', '🗡️ 근접'], ['mage', '🔮 마법']]
       .map(([id, label]) => `<button class="tab ${f === id ? 'on' : ''}" data-comp-tab="${id}">${label}</button>`).join('');
-    const list = s.companions.filter((c) => f === 'all' || c.cls === f);
-    const cards = list.map((c) => {
+    // 동료 목록은 이미지+이름만 작게 — 누르면 상세 팝업이 뜬다.
+    // 동행 중인 동료는 맨 위(파티 순서), 나머지는 등급 ↓ → 스킬 레벨 ↓ 로 정렬한다.
+    const byGradeSkill = (a, b) => (b.grade - a.grade) || (game.companionSkillLevel(b) - game.companionSkillLevel(a)) || a.name.localeCompare(b.name);
+    const filtered = s.companions.filter((c) => f === 'all' || c.cls === f);
+    const inPartyList = filtered.filter((c) => s.party.includes(c.id))
+      .sort((a, b) => s.party.indexOf(a.id) - s.party.indexOf(b.id));
+    const restList = filtered.filter((c) => !s.party.includes(c.id)).sort(byGradeSkill);
+    const ordered = [...inPartyList, ...restList];
+    const cards = ordered.map((c) => {
       const cls = COMPANION_CLASSES[c.cls];
       const g = GRADES[c.grade] || GRADES[0];
       const inParty = s.party.includes(c.id);
-      // 직업별 1명만 동행 (2026-11-27): 같은 직업이 이미 동행 중이면 이 동료의
-      // 동행 버튼을 비활성화한다 (토글 차단과 같은 규칙 — 방어적 이중 적용).
-      const clsTaken = !inParty && s.party.some((pid) => {
-        const p = s.companions.find((x) => x.id === pid);
-        return p && p.cls === c.cls;
-      });
-      // 동료 레벨 = 주인공 레벨 (슬롯 레벨 폐지). 동행·대기 가리지 않고 모두 주인공 레벨로 표시한다.
-      const effLv = game.effectiveCompanionLv();
-      return `<div class="comp-card ${inParty ? 'in-party' : ''}" style="--g:${g.color};--gs:${g.glow}">
+      return `<div class="comp-cell ${inParty ? 'in-party' : ''}" data-comp="${c.id}" style="--g:${g.color};--gs:${g.glow}">
         <div class="av" style="border-color:${g.color}">${cls.icon}</div>
-        <div class="info">
-          <div class="nm">${c.name} <span style="font-size:9px;color:${g.color}">${g.name}</span></div>
-          <div class="cls">${cls.role} · ${cls.name}</div>
-          <div class="lv">Lv.${effLv} · 공격 ${Math.round(game.companionAtk(cls, c.grade, effLv))}</div>
-          <div class="lv">체력 ${(() => { const live = (game.companions || []).find((x) => x.data && x.data.id === c.id); return live ? `${Math.round(live.hp)} / ${live.maxHp}` : `${Math.round(game.companionMaxHp(cls, c.grade, effLv))}`; })()}</div>
-          <div class="lv">${(() => { const sk = COMPANION_SKILLS[c.skillId] || COMPANION_SKILLS[(COMPANION_SKILL_POOLS[c.cls] || [])[0]]; return sk ? `${sk.icon} ${sk.name} Lv.${game.companionSkillLevel(c)}` : ''; })()}</div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:5px">
-          <button class="btn ${inParty ? 'ghost' : ''}" data-party="${c.id}" ${clsTaken ? 'disabled' : ''}>${inParty ? '대기' : clsTaken ? '직업 중복' : '동행'}</button>
-          <button class="mini-btn danger" data-dismiss="${c.id}">보내기</button>
-        </div>
+        <div class="nm" style="color:${g.color}">${c.name}</div>
+        ${inParty ? '<span class="comp-badge">동행 중</span>' : ''}
       </div>`;
-    }).join('') || `<div class="hint" style="margin:8px 0 16px">${f === 'all' ? '아직 동료가 없어요. 아래 뽑기로 동료를 만나 보세요!' : '이 직업의 동료가 없어요.'}</div>`;
+    }).join('');
+    const listHtml = ordered.length
+      ? `<div class="comp-grid">${cards}</div>`
+      : `<div class="hint" style="margin:8px 0 16px">${f === 'all' ? '아직 동료가 없어요. 아래 뽑기로 동료를 만나 보세요!' : '이 직업의 동료가 없어요.'}</div>`;
     const html = `${head('🐾 동료', `동행 ${s.party.length}/4`, 'companions')}
       <div class="tab-row">${tabs}</div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <span class="hint">동료 뽑기 · ${COMPANION_PULL_COST}골드 (보유 ${fmt(s.gold)})</span>
         <button class="btn gold" data-pull>뽑기 ✨</button>
       </div>
-      ${cards}
-      <div class="hint" style="margin-top:10px">직업별로 1명씩, 최대 4명까지 함께 싸워요. 없는 직업 자리는 비워 둬요. 동료마다 고유 스킬이 있어요 — 같은 직업이라도 동료마다 쓰는 스킬이 다를 수 있어요. 같은 동료가 다시 나오면 등급이 오르고 스킬도 강해져요 (최대 Lv.10). 스킬북은 가방에서 쓸 수 있어요 — 같은 스킬을 쓰는 동료가 강해져요. 스킬 레벨은 등급 + 1 + 보너스 (최대 Lv.10). 동료 레벨은 주인공 레벨을 따라가요 — 동료를 바꿔도 바로 주인공 레벨로 싸워요.</div>`;
+      ${listHtml}
+      <div class="hint" style="margin-top:10px">직업별로 1명씩, 최대 4명까지 함께 싸워요. 없는 직업 자리는 비워 둬요. 동료를 누르면 상세 정보가 열려요 — 거기서 동행·대기·교체·보내기를 할 수 있어요. 동료마다 고유 스킬이 있어요 — 같은 직업이라도 동료마다 쓰는 스킬이 다를 수 있어요. 같은 동료가 다시 나오면 등급이 오르고 스킬도 강해져요 (최대 Lv.10). 스킬북은 가방에서 쓸 수 있어요 — 같은 스킬을 쓰는 동료가 강해져요. 스킬 레벨은 등급 + 1 + 보너스 (최대 Lv.10). 동료 레벨은 주인공 레벨을 따라가요 — 동료를 바꿔도 바로 주인공 레벨로 싸워요.</div>`;
     const sheet = openSheet(html, 'hub-sheet');
     sheet.querySelectorAll('[data-comp-tab]').forEach((el) => el.addEventListener('click', () => ui.openCompanions(el.dataset.compTab)));
     sheet.querySelector('[data-pull]').addEventListener('click', () => {
@@ -1454,19 +1461,76 @@ export function createUI(game, THREE) {
       else { const sk = COMPANION_SKILLS[r.skillId]; ui.toast(`${r.cls.icon} ${r.companion.name} (${r.cls.role}, ${GRADES[r.grade].name}) 등장! 스킬: ${sk ? `${sk.icon} ${sk.name}` : ''}`, 'gold'); }
       ui.openCompanions();
     });
-    sheet.querySelectorAll('[data-party]').forEach((el) => el.addEventListener('click', () => {
-      const r = game.toggleParty(el.dataset.party);
-      if (!r.ok) ui.toast(r.msg, 'bad');
+    sheet.querySelectorAll('[data-comp]').forEach((el) => el.addEventListener('click', () => ui.companionDetail(el.dataset.comp)));
+  };
+
+  // 동료 상세 팝업 — 이미지+이름만 보이는 목록에서 눌렀을 때 전체 정보와 버튼을 보여준다.
+  // 같은 직업이 이미 동행 중이면 [직업 중복] 대신 [교체] — 누르면 그 동료와 바꾼다 (직업별 1명 규칙 유지).
+  ui.companionDetail = function (id) {
+    const s = game.state;
+    const c = s.companions.find((x) => x.id === id);
+    if (!c) return;
+    const cls = COMPANION_CLASSES[c.cls];
+    const g = GRADES[c.grade] || GRADES[0];
+    const inParty = s.party.includes(id);
+    const effLv = game.effectiveCompanionLv();
+    const sk = COMPANION_SKILLS[c.skillId] || COMPANION_SKILLS[(COMPANION_SKILL_POOLS[c.cls] || [])[0]];
+    const live = (game.companions || []).find((x) => x.data && x.data.id === id);
+    const hpText = live ? `${Math.round(live.hp)} / ${live.maxHp}` : `${Math.round(game.companionMaxHp(cls, c.grade, effLv))}`;
+    const clsTaken = !inParty && s.party.some((pid) => {
+      const p = s.companions.find((x) => x.id === pid);
+      return p && p.cls === c.cls;
+    });
+    const partyBtn = inParty
+      ? '<button class="btn gold" data-party-act="leave">대기</button>'
+      : clsTaken
+        ? '<button class="btn gold" data-party-act="swap">교체</button>'
+        : '<button class="btn gold" data-party-act="join">동행</button>';
+    const el = document.createElement('div');
+    el.className = 'item-sheet';
+    el.innerHTML = `
+      <div class="islot">
+        <div class="islot-head">
+          <div class="islot-ico" style="--g:${g.color}">${cls.icon}</div>
+          <div class="islot-tt">
+            <div class="islot-name" style="color:${g.color}">${c.name} <span style="font-size:11px">${g.name}</span></div>
+            <div class="islot-sub">${cls.role} · ${cls.name}${inParty ? ' · 동행 중' : ''}</div>
+          </div>
+          <button class="islot-x" data-close>✕</button>
+        </div>
+        <div class="islot-desc">Lv.${effLv} · 공격 ${Math.round(game.companionAtk(cls, c.grade, effLv))} · 체력 ${hpText}<br>${sk ? `${sk.icon} ${sk.name} Lv.${game.companionSkillLevel(c)}` : ''}</div>
+        <div class="islot-actions">
+          <button class="btn ghost" data-close>닫기</button>
+          ${partyBtn}
+          <button class="btn ghost danger" data-dismiss>보내기</button>
+        </div>
+      </div>`;
+    document.getElementById('modalRoot').appendChild(el);
+    el.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => el.remove()));
+    el.addEventListener('click', (ev) => { if (ev.target === el) el.remove(); });
+    const partyBtnEl = el.querySelector('[data-party-act]');
+    if (partyBtnEl) partyBtnEl.addEventListener('click', () => {
+      const act = partyBtnEl.dataset.partyAct;
+      if (act === 'swap') {
+        const r = game.swapParty(id);
+        el.remove();
+        if (r.ok) ui.toast(`${r.name} 동료로 교체했어요`, 'gold');
+        else if (r.msg) ui.toast(r.msg, 'bad');
+      } else {
+        const r = game.toggleParty(id);
+        el.remove();
+        if (!r.ok && r.msg) ui.toast(r.msg, 'bad');
+      }
       ui.openCompanions();
-    }));
-    sheet.querySelectorAll('[data-dismiss]').forEach((el) => el.addEventListener('click', () => {
-      const c = s.companions.find((x) => x.id === el.dataset.dismiss);
-      if (!c) return;
+    });
+    const disBtnEl = el.querySelector('[data-dismiss]');
+    if (disBtnEl) disBtnEl.addEventListener('click', () => {
       if (!window.confirm(`${c.name} 동료를 보내겠어요? 보낸 동료는 다시 돌아오지 않아요.`)) return;
-      const r = game.dismissCompanion(el.dataset.dismiss);
+      const r = game.dismissCompanion(id);
+      el.remove();
       if (r.ok) ui.toast(`${r.name} 동료를 보냈어요`, 'good');
       ui.openCompanions();
-    }));
+    });
   };
 
   // ---------- 설정 (관리자 전용) ----------
@@ -1845,27 +1909,57 @@ export function createUI(game, THREE) {
   ui.openAch = function () {
     const list = game.achList();
     const done = list.filter((a) => a.progress >= a.goal).length;
-    const cards = list.map((a) => {
-      const r = Math.min(1, a.progress / a.goal);
-      const claimable = a.progress >= a.goal && !a.claimed;
-      return `<div class="ach-card ${a.progress >= a.goal ? 'done' : ''}">
-        <div class="ach-ico">${a.progress >= a.goal ? a.icon : '🔒'}</div>
-        <div class="ach-body">
-          <div class="ach-name">${a.name}<span class="ach-rw">${a.reward}G · 스탯+1</span></div>
-          <div class="hint">${a.desc}</div>
-          <div class="ach-bar"><i style="width:${r * 100}%"></i></div>
-          <div class="ach-num">${Math.min(a.progress, a.goal)} / ${a.goal}</div>
-        </div>
-        ${claimable ? `<button class="btn gold ach-claim" data-ach="${a.id}">받기</button>` : a.claimed ? '<span class="ach-ok">완료</span>' : ''}
+    // 업적은 정사각형 타일 격자로만 — 누르면 상세 팝업이 뜬다.
+    const tiles = list.map((a) => {
+      const achieved = a.progress >= a.goal;
+      const claimable = achieved && !a.claimed;
+      return `<div class="ach-tile ${achieved ? 'done' : ''} ${a.claimed ? 'claimed' : ''} ${claimable ? 'claimable' : ''}" data-ach-tile="${a.id}" title="${a.name}">
+        <div class="ach-tile-ico">${achieved ? a.icon : '🔒'}</div>
+        <div class="ach-tile-nm">${a.name}</div>
+        ${a.claimed ? '<span class="ach-tile-ok">✓</span>' : claimable ? '<span class="ach-tile-claim">!</span>' : ''}
       </div>`;
     }).join('');
     const sheet = openSheet(`${head('🏆 업적', `${done}/${list.length} 달성`, 'ach')}
-      <div class="hint" style="margin-bottom:10px">모험 기록이 자동으로 쌓입니다. 달성한 업적마다 골드와 스탯 포인트 +1을 받을 수 있어요.</div>
-      <div class="ach-list">${cards}</div>`, 'hub-sheet');
-    sheet.querySelectorAll('[data-ach]').forEach((el) => el.addEventListener('click', () => {
-      const r = game.claimAch(el.dataset.ach);
-      if (r.ok) { ui.toast(`업적 보상 +${r.reward}G · 스탯 포인트 +1`, 'gold'); ui.openAch(); }
-    }));
+      <div class="hint" style="margin-bottom:10px">모험 기록이 자동으로 쌓입니다. 달성한 업적마다 골드와 스탯 포인트 +1을 받을 수 있어요. 타일을 누르면 설명과 보상을 볼 수 있어요.</div>
+      <div class="ach-grid">${tiles}</div>`, 'hub-sheet');
+    sheet.querySelectorAll('[data-ach-tile]').forEach((el) => el.addEventListener('click', () => ui.achDetail(el.dataset.achTile)));
+  };
+
+  // 업적 상세 팝업 — 설명·진행도·보상, 달성했으면 여기서 받는다.
+  ui.achDetail = function (id) {
+    const a = game.achList().find((x) => x.id === id);
+    if (!a) return;
+    const r = Math.min(1, a.progress / a.goal);
+    const claimable = a.progress >= a.goal && !a.claimed;
+    const el = document.createElement('div');
+    el.className = 'item-sheet';
+    el.innerHTML = `
+      <div class="islot">
+        <div class="islot-head">
+          <div class="islot-ico">${a.progress >= a.goal ? a.icon : '🔒'}</div>
+          <div class="islot-tt">
+            <div class="islot-name">${a.name}</div>
+            <div class="islot-sub">${a.reward}G · 스탯 포인트 +1</div>
+          </div>
+          <button class="islot-x" data-close>✕</button>
+        </div>
+        <div class="islot-desc">${a.desc}</div>
+        <div class="ach-bar"><i style="width:${r * 100}%"></i></div>
+        <div class="ach-num">${Math.min(a.progress, a.goal)} / ${a.goal}</div>
+        <div class="islot-actions">
+          <button class="btn ghost" data-close>닫기</button>
+          ${claimable ? '<button class="btn gold" data-ach-claim>보상 받기</button>' : a.claimed ? '<span class="ach-ok">완료</span>' : ''}
+        </div>
+      </div>`;
+    document.getElementById('modalRoot').appendChild(el);
+    el.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => el.remove()));
+    el.addEventListener('click', (ev) => { if (ev.target === el) el.remove(); });
+    const claimBtnEl = el.querySelector('[data-ach-claim]');
+    if (claimBtnEl) claimBtnEl.addEventListener('click', () => {
+      const r2 = game.claimAch(id);
+      el.remove();
+      if (r2.ok) { ui.toast(`업적 보상 +${r2.reward}G · 스탯 포인트 +1`, 'gold'); ui.openAch(); }
+    });
   };
 
   // ---------- 몹 도감 ----------
