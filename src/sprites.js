@@ -1712,11 +1712,34 @@ function drawFace(g, av, cx, cy, s, opts = {}) {
   // 목
   g.fillStyle = shade(skin, -0.12);
   g.fillRect(cx - 6 * s, cy + faceH * 0.42, 12 * s, 12 * s);
-  // 뒷머리 (얼굴보다 넓고 길게 — 초상화의 풍성한 머리)
+  // 뒷머리 — 'short'(시우)는 머리 위·옆만 감싸는 작은 캡 (어깨까지 내려오지 않게).
+  // 긴 머리·단발은 기존 풍성한 뒷머리를 유지한다.
   g.fillStyle = shade(hair, -0.18);
-  g.beginPath();
-  g.ellipse(cx, cy + 2 * s, faceW * 0.72, faceH * 0.74, 0, 0, TAU);
-  g.fill();
+  if (style === 'short') {
+    g.beginPath();
+    g.ellipse(cx, cy - faceH * 0.06, faceW * 0.60, faceH * 0.58, 0, 0, TAU);
+    g.fill();
+    // 스파이키 헤어 (모델링 이미지 — 위로 솟은 뾰족한 머리). 얼굴·앞머리가
+    // 나중에 덮으므로 보이는 부분은 머리선 위로 솟은 끝부분만이다.
+    g.fillStyle = hair;
+    const spikeX = [-0.48, -0.34, -0.18, 0, 0.18, 0.34, 0.48];
+    const spikeH = [0.80, 0.86, 0.92, 0.90, 0.94, 0.88, 0.78];
+    for (let i = 0; i < spikeX.length; i++) {
+      const dx = spikeX[i] * faceW;
+      const tipX = cx + dx + dx * 0.15; // 바깥쪽으로 살짝 기울게
+      const tipY = cy - spikeH[i] * faceH;
+      const baseY = cy - faceH * 0.58;
+      g.beginPath();
+      g.moveTo(cx + dx - faceW * 0.10, baseY);
+      g.lineTo(tipX, tipY);
+      g.lineTo(cx + dx + faceW * 0.10, baseY);
+      g.closePath(); g.fill();
+    }
+  } else {
+    g.beginPath();
+    g.ellipse(cx, cy + 2 * s, faceW * 0.72, faceH * 0.74, 0, 0, TAU);
+    g.fill();
+  }
   if (style === 'long') {
     g.beginPath();
     g.ellipse(cx, cy + faceH * 0.85, faceW * 0.78, faceH * 0.95, 0, 0, TAU);
@@ -1735,14 +1758,25 @@ function drawFace(g, av, cx, cy, s, opts = {}) {
   g.beginPath(); g.ellipse(cx, cy + faceH * 0.34, faceW * 0.34, faceH * 0.16, 0, 0, Math.PI, TAU); g.fill();
   drawFaceFeatures(g, av, cx, cy, s, opts);
   // 앞머리 (이마를 덮되 눈은 가리지 않게 — 아래쪽 가장자리가 눈썹 바로 위)
+  // 'short'(시우)는 뾰족한 가닥 앞머리 (모델링 이미지), 나머지는 기존 둥근 앞머리
   g.fillStyle = hair;
   g.beginPath();
   g.moveTo(cx - faceW * 0.62, cy - faceH * 0.16);
   g.quadraticCurveTo(cx - faceW * 0.6, cy - faceH * 0.72, cx, cy - faceH * 0.66);
   g.quadraticCurveTo(cx + faceW * 0.6, cy - faceH * 0.72, cx + faceW * 0.62, cy - faceH * 0.16);
-  g.quadraticCurveTo(cx + faceW * 0.52, cy - faceH * 0.3, cx + faceW * 0.18, cy - faceH * 0.38);
-  g.quadraticCurveTo(cx - faceW * 0.1, cy - faceH * 0.2, cx - faceW * 0.22, cy - faceH * 0.34);
-  g.quadraticCurveTo(cx - faceW * 0.5, cy - faceH * 0.26, cx - faceW * 0.62, cy - faceH * 0.16);
+  if (style === 'short') {
+    g.lineTo(cx + faceW * 0.46, cy - faceH * 0.42);
+    g.lineTo(cx + faceW * 0.32, cy - faceH * 0.26);
+    g.lineTo(cx + faceW * 0.12, cy - faceH * 0.44);
+    g.lineTo(cx - faceW * 0.06, cy - faceH * 0.28);
+    g.lineTo(cx - faceW * 0.24, cy - faceH * 0.42);
+    g.lineTo(cx - faceW * 0.42, cy - faceH * 0.27);
+    g.closePath();
+  } else {
+    g.quadraticCurveTo(cx + faceW * 0.52, cy - faceH * 0.3, cx + faceW * 0.18, cy - faceH * 0.38);
+    g.quadraticCurveTo(cx - faceW * 0.1, cy - faceH * 0.2, cx - faceW * 0.22, cy - faceH * 0.34);
+    g.quadraticCurveTo(cx - faceW * 0.5, cy - faceH * 0.26, cx - faceW * 0.62, cy - faceH * 0.16);
+  }
   g.fill();
   // 앞머리 가닥 (3톤: 기본 + 밝은 가닥 + 어두운 가닥 — 은은하게)
   g.fillStyle = shade(hair, 0.12);
@@ -1855,10 +1889,10 @@ export function drawFaceFeatures(g, av, cx, cy, s, opts = {}) {
     g.strokeStyle = 'rgba(120,70,60,.45)'; g.lineWidth = 0.9 * s;
     g.beginPath(); g.arc(ex, eyeY + 0.4 * s, eyeH * 0.78, 0.25 * Math.PI, 0.75 * Math.PI); g.stroke();
   }
-  // 눈썹 (앞머리 아래·눈 바로 위 — 앞머리 가장자리와 눈 사이에 들어가게)
-  g.strokeStyle = shade(hair, -0.05); g.lineWidth = 2 * s; g.lineCap = 'round';
-  g.beginPath(); g.moveTo(cx - eyeDX - eyeW * 0.9, eyeY - eyeH * 0.95); g.lineTo(cx - eyeDX + eyeW * 0.7, eyeY - eyeH * 1.25); g.stroke();
-  g.beginPath(); g.moveTo(cx + eyeDX + eyeW * 0.9, eyeY - eyeH * 0.95); g.lineTo(cx + eyeDX - eyeW * 0.7, eyeY - eyeH * 1.25); g.stroke();
+  // 눈썹 (초상화처럼 안쪽이 아래로 내려가는 결연한 각도)
+  g.strokeStyle = shade(hair, -0.05); g.lineWidth = 1.3 * s; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(cx - eyeDX - eyeW * 0.9, eyeY - eyeH * 1.25); g.lineTo(cx - eyeDX + eyeW * 0.7, eyeY - eyeH * 0.9); g.stroke();
+  g.beginPath(); g.moveTo(cx + eyeDX + eyeW * 0.9, eyeY - eyeH * 1.25); g.lineTo(cx + eyeDX - eyeW * 0.7, eyeY - eyeH * 0.9); g.stroke();
   // 코 · 입
   g.fillStyle = shade(skin, -0.28);
   g.beginPath(); g.ellipse(cx, cy + faceH * 0.16, 1.4 * s, 1 * s, 0, 0, TAU); g.fill();
@@ -1941,31 +1975,34 @@ export function heroFullCanvas(av, eq, size = 150, opts = {}) {
   g.scale(1.18, 1.18); // 인물 크게
   g.translate(-cx, -210);
 
-  // 망토 (뒤 — 왼쪽으로 흘러내리게)
-  const capeW = vis && vis.cloak ? 82 : 78;
-  g.fillStyle = shade(cape, -0.12);
-  g.beginPath();
-  g.moveTo(cx - 28, 150);
-  g.quadraticCurveTo(cx - capeW, 250, cx - capeW + 16, 352);
-  g.lineTo(cx + capeW - 16, 352);
-  g.quadraticCurveTo(cx + capeW, 250, cx + 28, 150);
-  g.closePath(); g.fill();
-  g.fillStyle = cape;
-  g.beginPath();
-  g.moveTo(cx - 22, 152);
-  g.quadraticCurveTo(cx - capeW + 12, 248, cx - capeW + 24, 344);
-  g.lineTo(cx + capeW - 24, 344);
-  g.quadraticCurveTo(cx + capeW - 12, 248, cx + 22, 152);
-  g.closePath(); g.fill();
-  if (trim && armor) {
-    g.strokeStyle = trim; g.lineWidth = 1.6; g.globalAlpha = 0.8;
-    g.beginPath(); g.moveTo(cx - capeW + 30, 300); g.lineTo(cx - capeW + 36, 338);
-    g.moveTo(cx + capeW - 30, 300); g.lineTo(cx + capeW - 36, 338); g.stroke(); g.globalAlpha = 1;
-  }
-  if (vis && vis.rim) { // 어둠 계열 망토 가장자리 밝은 테두리 (어두운 망토가 배경에 묻히지 않게)
-    g.strokeStyle = vis.rim; g.lineWidth = 2; g.globalAlpha = 0.75;
-    g.beginPath(); g.moveTo(cx - capeW + 24, 180); g.lineTo(cx - capeW + 30, 340);
-    g.moveTo(cx + capeW - 24, 180); g.lineTo(cx + capeW - 30, 340); g.stroke(); g.globalAlpha = 1;
+  // 망토 — 망토가 본체인 코스튬(어둠 망토·암살자 후드)일 때만 그린다.
+  // 기본 교복·방어구·기사 갑옷 등은 망토 없이 상의+바지가 보이게 (모델링 이미지와 동일).
+  if (vis && vis.cloak) {
+    const capeW = 82;
+    g.fillStyle = shade(cape, -0.12);
+    g.beginPath();
+    g.moveTo(cx - 28, 150);
+    g.quadraticCurveTo(cx - capeW, 250, cx - capeW + 16, 352);
+    g.lineTo(cx + capeW - 16, 352);
+    g.quadraticCurveTo(cx + capeW, 250, cx + 28, 150);
+    g.closePath(); g.fill();
+    g.fillStyle = cape;
+    g.beginPath();
+    g.moveTo(cx - 22, 152);
+    g.quadraticCurveTo(cx - capeW + 12, 248, cx - capeW + 24, 344);
+    g.lineTo(cx + capeW - 24, 344);
+    g.quadraticCurveTo(cx + capeW - 12, 248, cx + 22, 152);
+    g.closePath(); g.fill();
+    if (trim && armor) {
+      g.strokeStyle = trim; g.lineWidth = 1.6; g.globalAlpha = 0.8;
+      g.beginPath(); g.moveTo(cx - capeW + 30, 300); g.lineTo(cx - capeW + 36, 338);
+      g.moveTo(cx + capeW - 30, 300); g.lineTo(cx + capeW - 36, 338); g.stroke(); g.globalAlpha = 1;
+    }
+    if (vis && vis.rim) { // 어둠 계열 망토 가장자리 밝은 테두리 (어두운 망토가 배경에 묻히지 않게)
+      g.strokeStyle = vis.rim; g.lineWidth = 2; g.globalAlpha = 0.75;
+      g.beginPath(); g.moveTo(cx - capeW + 24, 180); g.lineTo(cx - capeW + 30, 340);
+      g.moveTo(cx + capeW - 24, 180); g.lineTo(cx + capeW - 30, 340); g.stroke(); g.globalAlpha = 1;
+    }
   }
 
   // 다리 · 부츠 (로브 코스튬은 로브가 가린다)
@@ -1986,7 +2023,7 @@ export function heroFullCanvas(av, eq, size = 150, opts = {}) {
 
   // 몸통 (가슴 → 허리 테이퍼 + 옆면 그림자로 입체감 — 망토보다 밝게 해서 몸이 읽히게)
   el(g, cx, 228, 40, 56, shade(outfit, -0.14));
-  el(g, cx, 228, 36, 52, shade(outfit, 0.28));
+  el(g, cx, 228, 36, 52, shade(outfit, 0.1));
   el(g, cx - 26, 228, 8, 44, shade(outfit, -0.35)); // 왼쪽 옆면 그림자
   el(g, cx + 26, 228, 8, 44, shade(outfit, 0.55)); // 오른쪽 하이라이트
   if (aFam === 'blunt' || aFam === 'ranged') {
@@ -1998,8 +2035,14 @@ export function heroFullCanvas(av, eq, size = 150, opts = {}) {
     el(g, cx, 200, 12, 7, '#f2f6ff');
   } else {
     tri(g, cx - 9, 182, cx + 9, 182, cx, 198, '#dfe8f5'); // 셔츠 깃 (흰 타원 덩어리 제거)
-    g.fillStyle = A.skirt ? (A.ribbon ? hex(A.ribbon) : '#d04848') : '#3d6fd6';
-    g.beginPath(); g.moveTo(cx, 208); g.lineTo(cx + 7, 222); g.lineTo(cx, 244); g.lineTo(cx - 7, 222); g.closePath(); g.fill(); // 넥타이·리본
+    g.fillStyle = A.skirt ? (A.ribbon ? hex(A.ribbon) : '#d04848') : (vis ? '#3d6fd6' : '#c03050');
+    g.beginPath(); g.moveTo(cx, 204); g.lineTo(cx + 6, 218); g.lineTo(cx, 240); g.lineTo(cx - 6, 218); g.closePath(); g.fill(); // 넥타이·리본 (기본 교복은 모델링 이미지의 빨간 넥타이)
+    if (!vis) { // 기본 교복/방어구 — 교복 재킷 금단추 + 금색 파이핑
+      g.fillStyle = '#ffd257';
+      for (const [bx, by] of [[17, 212], [17, 230], [17, 248]]) { g.beginPath(); g.arc(cx + bx, by, 2.6, 0, TAU); g.fill(); }
+      g.strokeStyle = '#ffd257'; g.lineWidth = 1.4; g.globalAlpha = 0.85;
+      g.beginPath(); g.moveTo(cx - 26, 200); g.lineTo(cx - 26, 258); g.moveTo(cx + 26, 200); g.lineTo(cx + 26, 258); g.stroke(); g.globalAlpha = 1;
+    }
   }
   // 코스튬 몸통 장식
   if (vis && vis.coat) {
@@ -2026,8 +2069,8 @@ export function heroFullCanvas(av, eq, size = 150, opts = {}) {
     rct(g, cx - 7, 289, 14, 7, '#dfe7f2');
   }
 
-  // 어깨 보호대 + 팔
-  const pad = (aFam === 'blunt' || aFam === 'ranged') ? '#aab5c6' : accent;
+  // 어깨 보호대 + 팔 — 기본 교복은 패드를 상의 색으로 (파란 패드가 따로 노는 것을 방지)
+  const pad = (aFam === 'blunt' || aFam === 'ranged') ? '#aab5c6' : (vis || armor ? accent : shade(outfit, 0.18));
   el(g, cx - 42, 178, 13, 11, pad); el(g, cx + 42, 178, 13, 11, pad);
   el(g, cx + 42, 170, 6, 5, shade(pad, 0.4));
   ln(g, cx - 42, 186, cx - 50, 266, shade(outfit, 0.05), 13); // 왼팔 (내려놓음)
