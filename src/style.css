@@ -399,9 +399,10 @@ input,textarea,select{font-family:inherit}
 .bh-name{font-size:15px;font-weight:900;margin-right:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .bh-lv{font-size:10px;font-weight:800;color:#8fd8ff;background:rgba(80,150,255,.15);border:1px solid rgba(120,180,255,.35);padding:1px 7px;border-radius:8px}
 .stat-chips{display:grid;grid-template-columns:repeat(auto-fit,minmax(74px,1fr));gap:4px}
-.stat-chip{display:flex;flex-direction:column;gap:1px;padding:4px 6px;border-radius:9px;background:rgba(255,255,255,.06);border:1px solid var(--line)}
-.stat-chip small{font-size:8px;color:var(--txt-dim);font-weight:700}
-.stat-chip b{font-size:11px;color:#fff;font-weight:900}
+.stat-chip{display:flex;flex-direction:column;gap:1px;padding:4px 6px;border-radius:9px;background:rgba(255,255,255,.06);border:1px solid var(--line);text-shadow:none}
+.stat-chip small{font-size:8px;color:var(--txt-dim);font-weight:700;text-shadow:none}
+.stat-chip b{font-size:11px;color:#fff;font-weight:800;white-space:nowrap;text-shadow:none}
+.stat-chip.hp{grid-column:1/-1}
 .cur-chips{display:flex;flex-wrap:wrap;gap:4px}
 .cur-chip{display:inline-flex;align-items:center;gap:3px;font-size:9px;font-weight:800;color:#cfdcf2;padding:2px 6px;border-radius:8px;background:rgba(255,255,255,.05);border:1px solid var(--line)}
 .cur-chip i{width:7px;height:7px;border-radius:50%;background:#9aa6bb;display:inline-block}
