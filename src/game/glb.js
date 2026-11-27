@@ -11,9 +11,9 @@ export function installGlb(ctx) {
   // ---------- GLB 주인공 (기본 적용) ----------
   // 아바타별 Tripo GLB를 플레이어로 쓴다. ?hero=glb는 예전 북마크용으로만
   // 남겨두고, 없어도 GLB가 기본으로 로드된다.
-  // boyA=시우 siwoo.glb, boyB=도윤 doyun.glb, girlA=하늘 haneul.glb.
-  // girlB=서연은 GLB 재생성 대기 중(긴 머리+망토가 팔 뼈에 묶인 구버전)이라
-  // 임시로 시우 GLB를 쓴다 — 서연 GLB가 준비되면 seoyeon.glb로 교체.
+  // boyA=시우 siwoo.glb, boyB=도윤 doyun.glb, girlA=하늘 haneul.glb,
+  // girlB=서연 seoyeon.glb (뼈대 가중치 오프라인 수정본 — 긴 머리·드레스가
+  // 왼팔 뼈에 묶여 있던 것을 Head/Spine으로 재지정, 망토는 없음).
   // (아바타는 로그인 시 정해지고 바꾸면 페이지가 다시 로드되므로, 게임
   // 시작 시 한 번만 로드하면 된다.)
   const HERO_GLB = true;
@@ -21,7 +21,7 @@ export function installGlb(ctx) {
     boyA: 'assets/siwoo.glb',
     boyB: 'assets/doyun.glb',
     girlA: 'assets/haneul.glb',
-    girlB: 'assets/siwoo.glb', // 서연 GLB 준비 전 임시 (위 주석 참조)
+    girlB: 'assets/seoyeon.glb', // 서연 (뼈대 가중치 수정본)
   };
   function heroGlbUrl() {
     const av = game.state && game.state.avatar;
