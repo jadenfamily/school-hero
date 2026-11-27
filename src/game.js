@@ -520,33 +520,64 @@ export function createGame(THREE) {
   };
 
   // ---------- 업적 도감 ----------
+  // 같은 조건(카운터)을 공유하는 업적은 한 가족(fam)으로 묶어 한 칸에 쌓는다.
+  // 가족 내 각 업적이 곧 진화 단계(tier)다. 단계 ID·목표·보상은 기존 그대로라
+  // 이미 저장된 achClaimed(단계 ID 목록)는 그대로 이어진다 — 마이그레이션 불필요.
   const ACHS = [
-    { id: 'first', icon: '🗡️', name: '첫 사냥', desc: '몬스터 1마리 처치', goal: 1, reward: 50, get: (s) => s.kills },
-    { id: 'hunter100', icon: '🏹', name: '숙련된 사냥꾼', desc: '몬스터 100마리 처치', goal: 100, reward: 200, get: (s) => s.kills },
-    { id: 'hunter1000', icon: '🔥', name: '전설의 사냥꾼', desc: '몬스터 1,000마리 처치', goal: 1000, reward: 800, get: (s) => s.kills },
-    { id: 'boss1', icon: '👑', name: '구역 정복', desc: '구역 보스 처치', goal: 1, reward: 250, get: (s) => (s.bossKills || {}).boss || 0 },
-    { id: 'field1', icon: '⚔️', name: '필드보스 사냥', desc: '지역 필드보스 처치', goal: 1, reward: 400, get: (s) => (s.bossKills || {}).field || 0 },
-    { id: 'chest5', icon: '📦', name: '보물 사냥꾼', desc: '숨겨진 상자 5개 발견', goal: 5, reward: 200, get: (s) => s.chestsFound || 0 },
-    { id: 'evo1', icon: '💎', name: '신화의 시작', desc: '빨강(신화) 진화 1회', goal: 1, reward: 300, get: (s) => s.evolutions || 0 },
-    { id: 'lv10', icon: '🌟', name: '한 걸음 성장', desc: '레벨 10 달성', goal: 10, reward: 150, get: (s) => s.level },
-    { id: 'lv20', icon: '✨', name: '숲을 넘어', desc: '레벨 20 달성', goal: 20, reward: 350, get: (s) => s.level },
-    { id: 'party3', icon: '🤝', name: '좋은 동료', desc: '동료 3명과 동행', goal: 3, reward: 180, get: (s) => (s.party || []).length },
-    { id: 'skill4', icon: '📖', name: '스킬 마스터', desc: '스킬 4개 습득', goal: 4, reward: 220, get: (s) => ((s.skills || {}).learned || []).length },
-    { id: 'explorer', icon: '🗺️', name: '서울 탐험가', desc: '구역 4곳 해금', goal: 4, reward: 500, get: (s) => (s.unlocked || []).filter((u) => u <= 4).length },
+    { id: 'first', fam: 'hunt', famName: '사냥', icon: '🗡️', name: '첫 사냥', desc: '몬스터 1마리 처치', goal: 1, reward: 50, get: (s) => s.kills },
+    { id: 'hunter100', fam: 'hunt', famName: '사냥', icon: '🏹', name: '숙련된 사냥꾼', desc: '몬스터 100마리 처치', goal: 100, reward: 200, get: (s) => s.kills },
+    { id: 'hunter1000', fam: 'hunt', famName: '사냥', icon: '🔥', name: '전설의 사냥꾼', desc: '몬스터 1,000마리 처치', goal: 1000, reward: 800, get: (s) => s.kills },
+    { id: 'boss1', fam: 'boss', famName: '구역 정복', icon: '👑', name: '구역 정복', desc: '구역 보스 처치', goal: 1, reward: 250, get: (s) => (s.bossKills || {}).boss || 0 },
+    { id: 'field1', fam: 'field', famName: '필드보스 사냥', icon: '⚔️', name: '필드보스 사냥', desc: '지역 필드보스 처치', goal: 1, reward: 400, get: (s) => (s.bossKills || {}).field || 0 },
+    { id: 'chest5', fam: 'chest', famName: '보물 사냥꾼', icon: '📦', name: '보물 사냥꾼', desc: '숨겨진 상자 5개 발견', goal: 5, reward: 200, get: (s) => s.chestsFound || 0 },
+    { id: 'evo1', fam: 'evo', famName: '신화의 시작', icon: '💎', name: '신화의 시작', desc: '빨강(신화) 진화 1회', goal: 1, reward: 300, get: (s) => s.evolutions || 0 },
+    { id: 'lv10', fam: 'growth', famName: '성장', icon: '🌟', name: '한 걸음 성장', desc: '레벨 10 달성', goal: 10, reward: 150, get: (s) => s.level },
+    { id: 'lv20', fam: 'growth', famName: '성장', icon: '✨', name: '숲을 넘어', desc: '레벨 20 달성', goal: 20, reward: 350, get: (s) => s.level },
+    { id: 'party3', fam: 'party', famName: '좋은 동료', icon: '🤝', name: '좋은 동료', desc: '동료 3명과 동행', goal: 3, reward: 180, get: (s) => (s.party || []).length },
+    { id: 'skill4', fam: 'skill', famName: '스킬 마스터', icon: '📖', name: '스킬 마스터', desc: '스킬 4개 습득', goal: 4, reward: 220, get: (s) => ((s.skills || {}).learned || []).length },
+    { id: 'explorer', fam: 'explore', famName: '서울 탐험가', icon: '🗺️', name: '서울 탐험가', desc: '구역 4곳 해금', goal: 4, reward: 500, get: (s) => (s.unlocked || []).filter((u) => u <= 4).length },
   ];
+  // 가족 단위 목록을 반환한다. cur = 아직 수령하지 않은 가장 낮은 단계
+  // (전부 수령했으면 마지막 단계). 진행도는 가족이 공유하는 카운터 값이다.
   game.achList = function () {
     const s = game.state;
-    return ACHS.map((a) => ({ id: a.id, icon: a.icon, name: a.name, desc: a.desc, goal: a.goal, reward: a.reward, progress: Math.floor(a.get(s) || 0), claimed: (s.achClaimed || []).includes(a.id) }));
+    const claimed = s.achClaimed || [];
+    const fams = [];
+    const byFam = {};
+    for (const a of ACHS) {
+      let f = byFam[a.fam];
+      if (!f) {
+        f = { fam: a.fam, name: a.famName, tiers: [], progress: 0 };
+        byFam[a.fam] = f;
+        fams.push(f);
+      }
+      f.tiers.push({ id: a.id, icon: a.icon, name: a.name, desc: a.desc, goal: a.goal, reward: a.reward, claimed: claimed.includes(a.id) });
+    }
+    for (const f of fams) {
+      const def = ACHS.find((a) => a.fam === f.fam);
+      f.progress = Math.floor(def.get(s) || 0);
+      f.claimedCount = f.tiers.filter((t) => t.claimed).length;
+      f.allClaimed = f.claimedCount === f.tiers.length;
+      f.cur = f.tiers.find((t) => !t.claimed) || f.tiers[f.tiers.length - 1];
+      f.tier = f.tiers.indexOf(f.cur) + 1;
+      f.done = f.progress >= f.cur.goal;
+      f.claimable = f.done && !f.cur.claimed;
+    }
+    return fams;
   };
+  // 단계 ID로 보상을 받는다. (가족이 진화해도 단계 ID·보상은 그대로)
   game.claimAch = function (id) {
-    const a = game.achList().find((x) => x.id === id);
-    if (!a || a.claimed || a.progress < a.goal) return { ok: false };
-    game.state.achClaimed = game.state.achClaimed || [];
-    game.state.achClaimed.push(id);
-    game.state.gold += a.reward;
+    const a = ACHS.find((x) => x.id === id);
+    if (!a) return { ok: false };
+    const s = game.state;
+    if ((s.achClaimed || []).includes(id)) return { ok: false };
+    if (Math.floor(a.get(s) || 0) < a.goal) return { ok: false };
+    s.achClaimed = s.achClaimed || [];
+    s.achClaimed.push(id);
+    s.gold += a.reward;
     // 업적 달성 시 스탯 포인트 +1 (영구) — 지급 횟수를 기록해 중복 지급 방지
-    game.state.statPts = (game.state.statPts || 0) + 1;
-    game.state.achBonusGranted = (game.state.achBonusGranted || 0) + 1;
+    s.statPts = (s.statPts || 0) + 1;
+    s.achBonusGranted = (s.achBonusGranted || 0) + 1;
     game.save();
     game.flushSave();
     if (game.ui) game.ui.markDirty(true);
