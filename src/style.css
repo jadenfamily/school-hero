@@ -277,6 +277,16 @@ input,textarea,select{font-family:inherit}
 .ach-tile.claimed{opacity:.75}
 .ach-tile-ok{position:absolute;top:3px;right:5px;font-size:10px;font-weight:900;color:#57e08d}
 .ach-tile-claim{position:absolute;top:3px;right:5px;font-size:10px;font-weight:900;color:#ffd257}
+.ach-tile-tier{font-size:7px;font-weight:800;color:#ffd257;text-align:center;line-height:1}
+.ach-lock{font-size:11px;font-weight:900;color:var(--txt-dim)}
+.ach-tiers{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.ach-tier-row{display:flex;gap:8px;align-items:center;padding:7px 8px;border-radius:11px;border:1px solid var(--line);background:rgba(255,255,255,.03)}
+.ach-tier-row.done{border-color:rgba(255,210,87,.45);background:rgba(255,210,87,.07)}
+.ach-tier-row.claimed{opacity:.7}
+.ach-tier-ico{font-size:17px;line-height:1;flex:0 0 auto}
+.ach-tier-nm{flex:1;min-width:0;font-size:11px;font-weight:800}
+.ach-tier-nm em{display:block;font-style:normal;font-size:9px;font-weight:400;color:var(--txt-dim);margin-top:1px}
+.ach-tier-rw{font-size:10px;font-weight:900;color:#ffd257;white-space:nowrap}
 
 /* ---------- 보스 바 위치 (HUD와 겹치지 않게) ---------- *//* ---------- 오른쪽 메뉴 (퀘스트만) ---------- */
 .side-menu{position:absolute;right:clamp(8px,2.4vw,16px);bottom:calc(var(--bar-h) + 16px + var(--safe-b));display:flex;flex-direction:column;gap:7px;z-index:6}
