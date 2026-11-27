@@ -2,7 +2,7 @@
 // game.js에서 분리. 기본 주소에서도 GLB가 로드되고, 실패하면 절차적 모델 +
 // 토스트로 폴백한다. ?hero=glb / ?companion=glb는 예전 북마크용 no-op.
 import { groundY, disposeGroup } from './util.js';
-import { loadGlbHero, loadGlbCompanion, attachGlbHandWeapon, applyGlbHeroCostume, makePlayer } from '../world.js';
+import { loadGlbHero, loadGlbCompanion, attachGlbHandWeapon, makePlayer } from '../world.js';
 import { avatarOf } from '../data.js';
 
 export function installGlb(ctx) {
@@ -35,7 +35,6 @@ export function installGlb(ctx) {
       glbHeroState = 'ready';
       swapGlbHeroIn();
       updateGlbHeroWeapon();
-      updateGlbHeroCostume();
     }).catch((err) => {
       glbHeroState = 'failed';
       console.warn('GLB 주인공을 불러오지 못했어요:', err && err.message);
@@ -197,17 +196,12 @@ export function installGlb(ctx) {
     attachGlbHandWeapon(THREE, glbHeroMesh, fam, grade);
   }
 
-  // GLB 주인공에 장착 중인 코스튬의 3D 파츠를 붙인다 (바꾸면 교체).
-  function updateGlbHeroCostume() {
-    if (!HERO_GLB || glbHeroState !== 'ready' || !glbHeroMesh) return;
-    applyGlbHeroCostume(THREE, glbHeroMesh, game.state && game.state.equip, game.state && game.state.appearance);
-  }
-
   function rebuildPlayerMesh() {
     const p = game.player;
     if (!p) return;
-    // GLB가 준비됐으면 GLB를 유지하고 장착 무기·코스튬을 손·몸에 붙인다
-    if (HERO_GLB && glbHeroState === 'ready' && glbHeroMesh) { swapGlbHeroIn(); updateGlbHeroWeapon(); updateGlbHeroCostume(); return; }
+    // GLB가 준비됐으면 GLB를 유지하고 장착 무기만 손에 붙인다
+    // (의상 수집 전환: 코스튬 3D 파츠는 붙이지 않는다 — GLB 주인공은 항상 기본 교복)
+    if (HERO_GLB && glbHeroState === 'ready' && glbHeroMesh) { swapGlbHeroIn(); updateGlbHeroWeapon(); return; }
     if (HERO_GLB && glbHeroState === 'off') ensureGlbHero();
     if (game.playerMesh) { scene.remove(game.playerMesh); if (game.playerMesh !== glbHeroMesh) disposeGroup(game.playerMesh); }
     game.playerMesh = makePlayer(THREE, 'sword', avatarOf(game.state.avatar), game.state.equip, game.state.appearance);
