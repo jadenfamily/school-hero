@@ -39,6 +39,8 @@ export function installGlb(ctx) {
       glbHeroState = 'failed';
       console.warn('GLB 주인공을 불러오지 못했어요:', err && err.message);
       if (game.ui) game.ui.toast('GLB 주인공 모델을 불러오지 못했어요. 기본 모델로 계속해요.', '');
+      // GLB 로드 실패 — 로딩 중 숨겨둔 절차적(레고) 몸통을 다시 보여준다 (폴백).
+      if (game.playerMesh && game.playerMesh !== glbHeroMesh) game.playerMesh.visible = true;
     });
   }
   function swapGlbHeroIn() {
@@ -48,6 +50,13 @@ export function installGlb(ctx) {
     game.playerMesh.position.set(game.player.x, groundY(game.player.x, game.player.z), game.player.z);
     game.playerMesh.rotation.y = game.player.facing;
     scene.add(game.playerMesh);
+  }
+
+  // GLB 동료 로드 실패 시, 로딩 중 숨겨둔 절차적 몸통을 다시 보여준다 (폴백).
+  function showProceduralCompanion(clsId) {
+    if (!game.compObjects) return;
+    const o = game.compObjects.find((x) => x.cls.id === clsId);
+    if (o && o.mesh) o.mesh.visible = true;
   }
 
   // GLB 탱커 동료 상태 (기본값 off — 로드 전)
@@ -64,6 +73,7 @@ export function installGlb(ctx) {
       glbTankState = 'failed';
       console.warn('GLB 탱커 모델을 불러오지 못했어요:', err && err.message);
       if (game.ui) game.ui.toast('GLB 탱커 모델을 불러오지 못했어요. 기본 모델로 계속해요.', '');
+      showProceduralCompanion('tank');
     });
   }
   // 파티의 첫 번째 탱커 동료 메쉬를 GLB로 바꾼다. GLB 메쉬는 하나뿐이라
@@ -98,6 +108,7 @@ export function installGlb(ctx) {
       glbMeleeState = 'failed';
       console.warn('GLB 근접 모델을 불러오지 못했어요:', err && err.message);
       if (game.ui) game.ui.toast('GLB 근접 모델을 불러오지 못했어요. 기본 모델로 계속해요.', '');
+      showProceduralCompanion('melee');
     });
   }
   // 파티의 첫 번째 근접 동료 메쉬를 GLB로 바꾼다. GLB 메쉬는 하나뿐이라
@@ -132,6 +143,7 @@ export function installGlb(ctx) {
       glbMageState = 'failed';
       console.warn('GLB 마법 모델을 불러오지 못했어요:', err && err.message);
       if (game.ui) game.ui.toast('GLB 마법 모델을 불러오지 못했어요. 기본 모델로 계속해요.', '');
+      showProceduralCompanion('mage');
     });
   }
   // 파티의 첫 번째 마법 동료 메쉬를 GLB로 바꾼다. GLB 메쉬는 하나뿐이라
@@ -166,6 +178,7 @@ export function installGlb(ctx) {
       glbHealerState = 'failed';
       console.warn('GLB 힐러 모델을 불러오지 못했어요:', err && err.message);
       if (game.ui) game.ui.toast('GLB 힐러 모델을 불러오지 못했어요. 기본 모델로 계속해요.', '');
+      showProceduralCompanion('healer');
     });
   }
   // 파티의 첫 번째 힐러 동료 메쉬를 GLB로 바꾼다. GLB 메쉬는 하나뿐이라
@@ -205,11 +218,25 @@ export function installGlb(ctx) {
     if (HERO_GLB && glbHeroState === 'off') ensureGlbHero();
     if (game.playerMesh) { scene.remove(game.playerMesh); if (game.playerMesh !== glbHeroMesh) disposeGroup(game.playerMesh); }
     game.playerMesh = makePlayer(THREE, 'sword', avatarOf(game.state.avatar), game.state.equip, game.state.appearance);
+    // 부팅 시 레고 몸통 깜빡임 방지: GLB가 로딩 중이면 절차적 몸통을 숨긴다.
+    // GLB가 준비되면 swapGlbHeroIn이 교체하고, 로드 실패 시 ensureGlbHero의 catch에서 다시 보여준다.
+    game.playerMesh.visible = !(HERO_GLB && (glbHeroState === 'loading' || glbHeroState === 'off'));
     game.playerMesh.position.set(p.x, groundY(p.x, p.z), p.z);
     game.playerMesh.rotation.y = p.facing;
     scene.add(game.playerMesh);
   }
   game.rebuildPlayerMesh = rebuildPlayerMesh;
+
+  // 동료 GLB 로딩 상태 조회 — companions.js가 절차적 몸통을 숨길지 결정한다.
+  // GLB가 꺼져 있으면 'failed'를 돌려 절차적 모델이 보이게 한다.
+  ctx.glbCompanionState = (clsId) => {
+    if (!COMPANION_GLB) return 'failed';
+    if (clsId === 'tank') return glbTankState;
+    if (clsId === 'melee') return glbMeleeState;
+    if (clsId === 'mage') return glbMageState;
+    if (clsId === 'healer') return glbHealerState;
+    return 'failed';
+  };
 
   // game.start에서 GLB 준비 여부를 동기적으로 확인한다
   ctx.glbHeroMesh = () => glbHeroMesh;
