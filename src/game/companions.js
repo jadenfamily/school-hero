@@ -439,21 +439,39 @@ function updateCompanions(dt) {
     // 예전 3개짜리 배열은 4번째 동료가 폴백 (0,3)으로 가서 마법사 (0,3.2)와 0.2m
     // 간격으로 겹쳐 붙어 있었다.
     const off = [[-1.8, 2.2], [1.8, 2.2], [-0.9, 3.4], [0.9, 3.4]][i] || [0, 3];
-    // 직업별 전투 행동 — 탱커/근접은 달라붙고, 마법/힐러는 대열 자리를 지킨다
+    // 주인공이 지금 싸우는 대상 — 동료는 이 몹을 함께 공격한다.
+    // p.target은 주인공이 직접 노리는 몹이라, 아직 heroHit/추격 상태가 아니어도
+    // 동료의 교전 대상이 된다 (주인공이 때리는 몹 = 동료도 때리는 몹).
+    // 주인공이 노리는 몹이 아니면 동료가 독자적으로 어그로를 끌지 않는다.
+    const heroT = (p.target && p.target.alive && !p.target.statue
+      && Math.hypot(p.target.x - p.x, p.target.z - p.z) <= COMPANION_LEASH) ? p.target : null;
+    // 직업별 전투 행동 — 탱커/근접은 달라붙고, 마법/힐러는 사거리 안으로 이동해 쏜다
     let tx = p.x + off[0], tz = p.z + off[1];
     let stopDist = 0.3; // 대열 자리에는 정확히 선다 (예전 1.2m에서 멈추면 목표
     // 1.2m 앞에서 멈춰 옆 동료 쪽으로 치우치고, 마법·힐러가 1.2m까지 붙었다)
     if (c.cls.id === 'tank' || c.cls.id === 'melee') {
-      // 이미 쫓던 적은 14m 리시까지 유지 (단, 주인공이 인식한 몹일 때만),
-      // 없으면 주인공 12m 안에서 주인공이 인식한 몹만 새로 찾는다 (석상은 제외)
+      // 이미 쫓던 적은 14m 리시까지 유지 (단, 주인공이 인식한 몹이거나 주인공의 교전 대상일 때만),
+      // 없으면 주인공의 교전 대상을 먼저 보고, 없으면 주인공 12m 안에서 주인공이 인식한 몹만 새로 찾는다 (석상은 제외)
       let t = (c.engageT && c.engageT.alive) ? c.engageT : null;
-      if (t && !isHeroRecognized(t)) t = null;
+      if (t && !isHeroRecognized(t) && t !== heroT) t = null;
       if (t && Math.hypot(t.x - p.x, t.z - p.z) > COMPANION_LEASH) t = null;
-      if (!t) t = nearestEnemyFrom(p.x, p.z, COMPANION_AGGRO, true, true);
+      if (!t) t = heroT || nearestEnemyFrom(p.x, p.z, COMPANION_AGGRO, true, true);
       c.engageT = t || null;
       if (t) {
         tx = t.x; tz = t.z;
         stopDist = c.cls.range + 0.6; // 공격 사거리 안에서 멈춘다
+      }
+    } else {
+      // 마법/힐러: 주인공의 교전 대상(또는 인식한 몹)이 사거리 밖에 있으면 사거리 안으로 이동한다.
+      // 예전엔 대열 자리만 지켜서, 주인공이 원거리(석궁 8.8m)에서 싸우면 마법·힐러는 영원히 가만히 있었다.
+      const t = heroT || nearestEnemyFrom(p.x, p.z, COMPANION_AGGRO, true, true);
+      const atkRange = c.cls.id === 'mage' ? c.cls.range + 1.4 : 6.5;
+      if (t) {
+        const dtt = Math.hypot(t.x - c.x, t.z - c.z);
+        if (dtt > atkRange) {
+          tx = t.x; tz = t.z;
+          stopDist = Math.max(0.6, atkRange - 0.8); // 사거리 안에서 멈춘다 (너무 붙지 않게)
+        }
       }
     }
     const dx = tx - c.x, dz = tz - c.z;
@@ -535,12 +553,17 @@ function updateCompanions(dt) {
         }
       }
       if (c.atkCd <= 0) {
-        const t = nearestEnemyFrom(c.x, c.z, 6.5, false, true);
+        // 주인공의 교전 대상을 먼저 노린다 (인식 여부와 무관 — 주인공이 때리는 몹이다).
+        // 없으면 사거리 안의 인식된 몹을 노린다.
+        const t = (heroT && Math.hypot(heroT.x - c.x, heroT.z - c.z) <= 6.5 + 0.4) ? heroT : nearestEnemyFrom(c.x, c.z, 6.5, false, true);
         if (t) { c.atkCd = c.cls.cd; c.atkAnim = 0.22; c.atkAnimMax = 0.22; game.dealDamage(t, atk, { attacker: c }); } }
       return;
     }
     if (c.atkCd <= 0) {
-      const t = nearestEnemyFrom(c.x, c.z, c.cls.range + 1.4, false, true);
+      // 주인공의 교전 대상을 먼저 노린다 (인식 여부와 무관 — 주인공이 때리는 몹이다).
+      // 없으면 사거리 안의 인식된 몹을 노린다.
+      const atkRange = c.cls.range + 1.4;
+      const t = (heroT && Math.hypot(heroT.x - c.x, heroT.z - c.z) <= atkRange) ? heroT : nearestEnemyFrom(c.x, c.z, atkRange, false, true);
       if (t) {
         c.atkCd = c.cls.cd;
         c.atkAnim = 0.22; c.atkAnimMax = 0.22;
