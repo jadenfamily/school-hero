@@ -969,8 +969,11 @@ export function makeMonsterSprite(THREE, def) {
 const HERO_FRAME = 52;
 
 // 장착 장비 + 외형 설정을 실제 그림에 쓰는 형태로 바꾼다
-// 코스튬별 시각 요소 — 3D 인게임 캐릭터(world.js)와 가방 2D 전신(heroFullCanvasDataUrl)이
-// 같은 맵을 보며 그린다. head: 머리 장식 / mask: 복면 / robe: 긴 로브 / cloak: 큰 망토
+// COSTUME_VISUAL — 의상 수집 전환 (2026-11-27) 이후 외형에는 쓰지 않는다.
+// 코스튬 파츠(로브·후드·왕관 등)는 3D 주인공·가방 아바타·빌보드 어디에도 붙지 않고,
+// COSTUMES의 스탯(수집 보너스)과 도감 사진만 남는다. 아래 맵은 남겨두되
+// visualEquip이 코스튬을 주입하지 않으므로 heroFullCanvas의 vis 분기는 동작하지 않는다.
+// head: 머리 장식 / mask: 복면 / robe: 긴 로브 / cloak: 큰 망토
 // outfit: 몸통 기본색 / extra: 몸통 추가 장식 (coat·armor·plate·sash·rune·flower)
 export const COSTUME_VISUAL = {
   knight:   { head: 'crest',   outfit: 0xcfd8e6 },
@@ -989,12 +992,12 @@ export function visualEquip(equip, appearance) {
   const ap = appearance || { mode: 'armor' };
   const weapon = equip && equip.weapon ? equip.weapon : null;
   let armor = equip && equip.armor ? equip.armor : null;
+  // 의상 수집 전환 (2026-11-27): 코스튬은 더 이상 외형이 아니다 — 수집품일 뿐이다.
+  // mode가 'costume'으로 저장된 기존 세이브도 기본 방어구 외형으로 그린다.
+  // 코스튬 갑옷 객체를 만들지 않으므로 3D 주인공·가방 아바타·빌보드 어디에도
+  // 코스튬 파츠(로브·후드·왕관 등)가 붙지 않는다.
   if (ap.mode === 'uniform') armor = null;
-  else if (ap.mode === 'costume' && ap.costumeId && COSTUME_MAP[ap.costumeId]) {
-    const c = COSTUME_MAP[ap.costumeId];
-    armor = { fam: c.fam, grade: c.grade || 3, costume: c.id, capeColor: c.cape, trimColor: c.trim, visual: COSTUME_VISUAL[c.id] };
-  }
-  return { weapon, armor, mode: ap.mode || 'armor', costumeId: ap.costumeId || null };
+  return { weapon, armor, mode: ap.mode === 'costume' ? 'armor' : (ap.mode || 'armor'), costumeId: null };
 }
 
 function weaponArt(g, fam, x, y, metal, glowColor) {
@@ -1928,17 +1931,18 @@ export function heroFullDataUrl(av) {
 }
 
 // ---------- 가방 전신 미리보기 (캔버스 직접 그림) ----------
-// 예전에는 고정 PNG(assets/heroes/<id>.png)를 그대로 보여줘서 장착 무기·방어구·코스튬이
-// 전혀 반영되지 않았다. 이제는 초상화와 같은 drawFace 얼굴 + 몸통 + 무기 + 코스튬 파츠를
-// 캔버스에 직접 그려 데이터 URL로 돌려준다. COSTUME_VISUAL 한 곳만 보고 그리므로
-// 3D 인게임 캐릭터와 가방 아바타가 항상 같은 코스튬 모습을 보여준다.
+// 예전에는 고정 PNG(assets/heroes/<id>.png)를 그대로 보여줘서 장착 무기·방어구가
+// 전혀 반영되지 않았다. 이제는 초상화와 같은 drawFace 얼굴 + 몸통 + 무기를
+// 캔버스에 직접 그려 데이터 URL로 돌려준다. 의상 수집 전환 (2026-11-27) 이후
+// 코스튬은 외형에 반영되지 않는다 — 가방 전신은 기본 교복 모습만 그린다.
 // 캔버스 300×400 공간에 그리고 size에 맞춰 확대한다 (가방에서는 150px 너비로 표시).
 // 전신 캔버스를 반환한다 (가방은 dataURL로, 인게임 빌보드는 텍스처로 쓴다).
 // opts.billboard: 빌보드용 — 바닥 그림자·오라·기울기 없이 똑바로 선 자세.
 // ---------- 가방 아바타 실사 이미지 (시우 전용) ----------
 // david가 고른 픽셀아트 시우 이미지를 코스튬별로 미리 만들어둔 PNG.
-// 가방 아바타는 이 이미지를 그대로 보여주고, 의상을 바꾸면 이미지 자체를 바꾼다.
-// 이미지가 아직 안 뜬 동안은 기존 캔버스 그림이 폴백으로 보인다.
+// 의상 수집 전환 (2026-11-27): 가방 아바타는 항상 기본 교복 사진(base)만 보여준다.
+// 코스튬 사진은 의상 도감에서만 쓴다. 사진이 아직 안 뜬 동안은 빈 화면을 유지하고,
+// 사진 로드가 진짜 실패했을 때만 기존 캔버스 그림이 폴백으로 보인다.
 const AVATAR_PHOTO_URL = {
   base: 'assets/siwoo-avatar.png',
   knight: 'assets/avatar-siwoo-knight.png',
@@ -1955,8 +1959,12 @@ const AVATAR_PHOTO_URL = {
 const avatarPhotoCache = new Map(); // key -> { state: 'loading'|'ready'|'error', img }
 const avatarPhotoListeners = new Set();
 export function avatarPhotoKey(eq) {
-  const cos = eq && eq.armor && eq.armor.costume;
-  return cos && AVATAR_PHOTO_URL[cos] ? cos : 'base';
+  // 가방 아바타는 항상 기본 사진이다 — 장착 코스튬과 무관하다 (의상 수집 전환).
+  return 'base';
+}
+// 의상 도감에서 코스튬 사진을 보여줄 때 쓴다 (미보유도 사진 URL은 그대로 둔다).
+export function avatarPhotoUrl(key) {
+  return AVATAR_PHOTO_URL[key] || AVATAR_PHOTO_URL.base;
 }
 function notifyAvatarPhoto(key) {
   for (const cb of [...avatarPhotoListeners]) { try { cb(key); } catch (e) { /* 무시 */ } }
@@ -2037,9 +2045,12 @@ export function heroFullCanvas(av, eq, size = 150, opts = {}) {
 
   // 시우 실사 아바타 — 사진이 준비됐으면 캔버스 그림 대신 사진을 그린다.
   // (빌보드는 기존 그림 유지 — 인게임 3D는 건드리지 않는다)
+  // 가방 아바타는 항상 기본 교복 사진(base)이다. 사진이 로딩 중이면 만화가 먼저
+  // 그려지는 깜빡임을 막기 위해 빈 캔버스를 반환한다 (사진이 준비되면
+  // onAvatarPhotoReady가 가방 아바타를 다시 그린다). 사진 로드가 진짜 실패했을
+  // 때만 아래 캔버스 만화를 폴백으로 그린다.
   if (!opts.billboard && A.id === 'boyA') {
-    const pkey = avatarPhotoKey(eq);
-    const photo = readyAvatarPhoto(pkey);
+    const photo = readyAvatarPhoto('base');
     if (photo) {
       const ih = 400 * 0.97, iw = ih * (photo.naturalWidth / photo.naturalHeight);
       g.imageSmoothingEnabled = false; // 도트 질감 유지
@@ -2047,7 +2058,12 @@ export function heroFullCanvas(av, eq, size = 150, opts = {}) {
       g.imageSmoothingEnabled = true;
       return c;
     }
-    loadAvatarPhoto(pkey); // 아직 안 뜬 사진 — 로딩 시작 (준비되면 가방이 다시 그린다)
+    const e = loadAvatarPhoto('base'); // 아직 안 뜬 사진 — 로딩 시작 (준비되면 가방이 다시 그린다)
+    if (e && e.state === 'error') {
+      // 사진 로드 실패 — 아래 캔버스 만화를 폴백으로 그린다
+    } else {
+      return c; // 로딩 중 — 빈 캔버스 (만화 폴백이 먼저 보이는 깜빡임 방지)
+    }
   }
 
   g.save();
