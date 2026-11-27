@@ -1935,6 +1935,66 @@ export function heroFullDataUrl(av) {
 // 캔버스 300×400 공간에 그리고 size에 맞춰 확대한다 (가방에서는 150px 너비로 표시).
 // 전신 캔버스를 반환한다 (가방은 dataURL로, 인게임 빌보드는 텍스처로 쓴다).
 // opts.billboard: 빌보드용 — 바닥 그림자·오라·기울기 없이 똑바로 선 자세.
+// ---------- 가방 아바타 실사 이미지 (시우 전용) ----------
+// david가 고른 픽셀아트 시우 이미지를 코스튬별로 미리 만들어둔 PNG.
+// 가방 아바타는 이 이미지를 그대로 보여주고, 의상을 바꾸면 이미지 자체를 바꾼다.
+// 이미지가 아직 안 뜬 동안은 기존 캔버스 그림이 폴백으로 보인다.
+const AVATAR_PHOTO_URL = {
+  base: 'assets/siwoo-avatar.png',
+  knight: 'assets/avatar-siwoo-knight.png',
+  mage: 'assets/avatar-siwoo-mage.png',
+  dark: 'assets/avatar-siwoo-dark.png',
+  royal: 'assets/avatar-siwoo-royal.png',
+};
+const avatarPhotoCache = new Map(); // key -> { state: 'loading'|'ready'|'error', img }
+const avatarPhotoListeners = new Set();
+export function avatarPhotoKey(eq) {
+  const cos = eq && eq.armor && eq.armor.costume;
+  return cos && AVATAR_PHOTO_URL[cos] ? cos : 'base';
+}
+function notifyAvatarPhoto(key) {
+  for (const cb of [...avatarPhotoListeners]) { try { cb(key); } catch (e) { /* 무시 */ } }
+}
+export function onAvatarPhotoReady(cb) {
+  avatarPhotoListeners.add(cb);
+  return () => avatarPhotoListeners.delete(cb);
+}
+export function loadAvatarPhoto(key, onReady) {
+  if (typeof Image === 'undefined') return null; // node 테스트 환경 — 이미지 없음
+  const k = AVATAR_PHOTO_URL[key] ? key : 'base';
+  let e = avatarPhotoCache.get(k);
+  if (!e) {
+    e = { state: 'loading', img: null, cbs: [] };
+    avatarPhotoCache.set(k, e);
+    const img = new Image();
+    img.onload = () => {
+      e.state = 'ready'; e.img = img;
+      const cbs = e.cbs.splice(0);
+      notifyAvatarPhoto(k);
+      for (const cb of cbs) cb(k);
+    };
+    img.onerror = () => {
+      e.state = 'error';
+      const cbs = e.cbs.splice(0);
+      notifyAvatarPhoto(k);
+      for (const cb of cbs) cb(k);
+    };
+    img.src = AVATAR_PHOTO_URL[k];
+  }
+  if (onReady) {
+    if (e.state === 'loading') e.cbs.push(onReady);
+    else onReady(k);
+  }
+  return e;
+}
+export function preloadAvatarPhotos(onReady) {
+  for (const k of Object.keys(AVATAR_PHOTO_URL)) loadAvatarPhoto(k, onReady);
+}
+export function readyAvatarPhoto(key) {
+  const e = avatarPhotoCache.get(AVATAR_PHOTO_URL[key] ? key : 'base');
+  return e && e.state === 'ready' ? e.img : null;
+}
+
 export function heroFullCanvas(av, eq, size = 150, opts = {}) {
   const W = size * 2, H = Math.round(size * 2.66);
   const { c, g } = makeCanvas(W, H);
@@ -1967,6 +2027,21 @@ export function heroFullCanvas(av, eq, size = 150, opts = {}) {
     // 인물 뒤 은은한 빛 (어두운 옷도 얼굴·몸이 읽히게)
     el(g, cx, 210, 118, 138, 'rgba(255,255,255,0.08)');
     el(g, cx, 210, 96, 116, 'rgba(255,255,255,0.06)');
+  }
+
+  // 시우 실사 아바타 — 사진이 준비됐으면 캔버스 그림 대신 사진을 그린다.
+  // (빌보드는 기존 그림 유지 — 인게임 3D는 건드리지 않는다)
+  if (!opts.billboard && A.id === 'boyA') {
+    const pkey = avatarPhotoKey(eq);
+    const photo = readyAvatarPhoto(pkey);
+    if (photo) {
+      const ih = 400 * 0.97, iw = ih * (photo.naturalWidth / photo.naturalHeight);
+      g.imageSmoothingEnabled = false; // 도트 질감 유지
+      g.drawImage(photo, cx - iw / 2, 400 - ih - 4, iw, ih);
+      g.imageSmoothingEnabled = true;
+      return c;
+    }
+    loadAvatarPhoto(pkey); // 아직 안 뜬 사진 — 로딩 시작 (준비되면 가방이 다시 그린다)
   }
 
   g.save();
