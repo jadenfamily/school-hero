@@ -423,10 +423,13 @@ function updateCompanions(dt) {
   const d = game.derived();
   game.companions.forEach((c, i) => {
     if (c.hitT > 0) c.hitT -= dt;
+    if (c.atkAnim > 0) c.atkAnim -= dt;
     if (c.hp <= 0) {
       c.downT -= dt;
       c.mesh.rotation.z = 1.2;
       c.mesh.position.y = groundY(c.x, c.z) - 0.3;
+      // 쓰러진 동안 팔다리는 기본 자세로 (중간 자세로 굳지 않게)
+      if (c.mesh.userData.animate) c.mesh.userData.animate({ moving: false, walkT: c.walkT || 0, atkAnim: 0, atkAnimMax: 0.22, facing: c.mesh.rotation.y }, dt);
       if (c.downT <= 0) { c.hp = Math.round(c.maxHp * 0.5); c.mesh.rotation.z = 0; }
       return;
     }
@@ -465,12 +468,28 @@ function updateCompanions(dt) {
     // 소품 충돌 (플레이어와 같은 방식 — 바위·나무를 뚫지 않고 돌아간다)
     const fixed = pushOutOfProps(c.x, c.z, 0.35);
     c.x = fixed.x; c.z = fixed.z;
-    c.mesh.position.set(c.x, groundY(c.x, c.z) + Math.abs(Math.sin(game.time * 7 + i)) * 0.05, c.z);
-    // 3D 동료 걷기 모션
+    // 걷기 위상 (주인공 walkT와 같은 방식: 움직일 때 9, 멈추면 2).
+    // 리깅된 GLB 동료는 이 위상으로 뼈대 팔다리를 움직인다.
+    c.walkT = (c.walkT || 0) + (moving ? dt * 9 : dt * 2);
+    // 걷기 밥: 움직일 때는 발 디딤에 맞추고, 멈추면 호흡 수준으로 (주인공과 같은 식)
+    const bobY = moving
+      ? Math.abs(Math.sin(c.walkT)) * 0.05
+      : Math.sin(game.time * 2.1 + i) * 0.012;
+    c.mesh.position.set(c.x, groundY(c.x, c.z) + bobY, c.z);
+    // 3D 동료 걷기 모션 (절차적 동료만: 다리 피벗이 진짜라 스윙이 보인다.
+    // GLB 동료는 legL/legR이 빈 스텁이라 무의미하고, 뼈대는 아래 animator가 움직인다)
     if (c.mesh.userData.legL) {
       const swing = moving ? Math.sin(game.time * 9 + i) * 0.5 : 0;
       c.mesh.userData.legL.rotation.x = swing;
       c.mesh.userData.legR.rotation.x = -swing;
+    }
+    // 리깅된 GLB 동료 뼈대 애니메이션 (걷기 스윙 + 공격 휘두르기)
+    if (c.mesh.userData.animate) {
+      c.mesh.userData.animate({
+        moving, walkT: c.walkT,
+        atkAnim: c.atkAnim || 0, atkAnimMax: c.atkAnimMax || 0.22,
+        facing: c.mesh.rotation.y,
+      }, dt);
     }
     // 탱커 도발: 12초마다 10m 안의 적을 4초간 탱커에게 붙잡아 둔다 (보스급 제외)
     if (c.cls.id === 'tank') {
@@ -517,13 +536,14 @@ function updateCompanions(dt) {
       }
       if (c.atkCd <= 0) {
         const t = nearestEnemyFrom(c.x, c.z, 6.5, false, true);
-        if (t) { c.atkCd = c.cls.cd; game.dealDamage(t, atk, { attacker: c }); } }
+        if (t) { c.atkCd = c.cls.cd; c.atkAnim = 0.22; c.atkAnimMax = 0.22; game.dealDamage(t, atk, { attacker: c }); } }
       return;
     }
     if (c.atkCd <= 0) {
       const t = nearestEnemyFrom(c.x, c.z, c.cls.range + 1.4, false, true);
       if (t) {
         c.atkCd = c.cls.cd;
+        c.atkAnim = 0.22; c.atkAnimMax = 0.22;
         c.mesh.rotation.y = Math.atan2(t.x - c.x, t.z - c.z);
         if (c.cls.projectile) {
           ctx.spawnProjectile({ from: 'ally', x: c.x, y: 1.0, z: c.z, targetX: t.x, targetZ: t.z, speed: 13, color: c.cls.color, dmg: atk, range: c.cls.range + 1.6, source: c });
