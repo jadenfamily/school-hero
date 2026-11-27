@@ -2421,6 +2421,23 @@ function propMaterial(THREE) {
   return PROP_MAT;
 }
 const PROP_GEO_CACHE = new Map();
+// 면이 울퉁불퉁한 바위용 다면체 — 같은 위치의 정점은 같은 해시 오프셋을 받아 면이 갈라지지 않는다
+function roughPoly(THREE, r, detail, amt, seed) {
+  const g = new THREE.IcosahedronGeometry(r, detail);
+  const pos = g.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const h1 = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719 + seed * 11.13) * 43758.5453;
+    const h2 = Math.sin(x * 26.651 + y * 11.135 + z * 83.155 + seed * 7.7) * 24634.6345;
+    const h3 = Math.sin(x * 63.123 + y * 41.217 + z * 17.931 + seed * 3.3) * 12498.1234;
+    pos.setXYZ(i,
+      x + (h1 - Math.floor(h1) - 0.5) * amt,
+      y + (h2 - Math.floor(h2) - 0.5) * amt,
+      z + (h3 - Math.floor(h3) - 0.5) * amt);
+  }
+  g.computeVertexNormals();
+  return g;
+}
 export function buildPropGeometry(THREE, kind) {
   if (PROP_GEO_CACHE.has(kind)) return PROP_GEO_CACHE.get(kind);
   const parts = [];
@@ -2436,19 +2453,28 @@ export function buildPropGeometry(THREE, kind) {
   const S = (r, w = 8, h = 6) => new THREE.SphereGeometry(r, w, h);
   const [w0, h0] = PROP_SIZE[kind] || [1.2, 1.2];
   switch (kind) {
-    case 'tree': // 층층 나뭇잎 + 줄기 — 껍질 능선 + 잎사귀 뭉치 + 열매 + 밑동 이끼
-      P(C(0.16, 0.24, 1.2), 0x6a4a22, 0, 0.6, 0);
+    case 'tree': { // 둥글둥글한 활엽수 — 납작한 잎 뭉치 구름 + 줄기 + 가지 + 열매 + 밑동 이끼 (원뿔 스택 아님)
+      const blob = (r, sy = 0.8) => { const g = S(r, 10, 8); g.scale(1, sy, 1); return g; };
+      P(C(0.16, 0.25, 1.2), 0x6a4a22, 0, 0.6, 0); // 줄기
       for (let i = 0; i < 3; i++) P(B(0.05, 1.0, 0.06), 0x4a3018, -0.12 + i * 0.12, 0.6, 0.2, -0.07, 0, 0); // 껍질 능선 (앞면)
       P(S(0.08), 0x2a1c10, 0.1, 0.7, 0.21); // 옹이
-      P(K(1.0, 1.4), 0x2f9e3e, 0, 1.8, 0);
-      P(K(0.8, 1.2), 0x3fae4e, 0, 2.5, 0);
-      P(K(0.55, 1.0), 0x52c25e, 0, 3.1, 0);
-      P(S(0.22), 0x35a844, -0.35, 1.9, 0.2); // 잎사귀 뭉치 (층마다 색 다르게, 원뿔 표면에 붙여서)
-      P(S(0.2), 0x48b858, 0.35, 2.5, -0.2);
-      P(S(0.18), 0x62cc6a, -0.25, 3.0, 0.2);
-      P(S(0.09), 0xff5a4a, 0.18, 2.8, 0.1); // 붉은 열매
-      P(B(0.5, 0.08, 0.5), 0x6a8a4a, 0, 1.25, 0); // 밑동 이끼
+      P(C(0.05, 0.08, 0.7), 0x5a3a1a, 0.32, 1.45, 0, 0, 0, -0.7); // 옆 가지
+      P(C(0.04, 0.07, 0.5), 0x5a3a1a, -0.28, 1.55, -0.1, 0.2, 0, 0.6); // 반대쪽 작은 가지
+      // 잎 구름 — 겹친 뭉치 3색, 위로 갈수록 밝게
+      P(blob(0.85), 0x2f9e3e, 0, 2.25, 0);
+      P(blob(0.62), 0x358f3a, -0.52, 1.85, 0.08);
+      P(blob(0.6), 0x3fae4e, 0.52, 1.95, -0.08);
+      P(blob(0.55), 0x4fb85a, 0.05, 2.85, 0);
+      P(blob(0.4), 0x52c25e, 0.28, 2.1, 0.45);
+      P(blob(0.38), 0x2f8a3a, -0.3, 2.5, -0.42);
+      P(blob(0.32), 0x62cc6a, -0.22, 3.18, 0.08);
+      P(blob(0.3), 0x48b858, 0.45, 2.6, 0.35);
+      P(S(0.08), 0xff5a4a, 0.55, 2.45, 0.5); // 붉은 열매
+      P(S(0.07), 0xff5a4a, -0.5, 2.15, 0.55);
+      P(S(0.07), 0xffd257, 0.15, 3.0, 0.5); // 노란 열매
+      P(C(0.38, 0.44, 0.09), 0x5a8a3a, 0, 0.05, 0); // 밑동 이끼 (땅에 붙은 둥근 패치)
       break;
+    }
     case 'pine': // 소나무 — 껍질 능선 + 층마다 눈 뭉치 + 솔방울
       P(C(0.14, 0.22, 1.2), 0x4a3423, 0, 0.6, 0);
       for (let i = 0; i < 2; i++) P(B(0.05, 0.9, 0.05), 0x2a1c10, -0.08 + i * 0.16, 0.6, 0.18, -0.07, 0, 0);
@@ -2467,16 +2493,23 @@ export function buildPropGeometry(THREE, kind) {
       P(B(0.14, 0.3, 0.14), 0x3a2a18, 0.3, 1.2, 0.1, 0, 0, -0.4); // 부러진 가지 그루터기
       P(S(0.08), 0x2a1c10, -0.05, 1.5, 0.18); // 옹이
       break;
-    case 'rock': // 회색 바위 — 면이 꺾인 돌 + 균열 + 이끼 + 하이라이트
-      P(B(1.4, 0.9, 1.1), 0x9298a8, 0, 0.45, 0);
-      P(B(0.7, 0.5, 0.6), 0xaeb4c0, -0.3, 0.95, 0.1, 0, 0.6, 0);
-      P(B(0.5, 0.3, 0.4), 0x6a6f78, 0.45, 0.2, -0.2, 0, -0.4, 0);
-      P(B(0.05, 0.5, 0.02), 0x4a4f58, -0.2, 0.5, 0.56, 0, 0, 0.3); // 균열 (앞면)
-      P(B(0.05, 0.35, 0.02), 0x4a4f58, 0.35, 0.35, 0.56, 0, 0, -0.5);
-      P(B(0.5, 0.08, 0.4), 0x5a8a3a, 0.35, 0.92, 0.2); // 윗면 이끼 (윗돌과 안 겹치게 오른쪽)
-      P(B(0.5, 0.06, 0.4), 0x6a8a4a, 0.4, 0.32, -0.1); // 밑동 이끼
-      P(B(0.4, 0.06, 0.3), 0xd0d5e0, -0.45, 0.92, -0.35); // 윗면 하이라이트 (뒷쪽)
+    case 'rock': { // 울퉁불퉁한 바위 — 깎인 면의 큰 돌 + 작은 돌 + 표면에 붙은 이끼 (상자 아님)
+      const boulder = roughPoly(THREE, 0.72, 1, 0.22, 3); boulder.scale(1.0, 0.62, 0.85);
+      P(boulder, 0x8a8f9a, 0, 0.5, 0); // 큰 돌
+      const boulder2 = roughPoly(THREE, 0.46, 0, 0.14, 7); boulder2.scale(1.1, 0.65, 0.9);
+      P(boulder2, 0x9aa0ac, -0.55, 0.28, 0.28); // 밝은 작은 돌
+      const stone = roughPoly(THREE, 0.28, 0, 0.09, 11); stone.scale(1.15, 0.6, 0.9);
+      P(stone, 0x6a6f78, 0.55, 0.16, -0.32); // 어두운 조약돌
+      const moss = (r) => { const g = S(r, 8, 6); g.scale(1, 0.35, 1); return g; };
+      P(moss(0.24), 0x5a8a3a, 0.15, 0.98, 0.08); // 윗면 이끼 (돌 곡면에 붙은 뭉치 — 평평한 판 아님)
+      P(moss(0.17), 0x6a8a4a, -0.35, 0.88, -0.18);
+      P(moss(0.13), 0x4a7a32, 0.45, 0.82, 0.32);
+      P(moss(0.15), 0x6a8a4a, -0.62, 0.5, 0.42); // 옆면 이끼
+      const crack = S(0.1, 8, 6); crack.scale(1.7, 0.55, 0.4);
+      P(crack, 0x4a4f58, 0.12, 0.55, 0.6); // 앞면 어두운 금 (돌 표면에 박힌 납작한 타원)
+      P(K(0.09, 0.35), 0x5aae4c, 0.62, 0.18, 0.38, 0, 0, -0.2); // 밑동 풀 한 포기
       break;
+    }
     case 'sandRock': // 모래 바위 — 균열 + 밝은 면
       P(B(1.5, 0.9, 1.1), 0xc8a86a, 0, 0.45, 0);
       P(B(0.8, 0.5, 0.6), 0xd8b878, -0.3, 0.95, 0, 0, 0.6, 0);
@@ -2630,16 +2663,43 @@ export function buildPropGeometry(THREE, kind) {
       P(S(0.06), 0xff6a2a, 0.15, 1.85, 0.1); // 불씨
       P(S(0.05), 0xffd257, -0.12, 1.8, -0.08);
       break;
-    case 'mushroom': // 버섯 — 줄기 + 빨간 갓 + 흰 점 + 작은 버섯
-      P(C(0.22, 0.3, 0.8), 0xf2ead0, 0, 0.4, 0);
-      P(S(0.55), 0xc03030, 0, 0.95, 0);
-      P(S(0.09), 0xffffff, -0.25, 1.25, 0.3);
-      P(S(0.07), 0xffffff, 0.2, 1.3, 0.35);
-      P(S(0.07), 0xffffff, 0.05, 1.1, -0.4);
-      P(C(0.12, 0.16, 0.4), 0xf2ead0, 0.5, 0.2, 0.25); // 작은 버섯 줄기
-      P(S(0.28), 0xd84848, 0.5, 0.5, 0.25); // 작은 버섯 갓
-      P(S(0.05), 0xffffff, 0.4, 0.68, 0.4);
+    case 'mushroom': { // 진짜 버섯 — 돔 갓 + 아가미 + 고리 + 작고 납작한 점 (눈알 아님)
+      const CAP_R = 0.62, CAP_Y = 0.95, CAP_SY = 0.8;
+      P(C(0.16, 0.27, 0.75), 0xf2ead0, 0, 0.375, 0); // 줄기 (위쪽이 가늘게)
+      const bulb = S(0.28, 8, 6); bulb.scale(1, 0.55, 1);
+      P(bulb, 0xf2ead0, 0, 0.12, 0); // 밑동 볼록
+      const cap = new THREE.SphereGeometry(CAP_R, 14, 8, 0, Math.PI * 2, 0, 1.85);
+      cap.scale(1, CAP_SY, 1);
+      P(cap, 0xd8352a, 0, CAP_Y, 0); // 돔 갓 (둥근 공 아님)
+      P(C(0.52, 0.52, 0.05), 0xf5eeda, 0, 0.8, 0); // 갓 밑 아가미 원반
+      P(C(0.2, 0.24, 0.05), 0xf5eeda, 0, 0.68, 0); // 줄기 고리
+      // 갓 위 작은 점들 — 돔 표면에 살짝 박혀서 납작한 얼룩으로 보인다 (크고 튀어나온 눈알 금지)
+      const spots = [
+        [0.45, 0.3, 0.055], [0.6, 1.8, 0.05], [0.75, 3.4, 0.06], [0.5, 4.6, 0.045],
+        [0.9, 5.6, 0.055], [0.95, 2.6, 0.05], [1.1, 0.9, 0.05], [0.3, 2.9, 0.045],
+      ];
+      for (const [th, ph, r] of spots) {
+        const rr = CAP_R - 0.03;
+        P(S(r, 8, 6), 0xfff6e0,
+          rr * Math.sin(th) * Math.cos(ph),
+          CAP_Y + rr * Math.cos(th) * CAP_SY,
+          rr * Math.sin(th) * Math.sin(ph));
+      }
+      // 작은 버섯 (같은 구조, 축소)
+      P(C(0.09, 0.13, 0.35), 0xf2ead0, 0.52, 0.175, 0.28);
+      const cap2 = new THREE.SphereGeometry(0.26, 10, 6, 0, Math.PI * 2, 0, 1.85);
+      cap2.scale(1, 0.8, 1);
+      P(cap2, 0xd84848, 0.52, 0.42, 0.28);
+      P(C(0.2, 0.2, 0.04), 0xf5eeda, 0.52, 0.35, 0.28); // 작은 버섯 아가미
+      for (const [th, ph, r] of [[0.5, 1.0, 0.03], [0.8, 3.8, 0.028]]) {
+        const rr = 0.26 - 0.015;
+        P(S(r, 8, 6), 0xfff6e0,
+          0.52 + rr * Math.sin(th) * Math.cos(ph),
+          0.42 + rr * Math.cos(th) * 0.8,
+          0.28 + rr * Math.sin(th) * Math.sin(ph));
+      }
       break;
+    }
     case 'crystal': // 수정 — 기울어진 결정 3개 + 받침
       P(K(0.28, 1.4), 0x7fd8ff, -0.25, 0.7, 0, 0, 0, 0.25);
       P(K(0.24, 1.1), 0x9fe8ff, 0.25, 0.55, 0.1, 0, 0, -0.2);
