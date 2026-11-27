@@ -1,6 +1,6 @@
-// 스쿨히어로 — GLB 테스트 모델 (Tripo 주인공·동료)
-// game.js에서 분리. ?hero=glb / ?companion=glb 플래그가 있을 때만 동작하고,
-// 없으면 아래 코드는 전혀 동작하지 않고 기존 절차적 모델이 그대로다.
+// 스쿨히어로 — GLB 모델 (Tripo 주인공·동료) — 2026-11-27부터 기본 적용.
+// game.js에서 분리. 기본 주소에서도 GLB가 로드되고, 실패하면 절차적 모델 +
+// 토스트로 폴백한다. ?hero=glb / ?companion=glb는 예전 북마크용 no-op.
 import { groundY, disposeGroup } from './util.js';
 import { loadGlbHero, loadGlbCompanion, attachGlbHandWeapon, makePlayer } from '../world.js';
 import { avatarOf } from '../data.js';
@@ -8,22 +8,23 @@ import { avatarOf } from '../data.js';
 export function installGlb(ctx) {
   const { game, THREE, scene } = ctx;
 
-  // ---------- GLB 주인공 테스트 (?hero=glb) ----------
-  // URL에 ?hero=glb가 있을 때만 Tripo 시우 GLB(assets/siwoo.glb)를 플레이어로 쓴다.
-  const HERO_GLB = (() => { try { return new URLSearchParams(window.location.search).get('hero') === 'glb'; } catch (e) { return false; } })();
+  // ---------- GLB 주인공 (기본 적용) ----------
+  // Tripo 시우 GLB(assets/siwoo.glb)를 플레이어로 쓴다. ?hero=glb는
+  // 예전 북마크용으로만 남겨두고, 없어도 GLB가 기본으로 로드된다.
+  const HERO_GLB = true;
   const GLB_HERO_URL = 'assets/siwoo.glb';
 
-  // ---------- GLB 동료 테스트 (?companion=glb) ----------
-  // URL에 ?companion=glb가 있을 때만 Tripo 동료 GLB(assets/tank.glb /
-  // assets/melee.glb / assets/mage.glb / assets/healer.glb)를 해당 클래스
-  // 동료로 쓴다.
-  const COMPANION_GLB = (() => { try { return new URLSearchParams(window.location.search).get('companion') === 'glb'; } catch (e) { return false; } })();
+  // ---------- GLB 동료 (기본 적용) ----------
+  // Tripo 동료 GLB(assets/tank.glb / assets/melee.glb / assets/mage.glb /
+  // assets/healer.glb)를 해당 클래스 동료로 쓴다. ?companion=glb는
+  // 예전 북마크용으로만 남겨두고, 없어도 GLB가 기본으로 로드된다.
+  const COMPANION_GLB = true;
   const GLB_TANK_URL = 'assets/tank.glb';
   const GLB_MELEE_URL = 'assets/melee.glb';
   const GLB_MAGE_URL = 'assets/mage.glb';
   const GLB_HEALER_URL = 'assets/healer.glb';
 
-  // GLB 주인공 상태 (기본값 off — 플래그가 없을 때는 건드리지 않는다)
+  // GLB 주인공 상태 (기본값 off — 로드 전)
   let glbHeroState = 'off'; // off | loading | ready | failed
   let glbHeroMesh = null;
   function ensureGlbHero() {
@@ -49,7 +50,7 @@ export function installGlb(ctx) {
     scene.add(game.playerMesh);
   }
 
-  // GLB 탱커 동료 상태 (기본값 off — 플래그가 없을 때는 건드리지 않는다)
+  // GLB 탱커 동료 상태 (기본값 off — 로드 전)
   let glbTankState = 'off'; // off | loading | ready | failed
   let glbTankMesh = null;
   function ensureGlbTank() {
@@ -83,7 +84,7 @@ export function installGlb(ctx) {
     else if (glbTankState === 'off') ensureGlbTank();
   }
 
-  // GLB 근접 동료 상태 (탱커와 같은 패턴 — 기본값 off)
+  // GLB 근접 동료 상태 (탱커와 같은 패턴)
   let glbMeleeState = 'off'; // off | loading | ready | failed
   let glbMeleeMesh = null;
   function ensureGlbMelee() {
@@ -117,7 +118,7 @@ export function installGlb(ctx) {
     else if (glbMeleeState === 'off') ensureGlbMelee();
   }
 
-  // GLB 마법 동료 상태 (탱커와 같은 패턴 — 기본값 off)
+  // GLB 마법 동료 상태 (탱커와 같은 패턴)
   let glbMageState = 'off'; // off | loading | ready | failed
   let glbMageMesh = null;
   function ensureGlbMage() {
@@ -151,7 +152,7 @@ export function installGlb(ctx) {
     else if (glbMageState === 'off') ensureGlbMage();
   }
 
-  // GLB 힐러 동료 상태 (탱커와 같은 패턴 — 기본값 off)
+  // GLB 힐러 동료 상태 (탱커와 같은 패턴)
   let glbHealerState = 'off'; // off | loading | ready | failed
   let glbHealerMesh = null;
   function ensureGlbHealer() {
@@ -198,7 +199,7 @@ export function installGlb(ctx) {
   function rebuildPlayerMesh() {
     const p = game.player;
     if (!p) return;
-    // GLB 테스트: GLB가 준비됐으면 GLB를 유지하고 장착 무기를 손에 붙인다
+    // GLB가 준비됐으면 GLB를 유지하고 장착 무기를 손에 붙인다
     if (HERO_GLB && glbHeroState === 'ready' && glbHeroMesh) { swapGlbHeroIn(); updateGlbHeroWeapon(); return; }
     if (HERO_GLB && glbHeroState === 'off') ensureGlbHero();
     if (game.playerMesh) { scene.remove(game.playerMesh); if (game.playerMesh !== glbHeroMesh) disposeGroup(game.playerMesh); }
