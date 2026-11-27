@@ -2,7 +2,7 @@
 // game.js에서 분리. ?hero=glb / ?companion=glb 플래그가 있을 때만 동작하고,
 // 없으면 아래 코드는 전혀 동작하지 않고 기존 절차적 모델이 그대로다.
 import { groundY, disposeGroup } from './util.js';
-import { loadGlbHero, loadGlbCompanion, makePlayer } from '../world.js';
+import { loadGlbHero, loadGlbCompanion, attachGlbHandWeapon, makePlayer } from '../world.js';
 import { avatarOf } from '../data.js';
 
 export function installGlb(ctx) {
@@ -33,6 +33,7 @@ export function installGlb(ctx) {
       glbHeroMesh = mesh;
       glbHeroState = 'ready';
       swapGlbHeroIn();
+      updateGlbHeroWeapon();
     }).catch((err) => {
       glbHeroState = 'failed';
       console.warn('GLB 주인공을 불러오지 못했어요:', err && err.message);
@@ -184,11 +185,21 @@ export function installGlb(ctx) {
     else if (glbHealerState === 'off') ensureGlbHealer();
   }
 
+  // GLB 주인공 오른손에 장착 중인 게임 무기를 붙인다 (바꾸면 교체).
+  // 구워진 검은 loadGlbHero에서 이미 제거됐고, 이 게임 무기가 손에 든다.
+  function updateGlbHeroWeapon() {
+    if (!HERO_GLB || glbHeroState !== 'ready' || !glbHeroMesh) return;
+    const w = game.state && game.state.equip && game.state.equip.weapon;
+    const fam = w && w.fam ? w.fam : 'sword';
+    const grade = w && typeof w.grade === 'number' ? w.grade : 0;
+    attachGlbHandWeapon(THREE, glbHeroMesh, fam, grade);
+  }
+
   function rebuildPlayerMesh() {
     const p = game.player;
     if (!p) return;
-    // GLB 테스트: GLB가 준비됐으면 GLB를 유지한다 (코스튬·무기 교체는 GLB에 보이지 않는 테스트 한계)
-    if (HERO_GLB && glbHeroState === 'ready' && glbHeroMesh) { swapGlbHeroIn(); return; }
+    // GLB 테스트: GLB가 준비됐으면 GLB를 유지하고 장착 무기를 손에 붙인다
+    if (HERO_GLB && glbHeroState === 'ready' && glbHeroMesh) { swapGlbHeroIn(); updateGlbHeroWeapon(); return; }
     if (HERO_GLB && glbHeroState === 'off') ensureGlbHero();
     if (game.playerMesh) { scene.remove(game.playerMesh); if (game.playerMesh !== glbHeroMesh) disposeGroup(game.playerMesh); }
     game.playerMesh = makePlayer(THREE, 'sword', avatarOf(game.state.avatar), game.state.equip, game.state.appearance);
