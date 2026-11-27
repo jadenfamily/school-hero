@@ -743,6 +743,26 @@ game.toggleParty = function (id) {
   return { ok: true };
 };
 
+// 동행 교체 (2026-11-27): 같은 직업의 동행 중인 동료를 빼고, 이 동료를 그 자리에 넣는다.
+// 직업별 1명 규칙은 유지된다 (최대 1명/직업, 최대 4명). 같은 직업이 동행 중이 아니면 일반 추가.
+game.swapParty = function (id) {
+  const s = game.state;
+  const c = s.companions.find((x) => x.id === id);
+  if (!c) return { ok: false, msg: '동료를 찾을 수 없어요' };
+  if (s.party.includes(id)) return { ok: false, msg: '이미 동행 중이에요' };
+  const idx = s.party.findIndex((pid) => {
+    const p = s.companions.find((x) => x.id === pid);
+    return p && p.cls === c.cls;
+  });
+  if (idx < 0) return game.toggleParty(id);
+  const oldId = s.party[idx];
+  const old = s.companions.find((x) => x.id === oldId);
+  s.party[idx] = id; // 같은 자리(순서 유지)에 교체 — 빼낸 동료는 대기로 돌아간다.
+  game.save();
+  refreshCompanions();
+  return { ok: true, swapped: old ? old.name : '', name: c.name };
+};
+
 function refreshCompanions() {
   game.compObjects && game.compObjects.forEach((c) => scene.remove(c.mesh));
   game.compObjects = []; game.companions = [];
@@ -752,6 +772,10 @@ function refreshCompanions() {
     if (!c) return;
     const cls = COMPANION_CLASSES[c.cls];
     const mesh = makeCompanion(THREE, cls, GRADES[c.grade].color);
+    // 부팅 시 레고 몸통 깜빡임 방지: GLB가 로딩 중이면 절차적 몸통을 숨긴다.
+    // GLB가 준비되면 maybeSwapGlb*가 교체하고, 로드 실패 시 glb.js의 catch가 다시 보여준다.
+    const glbSt = (ctx.glbCompanionState && ctx.glbCompanionState(cls.id)) || 'failed';
+    mesh.visible = !(glbSt === 'loading' || glbSt === 'off');
     scene.add(mesh);
     const o = makeCompanionObj(c, cls, mesh, game.player.x + (i - (game.state.party.length - 1) / 2) * 1.6, game.player.z + 1.8);
     game.compObjects.push(o); game.companions.push(o);
