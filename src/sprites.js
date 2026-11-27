@@ -1945,6 +1945,12 @@ const AVATAR_PHOTO_URL = {
   mage: 'assets/avatar-siwoo-mage.png',
   dark: 'assets/avatar-siwoo-dark.png',
   royal: 'assets/avatar-siwoo-royal.png',
+  ninja: 'assets/avatar-siwoo-ninja.png',
+  pirate: 'assets/avatar-siwoo-pirate.png',
+  samurai: 'assets/avatar-siwoo-samurai.png',
+  paladin: 'assets/avatar-siwoo-paladin.png',
+  assassin: 'assets/avatar-siwoo-assassin.png',
+  druid: 'assets/avatar-siwoo-druid.png',
 };
 const avatarPhotoCache = new Map(); // key -> { state: 'loading'|'ready'|'error', img }
 const avatarPhotoListeners = new Set();
