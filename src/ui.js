@@ -9,7 +9,7 @@ import {
 } from './data.js';
 import { districtAt, PATH_CENTERS, districtOutline, WORLD_BOUNDS } from './world.js';
 import { CloudAdapter } from './save.js';
-import { heroPortraitDataUrl, heroFullCanvasDataUrl, visualEquip } from './sprites.js';
+import { heroPortraitDataUrl, heroFullCanvasDataUrl, visualEquip, onAvatarPhotoReady, loadAvatarPhoto } from './sprites.js';
 
 const $ = (id) => document.getElementById(id);
 const pct = (a, b) => `${Math.max(0, Math.min(100, b ? (a / b) * 100 : 0)).toFixed(1)}%`;
@@ -40,6 +40,16 @@ export function createUI(game, THREE) {
   };
   const worldLayer = $('worldLayer');
   const hexOf = hex;
+
+  // 가방 아바타 실사 이미지 — 사진이 준비되면 캐시를 비우고 보이는 아바타를 교체한다
+  onAvatarPhotoReady(() => {
+    for (const k of [...fullCache.keys()]) if (k.startsWith('boyA|')) fullCache.delete(k);
+    const imgEl = document.querySelector('.bag-avatar');
+    if (imgEl && game.state) {
+      imgEl.src = fullBody(avatarOf(game.state.avatar), game.state.equip, game.state.appearance, 200);
+    }
+  });
+  loadAvatarPhoto('base'); // 기본 교복 사진을 미리 받아둔다 (가방을 열면 바로 보임)
 
   // ---------- HUD 프로필 (초상화) ----------
   const avatarEl = $('avatar');
@@ -972,7 +982,7 @@ export function createUI(game, THREE) {
     const html = `${head('🎒 가방', `Lv.${s.level} · ${A.name}`, 'bag')}
       <div class="bag-hero">
         <div class="bag-preview">
-          <img src="${fullBody(A, s.equip, s.appearance, 200)}" alt="내 캐릭터">
+          <img class="bag-avatar" src="${fullBody(A, s.equip, s.appearance, 200)}" alt="내 캐릭터">
         </div>
         <div class="bag-hero-info">
           <div class="bh-top">
