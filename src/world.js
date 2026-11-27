@@ -288,8 +288,8 @@ export function groundTexture(THREE, zones, rnd) {
   const X = (wx) => (wx - WORLD_BOUNDS.minX) / WORLD_W * TW;
   const Y = (wz) => (wz - WORLD_BOUNDS.minZ) / WORLD_H * TH;
   const hexOf = (n) => '#' + (n >>> 0).toString(16).padStart(6, '0');
-  // 바탕: 빈 바다
-  g.fillStyle = '#16283e';
+  // 바탕: 빈 바다 (청록빛 — 물결 평면 아래에서도 바다가 보이게)
+  g.fillStyle = '#14586b';
   g.fillRect(0, 0, TW, TH);
   // 구역별 바탕 (울퉁불퉁한 다각형 + 빽빽한 도트 결)
   for (const zn of zones) {
@@ -311,19 +311,19 @@ export function groundTexture(THREE, zones, rnd) {
     const mossCol = zn.theme.grass || '#6a7a4a';
     // 큰 색조 얼룩 — 1~3.5m 크기, 진하게 (게임 줌에서도 읽히는 지면 결)
     // fillRect 뭉치로 불규칙한 패치를 만든다 (동그란 얼룩이 아니라 들쭉날쭉한 모양)
-    for (let i = 0; i < 160; i++) {
+    for (let i = 0; i < 220; i++) {
       const px = inX(), py = inY();
       const r = 4 + rnd() * 10;
       const tone = rnd();
       g.fillStyle = tone < 0.4 ? zn.theme.ground2 : tone < 0.7 ? (zn.theme.grass || hexOf(zn.theme.ground)) : tone < 0.85 ? '#ffffff' : '#000000';
-      g.globalAlpha = 0.22 + rnd() * 0.23;
+      g.globalAlpha = 0.26 + rnd() * 0.25;
       g.fillRect(px - r, py - r * 0.7, r * 2, r * 1.4);
       g.fillRect(px - r * 0.6, py - r * 1.1, r * 1.2, r * 0.8);
       g.fillRect(px - r * 0.4, py + r * 0.2, r * 1.4, r * 0.7);
     }
     // 균열 — 어두운 지그재그 선 (바위·흙바닥의 갈라짐)
     g.strokeStyle = 'rgba(0,0,0,0.4)'; g.lineWidth = 1.5;
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 28; i++) {
       let px = inX(), py = inY();
       g.globalAlpha = 0.35 + rnd() * 0.3;
       g.beginPath(); g.moveTo(px, py);
@@ -336,14 +336,14 @@ export function groundTexture(THREE, zones, rnd) {
       g.stroke();
     }
     // 이끼 패치 — 초록 얼룩 (바위·나무 그늘 아래)
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 55; i++) {
       const px = inX(), py = inY();
       g.globalAlpha = 0.3 + rnd() * 0.25;
       g.fillStyle = mossCol;
       g.beginPath(); g.ellipse(px, py, 3 + rnd() * 6, 2 + rnd() * 4, rnd() * Math.PI, 0, Math.PI * 2); g.fill();
     }
     // 자갈 무리 — 2~3px 돌멩이 3~5개씩 뭉쳐서
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < 160; i++) {
       const px = inX(), py = inY();
       g.globalAlpha = 0.4 + rnd() * 0.4;
       for (let j = 0; j < 3 + Math.floor(rnd() * 3); j++) {
@@ -352,7 +352,7 @@ export function groundTexture(THREE, zones, rnd) {
       }
     }
     // 픽셀 스페클 — 구역 경계 안쪽에 1px 점을 빽빽하게 (모래·눈의 반점, 잔디의 결)
-    for (let i = 0; i < 12000; i++) {
+    for (let i = 0; i < 16000; i++) {
       const px = inX(), py = inY();
       const r = rnd();
       if (r < 0.12) { g.globalAlpha = 0.22 + rnd() * 0.13; g.fillStyle = '#000000'; g.fillRect(px, py, 1, 1); }
@@ -362,7 +362,7 @@ export function groundTexture(THREE, zones, rnd) {
     // 구역별 특징 — 사막은 모래 능선, 설산·빙하는 눈 더미, 화산은 검은 현무암
     if (zn.id === 3 || zn.id === 7) { // 사막·달표면: 모래 능선 (긴 곡선 줄무늬)
       g.strokeStyle = 'rgba(0,0,0,0.22)'; g.lineWidth = 2;
-      for (let i = 0; i < 24; i++) {
+      for (let i = 0; i < 32; i++) {
         const px = inX(), py = inY();
         g.globalAlpha = 0.3 + rnd() * 0.25;
         g.beginPath(); g.moveTo(px, py);
@@ -371,7 +371,7 @@ export function groundTexture(THREE, zones, rnd) {
       }
     }
     if (zn.id === 9 || zn.id === 8) { // 설산·빙하: 눈 더미 (흰 타원)
-      for (let i = 0; i < 60; i++) {
+      for (let i = 0; i < 80; i++) {
         const px = inX(), py = inY();
         g.globalAlpha = 0.3 + rnd() * 0.3;
         g.fillStyle = '#ffffff';
@@ -379,7 +379,7 @@ export function groundTexture(THREE, zones, rnd) {
       }
     }
     if (zn.id === 6 || zn.id === 12) { // 화산·마계섬: 검은 현무암 덩어리
-      for (let i = 0; i < 50; i++) {
+      for (let i = 0; i < 65; i++) {
         const px = inX(), py = inY();
         g.globalAlpha = 0.4 + rnd() * 0.3;
         g.fillStyle = '#1c1c22';
@@ -390,7 +390,7 @@ export function groundTexture(THREE, zones, rnd) {
     if (zn.theme.grass) {
       g.strokeStyle = zn.theme.grass;
       g.lineWidth = 1;
-      for (let i = 0; i < 1200; i++) {
+      for (let i = 0; i < 1700; i++) {
         const px = inX(), py = inY();
         g.globalAlpha = 0.5 + rnd() * 0.35;
         const h = 3 + rnd() * 3;
@@ -402,7 +402,7 @@ export function groundTexture(THREE, zones, rnd) {
       }
       // 꽃 — 잔디 구역 곳곳에 2px 꽃점
       const FLOWER_COLS = ['#ff9ec4', '#ffd257', '#ffffff', '#ff7a6a'];
-      for (let i = 0; i < 160; i++) {
+      for (let i = 0; i < 220; i++) {
         const px = inX(), py = inY();
         g.globalAlpha = 0.75 + rnd() * 0.25;
         g.fillStyle = FLOWER_COLS[Math.floor(rnd() * FLOWER_COLS.length)];
@@ -419,12 +419,12 @@ export function groundTexture(THREE, zones, rnd) {
   }
   // 한강 물줄기 (z=-96 라인, 가로 전체) — 굵은 도트 밴드 + 파도 디더링
   const ry0 = Y(RIVER_Z - 8), ry1 = Y(RIVER_Z + 8);
-  g.fillStyle = '#2a7a96';
+  g.fillStyle = '#2a9ab0';
   g.fillRect(0, ry0, TW, ry1 - ry0);
   g.fillStyle = 'rgba(168,232,238,.5)';
-  for (let i = 0; i < 700; i++) g.fillRect(rnd() * TW, ry0 + rnd() * (ry1 - ry0), 2, 1);
+  for (let i = 0; i < 800; i++) g.fillRect(rnd() * TW, ry0 + rnd() * (ry1 - ry0), 2, 1);
   g.fillStyle = 'rgba(0,40,60,.4)';
-  for (let i = 0; i < 400; i++) g.fillRect(rnd() * TW, ry0 + rnd() * (ry1 - ry0), 3, 1);
+  for (let i = 0; i < 450; i++) g.fillRect(rnd() * TW, ry0 + rnd() * (ry1 - ry0), 3, 1);
   // 메인 길: 구역 중심을 잇는 돌길 (포탈 구간은 끊긴다) — 자갈이 박힌 굵은 길
   const traceChain = (ids) => {
     g.beginPath();
@@ -447,7 +447,7 @@ export function groundTexture(THREE, zones, rnd) {
   traceChain([1, 2, 3, 4, 5, 6, 7, 8, 9]); traceChain([10, 11, 12]); traceChain([13, 14, 15, 16, 17, 18]);
   g.stroke();
   // 길 위 자갈 — 낱개 돌멩이를 촘촘하게
-  for (let i = 0; i < 1600; i++) {
+  for (let i = 0; i < 2000; i++) {
     const seg = PATH_SEGS[Math.floor(rnd() * PATH_SEGS.length)];
     if (!seg) break;
     const t = rnd();
@@ -887,9 +887,13 @@ export function makeHumanoid3D(THREE, opts = {}) {
     const torsoHull = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.64, 0.32), hullM);
     torsoHull.scale.x = bulk; torsoHull.castShadow = false; torsoHull.position.set(0, 0.85, 0); body.add(torsoHull);
   }
-  const sc = opts.scale || 1; // 반경·머리 높이는 모델 스케일과 함께 커진다 (판정과 모델 일치)
+  const sc = opts.scale || 1;
+  // 판정 분리 (2026-11-27 아바타 축소): 보이는 모델만 작아지고, 판정(반경·머리 높이·키)은
+  // 예전 스케일 그대로 둔다 — 이동 충돌·공격 사거리·히트박스가 비주얼 축소로 바뀌지 않게.
+  // hitScale을 안 넘기면(몬스터·NPC) 예전처럼 scale과 같다.
+  const hsc = opts.hitScale || sc;
   g.userData = {
-    avatar: av, height: 1.9 * sc, headY: 1.6 * sc, radius: 0.42 * sc,
+    avatar: av, height: 1.9 * hsc, headY: 1.6 * hsc, radius: 0.42 * hsc,
     armR, armL, legL, legR, body, head, weapon, weaponGroup,
     isHeroSprite: false,
   };
@@ -899,14 +903,16 @@ export function makeHumanoid3D(THREE, opts = {}) {
 // ---------- 캐릭터 ----------
 // 3D 로우폴리 휴머노이드. 장착 무기·방어구가 외형에 반영된다.
 // 주인공 — 3D 로우폴리 휴머노이드 (입체감). 초상화처럼 다듬은 비율·얼굴(polish),
-// 장착 무기·방어구·코스튬이 그대로 보인다. 화면에서 크게 보이도록 1.5배로 키운다.
-export const PLAYER_SCALE = 1.5;
+// 장착 무기·방어구·코스튬이 그대로 보인다. 아바타 축소 (2026-11-27):
+// 1.9m × 1.16 ≈ 2.2m + 카메라를 뒤로 빼서 화면 높이의 ~10%로 보인다 (예전 2.85m·~16%).
+// 판정은 hitScale 1.5로 예전 그대로 — 비주얼만 작아진다.
+export const PLAYER_SCALE = 1.16;
 export function makePlayer(THREE, family = 'sword', av = null, equip = null, appearance = null) {
   const A = av || AVATAR_MAP.boyA;
   const eq = visualEquip(equip, appearance);
   const armor = eq.armor || null;
   return makeHumanoid3D(THREE, {
-    avatar: A, weaponFam: family || 'sword', polish: true, scale: PLAYER_SCALE,
+    avatar: A, weaponFam: family || 'sword', polish: true, scale: PLAYER_SCALE, hitScale: 1.5,
     armorFam: armor ? armor.fam : null,
     capeColor: armor && armor.capeColor ? armor.capeColor : null,
     trimColor: armor && armor.trimColor ? armor.trimColor : null,
@@ -923,7 +929,9 @@ export function makePlayer(THREE, family = 'sword', av = null, equip = null, app
 // 의상 수집 전환 (2026-11-27): GLB 주인공은 항상 기본 교복이다. 코스튬 3D 파츠는
 // 붙이지 않는다 (예전 applyGlbHeroCostume은 삭제됨).
 // 얼굴은 +Z를 향한다 (절차적 플레이어의 앞면과 같은 방향 — 소프트웨어 렌더로 확인됨).
-export const GLB_HERO_TARGET_HEIGHT = 2.85; // 절차적 주인공과 같은 키 (makePlayer 1.9 × 1.5)
+export const GLB_HERO_TARGET_HEIGHT = 2.2; // 절차적 주인공과 같은 키 (makePlayer 1.9 × 1.16)
+// blobShadow 기준 키 — 축소 전 주인공 키 (그림자 반경은 키에 비례해 줄어든다)
+const GLB_SHADOW_REF_HEIGHT = 2.85;
 const GLTF_LOADER_URLS = [
   '../vendor/loaders/GLTFLoader.js',
   '../vendor/GLTFLoader.js',
@@ -1041,7 +1049,8 @@ function buildGlbCharacter(THREE, src, targetHeight, headY, radius, tag) {
   src.position.y -= box.min.y * scale;
   src.scale.setScalar(scale);
   inner.add(src);
-  inner.add(blobShadow(THREE, 0.42 * (targetHeight / GLB_HERO_TARGET_HEIGHT)));
+  // 그림자 반경은 축소 전 키(2.85m) 기준 0.42에서 키에 비례해 줄어든다 (주인공 0.32, 동료 0.29)
+  inner.add(blobShadow(THREE, 0.42 * (targetHeight / GLB_SHADOW_REF_HEIGHT)));
   // 그림자 (절차적 캐릭터와 같은 방식)
   inner.traverse((o) => { if (o.isMesh) o.castShadow = true; });
 
@@ -1389,7 +1398,7 @@ export async function loadGlbHero(THREE, url, opts = {}) {
   const gltf = await loadGlbWithLoader(LoaderClass, url);
   const src = gltf.scene;
   applyGlbSkinFix(src);
-  const { outer, inner } = buildGlbCharacter(THREE, src, GLB_HERO_TARGET_HEIGHT, 2.4, 0.63, 'glbHero');
+  const { outer, inner } = buildGlbCharacter(THREE, src, GLB_HERO_TARGET_HEIGHT, 2.4, 0.63, 'glbHero'); // headY 2.4·반경 0.63은 판정용 예전 값 그대로 (비주얼 키만 2.2m로 축소)
   // [glb-sword-fix] 구워진 검날을 오른손에 다시 묶는다 (다리를 따라가지 않게)
   let swordFixed = 0;
   let swordRemoved = 0;
@@ -1509,13 +1518,13 @@ export function attachGlbHandWeapon(THREE, outer, fam, grade) {
 // 위치·회전·걷기 바운스만 전신에 적용된다. 피부 처리(색 흰색 복원 +
 // 텍스처 변조 발광)도 주인공과 동일하다. 얼굴은 +Z를 향한다
 // (소프트웨어 렌더로 확인: +Z에서 얼굴·방패·검이 보이고 -Z에서 뒷모습).
-export const GLB_COMPANION_TARGET_HEIGHT = 2.57; // 절차적 동료와 같은 키 (1.9 × 1.35)
+export const GLB_COMPANION_TARGET_HEIGHT = 1.98; // 절차적 동료와 같은 키 (1.9 × 1.04)
 export async function loadGlbCompanion(THREE, url) {
   const LoaderClass = await importGlTFLoader();
   const gltf = await loadGlbWithLoader(LoaderClass, url);
   const src = gltf.scene;
   applyGlbSkinFix(src);
-  const { outer, inner } = buildGlbCharacter(THREE, src, GLB_COMPANION_TARGET_HEIGHT, 2.16, 0.57, 'glbCompanion');
+  const { outer, inner } = buildGlbCharacter(THREE, src, GLB_COMPANION_TARGET_HEIGHT, 2.16, 0.57, 'glbCompanion'); // headY 2.16·반경 0.57은 판정용 예전 값 그대로
   // 리깅된 GLB면 뼈대 애니메이터를 단다 (주인공과 같은 Mixamo 8본 방식).
   // 리그가 없으면 animate가 없어 전신 정적(기존 방식) 그대로 둔다.
   const bones = findRigBones(src);
@@ -1771,9 +1780,11 @@ const MONSTER_H = {
   witch: 1.78, golem: 2.2, ent: 2.4, ogre: 2.15, anubis: 2.05, hydra: 2.0, kraken: 2.6,
   dragon: 2.6, mushroom: 1.9, barbarian: 2.0, skeleton: 1.5,
 };
-// 2D 빌보드 시절과 같은 화면 크기 — 3D 모델을 1.5배로 키워 주인공(1.5배)과 같은 비율로 보인다.
-// (반경·머리 높이도 함께 커져 공격 판정과 모델이 일치한다.)
-const MONSTER_SCALE = 1.5;
+// 아바타 축소 (2026-11-27): 몬스터 비주얼도 주인공과 같은 비율(1.5→1.16)로 줄여
+// 주인공-몬스터 상대 크기를 유지한다. 판정 반경은 MONSTER_HIT_SCALE(예전 1.5)로
+// 그대로 둬서 공격 사거리·히트박스가 바뀌지 않게 한다 (headY는 비주얼 기준이라 같이 줄어든다).
+const MONSTER_SCALE = 1.16;
+const MONSTER_HIT_SCALE = 1.5;
 
 export function makeMonster3D(THREE, def) {
   const color = def.color != null ? def.color : 0x888888;
@@ -1954,7 +1965,7 @@ export function makeMonster3D(THREE, def) {
     armL = hg.userData.armL; armR = hg.userData.armR;
     if (cfg.noLegs) { legL = null; legR = null; }
     top = 1.72 * cfg.scale * bossMul * MONSTER_SCALE;
-    radius = 0.42 * cfg.scale * bossMul * MONSTER_SCALE;
+    radius = 0.42 * cfg.scale * bossMul * MONSTER_HIT_SCALE; // 판정 반경은 예전 값 그대로
     return finish({ scaled: true });
   }
 
@@ -2165,7 +2176,7 @@ export function makeMonster3D(THREE, def) {
     body = hg.userData.body; legL = hg.userData.legL; legR = hg.userData.legR;
     armL = hg.userData.armL; armR = hg.userData.armR;
     top = 1.72 * 0.62 * bossMul * MONSTER_SCALE;
-    radius = 0.42 * 0.62 * bossMul * MONSTER_SCALE;
+    radius = 0.42 * 0.62 * bossMul * MONSTER_HIT_SCALE; // 판정 반경은 예전 값 그대로
     return finish({ scaled: true });
   }
   return finish({});
@@ -2174,12 +2185,15 @@ export function makeMonster3D(THREE, def) {
   function finish(opts) {
     const scaled = opts && opts.scaled;
     const finalTop = top * (scaled ? 1 : bossMul * MONSTER_SCALE);
-    const finalRadius = radius * (scaled ? 1 : bossMul * MONSTER_SCALE);
+    // 판정 반경은 예전 스케일(1.5) 그대로 — 비주얼만 작아진다
+    const finalRadius = radius * (scaled ? 1 : bossMul * MONSTER_HIT_SCALE);
+    // 보스 링은 보이는 몸통에 딱 맞게 비주얼 반경으로 그린다
+    const visualRadius = radius * (scaled ? MONSTER_SCALE / MONSTER_HIT_SCALE : bossMul * MONSTER_SCALE);
     if (!scaled) g.scale.setScalar(bossMul * MONSTER_SCALE);
     if (def.boss) {
       const tierColor = def.boss === 'field' ? 0xff5566 : def.boss === 'boss' ? 0xb46cff : 0x4aa3ff;
       const ring = new THREE.Mesh(
-        gRing(THREE, Math.round(finalRadius * 0.85 * 100) / 100, Math.round(finalRadius * 1.05 * 100) / 100),
+        gRing(THREE, Math.round(visualRadius * 0.85 * 100) / 100, Math.round(visualRadius * 1.05 * 100) / 100),
         new THREE.MeshBasicMaterial({ color: tierColor, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }));
       ring.rotation.x = -Math.PI / 2; ring.position.y = 0.04; g.add(ring);
     }
@@ -2246,15 +2260,16 @@ export function makeMonster(THREE, def) {
 // 동료 — 3D 휴머노이드 + 직업별 실루엣 (색만 다른 게 아니라 생김새가 다르다):
 // 탱커 = 덩치 큼 + 투구 + 왼팔 방패 / 힐러 = 로브 + 후드 + 지팡이
 // 근접 = 날씬 + 쌍단검 + 머리띠 / 마법사 = 로브 + 뾰족모자 + 지팡이 + 왼손 책
-// 주인공(1.5배)보다 살짝 작게 1.35배. 벨트는 등급 색(gradeColor)으로 띠를 두른다.
-export const COMPANION_SCALE = 1.35;
+// 주인공(1.16배)보다 살짝 작게 1.04배. 벨트는 등급 색(gradeColor)으로 띠를 두른다.
+// 판정은 hitScale 1.35로 예전 그대로 — 비주얼만 작아진다.
+export const COMPANION_SCALE = 1.04;
 const COMPANION_WEAPON = { tank: 'sword', healer: 'staff', melee: 'dagger', mage: 'staff' };
 const COMPANION_BULK = { tank: 1.32, healer: 1, melee: 0.85, mage: 1 };
 export function makeCompanion(THREE, cls, gradeColor = 0xffffff) {
   const c = cls && cls.id ? cls : { id: 'melee', color: 0x6fcf97 };
   const g = makeHumanoid3D(THREE, {
     avatar: null, skin: 0xf2c9a0, uniform: c.color, hair: 0x2a2f45, accent: c.color,
-    weaponFam: COMPANION_WEAPON[c.id] || 'dagger', polish: true, scale: COMPANION_SCALE,
+    weaponFam: COMPANION_WEAPON[c.id] || 'dagger', polish: true, scale: COMPANION_SCALE, hitScale: 1.35,
     bulk: COMPANION_BULK[c.id] || 1, grade: 0, trimColor: gradeColor,
     robe: c.id === 'healer' || c.id === 'mage',
   });
@@ -2401,12 +2416,12 @@ export function buildPropGeometry(THREE, kind) {
       P(C(0.16, 0.24, 1.2), 0x6a4a22, 0, 0.6, 0);
       for (let i = 0; i < 3; i++) P(B(0.05, 1.0, 0.06), 0x4a3018, -0.12 + i * 0.12, 0.6, 0.2, -0.07, 0, 0); // 껍질 능선 (앞면)
       P(S(0.08), 0x2a1c10, 0.1, 0.7, 0.21); // 옹이
-      P(K(1.0, 1.4), 0x2a7a3a, 0, 1.8, 0);
-      P(K(0.8, 1.2), 0x358a44, 0, 2.5, 0);
-      P(K(0.55, 1.0), 0x46a354, 0, 3.1, 0);
-      P(S(0.22), 0x2f8a40, -0.35, 1.9, 0.2); // 잎사귀 뭉치 (층마다 색 다르게, 원뿔 표면에 붙여서)
-      P(S(0.2), 0x3f9a4e, 0.35, 2.5, -0.2);
-      P(S(0.18), 0x55b364, -0.25, 3.0, 0.2);
+      P(K(1.0, 1.4), 0x2f9e3e, 0, 1.8, 0);
+      P(K(0.8, 1.2), 0x3fae4e, 0, 2.5, 0);
+      P(K(0.55, 1.0), 0x52c25e, 0, 3.1, 0);
+      P(S(0.22), 0x35a844, -0.35, 1.9, 0.2); // 잎사귀 뭉치 (층마다 색 다르게, 원뿔 표면에 붙여서)
+      P(S(0.2), 0x48b858, 0.35, 2.5, -0.2);
+      P(S(0.18), 0x62cc6a, -0.25, 3.0, 0.2);
       P(S(0.09), 0xff5a4a, 0.18, 2.8, 0.1); // 붉은 열매
       P(B(0.5, 0.08, 0.5), 0x6a8a4a, 0, 1.25, 0); // 밑동 이끼
       break;
@@ -2429,14 +2444,14 @@ export function buildPropGeometry(THREE, kind) {
       P(S(0.08), 0x2a1c10, -0.05, 1.5, 0.18); // 옹이
       break;
     case 'rock': // 회색 바위 — 면이 꺾인 돌 + 균열 + 이끼 + 하이라이트
-      P(B(1.4, 0.9, 1.1), 0x8d929c, 0, 0.45, 0);
-      P(B(0.7, 0.5, 0.6), 0xa8adb8, -0.3, 0.95, 0.1, 0, 0.6, 0);
+      P(B(1.4, 0.9, 1.1), 0x9298a8, 0, 0.45, 0);
+      P(B(0.7, 0.5, 0.6), 0xaeb4c0, -0.3, 0.95, 0.1, 0, 0.6, 0);
       P(B(0.5, 0.3, 0.4), 0x6a6f78, 0.45, 0.2, -0.2, 0, -0.4, 0);
       P(B(0.05, 0.5, 0.02), 0x4a4f58, -0.2, 0.5, 0.56, 0, 0, 0.3); // 균열 (앞면)
       P(B(0.05, 0.35, 0.02), 0x4a4f58, 0.35, 0.35, 0.56, 0, 0, -0.5);
-      P(B(0.5, 0.08, 0.4), 0x5a7a3a, 0.35, 0.92, 0.2); // 윗면 이끼 (윗돌과 안 겹치게 오른쪽)
+      P(B(0.5, 0.08, 0.4), 0x5a8a3a, 0.35, 0.92, 0.2); // 윗면 이끼 (윗돌과 안 겹치게 오른쪽)
       P(B(0.5, 0.06, 0.4), 0x6a8a4a, 0.4, 0.32, -0.1); // 밑동 이끼
-      P(B(0.4, 0.06, 0.3), 0xc8cdd8, -0.45, 0.92, -0.35); // 윗면 하이라이트 (뒷쪽)
+      P(B(0.4, 0.06, 0.3), 0xd0d5e0, -0.45, 0.92, -0.35); // 윗면 하이라이트 (뒷쪽)
       break;
     case 'sandRock': // 모래 바위 — 균열 + 밝은 면
       P(B(1.5, 0.9, 1.1), 0xc8a86a, 0, 0.45, 0);
@@ -2464,8 +2479,8 @@ export function buildPropGeometry(THREE, kind) {
       P(B(0.4, 0.06, 0.3), 0xffffff, 0.45, 0.92, -0.35); // 윗면 하이라이트 (뒷쪽)
       break;
     case 'grass': // 풀잎 다발 — 4개 잎 + 씨앗 머리
-      for (let i = -1; i <= 1; i++) P(K(0.14, 0.7), i % 2 ? 0x6fbf58 : 0x4f9a42, i * 0.25, 0.35, 0, 0, 0, i * 0.25);
-      P(K(0.11, 0.55), 0x8adf6a, 0.45, 0.28, 0.1, 0, 0, -0.35);
+      for (let i = -1; i <= 1; i++) P(K(0.14, 0.7), i % 2 ? 0x7ccb5e : 0x5aae4c, i * 0.25, 0.35, 0, 0, 0, i * 0.25);
+      P(K(0.11, 0.55), 0x96e06a, 0.45, 0.28, 0.1, 0, 0, -0.35);
       P(S(0.06), 0xd8c878, 0.55, 0.6, 0.12); // 씨앗
       break;
     case 'flower': // 꽃 4송이 + 잎
@@ -2477,9 +2492,9 @@ export function buildPropGeometry(THREE, kind) {
       P(B(0.3, 0.04, 0.12), 0x4f9a42, 0, 0.12, 0, 0, 0.3, 0); // 잎
       break;
     case 'bush': // 덤불 — 잎 뭉치 3색 + 열매
-      P(S(0.55), 0x3f8a3a, -0.25, 0.4, 0);
-      P(S(0.5), 0x4f9a42, 0.3, 0.35, 0.1);
-      P(S(0.4), 0x5fa84c, 0, 0.65, -0.1);
+      P(S(0.55), 0x479e3e, -0.25, 0.4, 0);
+      P(S(0.5), 0x5aae4c, 0.3, 0.35, 0.1);
+      P(S(0.4), 0x6cbe58, 0, 0.65, -0.1);
       P(S(0.16), 0x6fbf58, -0.5, 0.6, 0.2);
       P(S(0.14), 0x2f7a2e, 0.45, 0.6, -0.2);
       P(S(0.07), 0xff5a4a, 0.1, 0.85, 0.25); // 열매
@@ -2491,9 +2506,9 @@ export function buildPropGeometry(THREE, kind) {
       P(K(0.07, 0.25), 0xd8c888, -0.28, 1.4, 0.05);
       break;
     case 'cactus': // 선인장 — 가시 + 꽃
-      P(C(0.22, 0.26, 1.5), 0x3f8a3a, 0, 0.75, 0);
-      P(C(0.12, 0.12, 0.5), 0x3f8a3a, -0.35, 0.7, 0, 0, 0, 0.5);
-      P(C(0.12, 0.12, 0.5), 0x3f8a3a, 0.35, 0.9, 0, 0, 0, -0.5);
+      P(C(0.22, 0.26, 1.5), 0x46a83e, 0, 0.75, 0);
+      P(C(0.12, 0.12, 0.5), 0x46a83e, -0.35, 0.7, 0, 0, 0, 0.5);
+      P(C(0.12, 0.12, 0.5), 0x46a83e, 0.35, 0.9, 0, 0, 0, -0.5);
       P(S(0.1), 0xff9ec4, 0, 1.6, 0);
       for (let i = 0; i < 4; i++) P(K(0.04, 0.12), 0xd8e8c8, -0.15 + i * 0.1, 1.1 + (i % 2) * 0.3, 0.24, 0.5, 0, 0); // 가시
       break;
@@ -2526,9 +2541,24 @@ export function buildPropGeometry(THREE, kind) {
       P(B(2.22, 0.06, 0.52), 0x6a6258, 0, 1.1, 0); // 벽돌 줄눈
       P(B(2.22, 0.06, 0.52), 0x6a6258, 0, 0.5, 0);
       break;
+    case 'palm': // 야자수 — 살짝 굽은 줄기 + 바깥·아래로 처진 큼직한 노란빛 잎 + 코코넛
+      // 줄기 (기울어지게 — rz -0.08이면 윗부분이 +X로 기운다)
+      P(C(0.13, 0.2, 2.6), 0x8a6a3a, 0.12, 1.3, 0, 0, 0, -0.08);
+      P(C(0.1, 0.15, 0.5), 0x6a4a22, 0.22, 2.62, 0, 0, 0, -0.08);
+      // 잎 6장 — 원뿔(끝이 뾰족해 잎처럼 보인다)을 바깥·아래로 향하게.
+      // Euler XYZ는 R = Rx·Ry·Rz라 rz=1.9로 +Y를 옆으로 눕힌 뒤 ry=a+π/2로 방향을 돌리면
+      // 잎끝이 (sin a·0.95, -0.32, cos a·0.95) — 바깥쪽·아래를 향한다.
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        P(K(0.32, 1.5, 4), i % 2 ? 0x7fb83a : 0x9ccb4a, 0.2 + Math.sin(a) * 0.55, 2.6, Math.cos(a) * 0.55, 0, a + Math.PI / 2, 1.9);
+      }
+      P(S(0.16), 0x9ccb4a, 0.22, 2.85, 0); // 잎 중심 뭉치
+      P(S(0.09), 0x6a4a22, 0.32, 2.52, 0.14); // 코코넛
+      P(S(0.09), 0x6a4a22, 0.08, 2.48, -0.2);
+      break;
     case 'dock': // 나무 부두 (판자 + 말뚝) — 밧줄 뭉치
-      for (let i = -1; i <= 1; i++) P(B(2.4, 0.12, 0.5), 0x8a6a3a, 0, 0.55, i * 0.55);
-      for (const x of [-1.0, 1.0]) for (const z of [-0.55, 0.55]) P(C(0.09, 0.11, 0.9), 0x6a4a22, x, 0.45, z);
+      for (let i = -1; i <= 1; i++) P(B(2.4, 0.12, 0.5), 0xa87a42, 0, 0.55, i * 0.55);
+      for (const x of [-1.0, 1.0]) for (const z of [-0.55, 0.55]) P(C(0.09, 0.11, 0.9), 0x7a5230, x, 0.45, z);
       P(C(0.16, 0.16, 0.1), 0xc8b878, 0.8, 0.66, 0.3); // 밧줄 뭉치
       break;
     case 'crate': // 나무 상자 + 테두리 + 세로 판자
@@ -2655,6 +2685,40 @@ function mergeGeometryParts(THREE, meshes) {
   return geo;
 }
 
+// ---------- 살아 있는 물 ----------
+// 작은 캔버스 물결 텍스처 (128×128, 타일 반복) — 바다·한강 위에 까는 평면 2장이 쓴다.
+// 지형 높이가 ±3~4m로 출렁여서 월드 전체 평면은 안 된다: 빈 바다(남서쪽)와
+// 한강 수로(지형이 -0.7m로 파인 곳)에만 깔고, 지형이 물보다 높으면 물이 가려진다.
+// 걷는 땅 위에는 절대 안 깐다 — groundY/충돌은 그대로, 물은 보기용이다.
+function waterTexture(THREE, rx, ry) {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#1b7d92';
+  g.fillRect(0, 0, 128, 128);
+  const wrnd = rand(4242);
+  // 물결 대시 — 밝은 청록 + 어두운 남청을 가로로 흩뿌린다
+  for (let i = 0; i < 46; i++) {
+    const light = wrnd() > 0.45;
+    g.fillStyle = light ? 'rgba(140,220,235,0.55)' : 'rgba(10,80,105,0.5)';
+    const w = 8 + wrnd() * 18, x = wrnd() * 128, y = wrnd() * 128;
+    g.fillRect(x, y, w, light ? 2 : 3);
+    g.fillRect(x + w * 0.3, y + 3, w * 0.5, 1);
+  }
+  // 잔물결 점
+  for (let i = 0; i < 60; i++) {
+    g.fillStyle = wrnd() > 0.5 ? 'rgba(200,245,255,0.5)' : 'rgba(8,60,80,0.4)';
+    g.fillRect(wrnd() * 128, wrnd() * 128, 2, 1);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(rx, ry);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+  return tex;
+}
+
 // ---------- 하나의 판타지 지도 전체를 짓는다 ----------
 // 480×384 지면 1장(빽빽한 2D 텍스처 + 3D 높낮이) + 구역별 3D 소품(인스턴싱)
 // + 경계 자연물 벽 + 3D 상자 55개 + 3D NPC 18명 + 방벽 게이트(통로마다)
@@ -2712,6 +2776,22 @@ export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = fals
   ground.receiveShadow = true;
   group.add(ground);
 
+  // 살아 있는 물 — 빈 바다(남서쪽) + 한강 수로. 지형보다 낮으면 보이고 높으면 가려진다.
+  // 걷는 땅 위에는 깔지 않는다 (groundY·충돌 불변). disposeGroup이 group과 함께 정리한다.
+  const seaTex = waterTexture(THREE, 24, 12);
+  const seaMat = new THREE.MeshLambertMaterial({ map: seaTex, transparent: true, opacity: 0.88, depthWrite: false });
+  const sea = new THREE.Mesh(new THREE.PlaneGeometry(192, 96), seaMat);
+  sea.rotation.x = -Math.PI / 2;
+  sea.position.set(-144, 0.12, 192);
+  group.add(sea);
+  const riverTex = waterTexture(THREE, 60, 2);
+  const riverMat = new THREE.MeshLambertMaterial({ map: riverTex, transparent: true, opacity: 0.88, depthWrite: false });
+  const river = new THREE.Mesh(new THREE.PlaneGeometry(480, 16), riverMat);
+  river.rotation.x = -Math.PI / 2;
+  river.position.set(0, -0.22, RIVER_Z);
+  group.add(river);
+  const water = { sea, river, seaTex, riverTex, seaMat, riverMat };
+
   // ---------- 소품 배치 (인스턴싱) ----------
   const scatter = [];
   const protoCache = {};
@@ -2735,7 +2815,7 @@ export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = fals
     return false;
   }
 
-  const WEIGHT = { tree: 4, deadTree: 4, rock: 3, bush: 3, grass: 4, flower: 1.4, reed: 3, cactus: 3, sandRock: 3.4, pillar: 1.0, ruinPillar: 1.0, coral: 3, bubbleRock: 2.4, wall: 1.4, dock: 3, crate: 3, barrel: 3, anchor: 2, buoy: 2, boat: 2, brazier: 2.4, mushroom: 3, pine: 4, crystal: 2.6, lavaRock: 3, iceRock: 3, tent: 2, fence: 2 };
+  const WEIGHT = { tree: 4, deadTree: 4, rock: 3, bush: 3, grass: 4, flower: 1.4, reed: 3, cactus: 3, sandRock: 3.4, pillar: 1.0, ruinPillar: 1.0, coral: 3, bubbleRock: 2.4, wall: 1.4, dock: 3, crate: 3, barrel: 3, anchor: 2, buoy: 2, boat: 2, brazier: 2.4, mushroom: 3, pine: 4, crystal: 2.6, lavaRock: 3, iceRock: 3, tent: 2, fence: 2, palm: 2.5 };
   function pickKind(zn) {
     const pool = zn.theme.prop;
     let total = 0; for (const k of pool) total += WEIGHT[k] || 1;
@@ -2755,7 +2835,7 @@ export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = fals
       if (Math.abs(z - RIVER_Z) < 9) continue;
       const kind = pickKind(zn);
       const small = kind === 'grass' || kind === 'flower' || kind === 'mushroom';
-      const big = kind === 'tree' || kind === 'deadTree' || kind === 'pillar' || kind === 'ruinPillar' || kind === 'cactus' || kind === 'pine' || kind === 'boat' || kind === 'tent' || kind === 'dock' || kind === 'crystal';
+      const big = kind === 'tree' || kind === 'deadTree' || kind === 'pillar' || kind === 'ruinPillar' || kind === 'cactus' || kind === 'pine' || kind === 'boat' || kind === 'tent' || kind === 'dock' || kind === 'crystal' || kind === 'palm';
       const scl = small ? 1.7 + rnd() * 1.1 : big ? 1.05 + rnd() * 0.8 : 1.0 + rnd() * 0.9;
       addProp(kind, x, z, scl, rnd() * 6.28);
       placed++;
@@ -3039,7 +3119,7 @@ export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = fals
 
   return {
     group, props, propsNear, chests, npcs, npc: npcs[1] || null, gates, earthGate, gyeonggiGate,
-    spawnPoints, spawnPointsByDistrict, particles: points, fieldRing: null, groundHeight,
+    spawnPoints, spawnPointsByDistrict, particles: points, fieldRing: null, groundHeight, water,
     openGate, setEarthGate, setGyeonggiGate,
     update(dt, t) {
       const arr = pgeo.attributes.position.array;
@@ -3048,6 +3128,12 @@ export function buildWorld(THREE, zones, openedChests = [], earthGateOpen = fals
         arr[i * 3] += Math.cos(t * 0.4 + i) * dt * 0.15;
       }
       pgeo.attributes.position.needsUpdate = true;
+      // 물결: 텍스처를 흘리고 투명도를 살짝 흔든다 (저렴한 스크롤 애니메이션 — 셰이더 없음)
+      water.seaTex.offset.x += dt * 0.012;
+      water.seaTex.offset.y += dt * 0.005;
+      water.riverTex.offset.x -= dt * 0.03;
+      water.seaMat.opacity = 0.86 + Math.sin(t * 0.9) * 0.04;
+      water.riverMat.opacity = 0.86 + Math.sin(t * 1.3 + 1.5) * 0.04;
       for (const npc of Object.values(npcs)) {
         npc.userData.marker.position.y = 2.3 + Math.sin(t * 2.2) * 0.12;
       }
