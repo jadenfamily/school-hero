@@ -94,6 +94,24 @@ function mergeState(saved) {
     }
   }
   s.party = saved.party || [];
+  // 직업별 1명만 동행 (2026-11-27): 저장본 파티에 같은 직업이 2명 이상 있으면
+  // 가장 높은 등급(동점이면 파티 순서가 앞선) 1명만 남기고 나머지는 파티에서 뺀다.
+  // 수집품(동료 목록)은 건드리지 않는다 — 동행에서만 제외한다.
+  // 없는 직업 슬롯은 비워 둔다 (다른 직업의 동료로 채우지 않는다).
+  // 수집품에 없는 id(보내거나 합쳐진 동료)도 파티에서 뺀다. 멱등: 이미 정리된
+  // 파티는 다시 로드해도 그대로이다.
+  {
+    const byId = new Map(s.companions.map((c) => [c.id, c]));
+    const best = new Map(); // cls -> { id, grade, firstIdx }
+    s.party.forEach((pid, idx) => {
+      const c = byId.get(pid);
+      if (!c) return;
+      const cur = best.get(c.cls);
+      if (!cur) best.set(c.cls, { id: pid, grade: c.grade || 0, firstIdx: idx });
+      else if ((c.grade || 0) > (cur.grade || 0)) { cur.id = pid; cur.grade = c.grade || 0; }
+    });
+    s.party = [...best.values()].sort((a, b) => a.firstIdx - b.firstIdx).map((x) => x.id);
+  }
   s.unlocked = saved.unlocked && saved.unlocked.length ? saved.unlocked : [1];
   // 3차 개편 마이그레이션 (v1 → v2, 분리 맵 → 하나의 서울 지도) +
   // 확장 마이그레이션 (v2 → v3, 서울 9구역 → 서울+인천+경기 18구역):
