@@ -169,14 +169,18 @@ function weaponSwingFx(fam, p, a, W, hits) {
     const ring = flatRing(p.x + fx * 1.1, p.z + fz * 1.1, 0.25, 0.8, col, 0.85, 0.12);
     addFx(ring, 0.35, (f, k) => { ring.scale.setScalar(1 + (1 - k) * 2.0); ring.material.opacity = k * 0.8; }, 'melee:shock');
     dustBurst(p.x + fx * 1.1, p.z + fz * 1.1, fam === 'axe' ? 0xffd6a0 : 0xfff0c0, 8);
-  } else if (fam === 'bow' || fam === 'crossbow') {
+  } else if (fam === 'crossbow') {
+    // 석궁: 하얀 오브·궤적선 없이 볼트만 보이게 — 총구에서 아주 작은 불꽃만 0.1초 (손의 석궁을 가리지 않게)
+    const spark = fxAlloc(fxGeo('sphere', 0.09, 6, 5), 0xffe0a0, 0.9, { tag: 'ranged:muzzle' });
+    spark.position.set(p.x + fx * 0.7, gy + 1.1, p.z + fz * 0.7);
+    addFx(spark, 0.1, (f, k) => { spark.scale.setScalar(1 + (1 - k) * 0.6); spark.material.opacity = k; }, 'ranged:muzzle');
+  } else if (fam === 'bow') {
     const flash = fxAlloc(fxGeo('sphere', 0.22, 6, 5), 0xffe0a0, 0.9, { tag: 'ranged:muzzle' });
     flash.position.set(p.x + fx * 0.6, gy + 1.1, p.z + fz * 0.6);
     addFx(flash, 0.16, (f, k) => { flash.scale.setScalar(1 + (1 - k) * 1.8); flash.material.opacity = k; }, 'ranged:muzzle');
-    // 발사 궤적선 (활은 길게, 석궁은 짧고 굵게)
-    const len = fam === 'bow' ? 2.0 : 1.3;
-    const streak = fxAlloc(fxGeo('box', fam === 'bow' ? 0.06 : 0.1, 0.06, len), 0xfff0c0, 0.8, { tag: 'ranged:streak' });
-    streak.position.set(p.x + fx * (0.6 + len / 2), gy + 1.1, p.z + fz * (0.6 + len / 2));
+    // 발사 궤적선 (활은 길게)
+    const streak = fxAlloc(fxGeo('box', 0.06, 0.06, 2.0), 0xfff0c0, 0.8, { tag: 'ranged:streak' });
+    streak.position.set(p.x + fx * 1.6, gy + 1.1, p.z + fz * 1.6);
     streak.rotation.y = a;
     addFx(streak, 0.14, (f, k) => { streak.material.opacity = k * 0.75; }, 'ranged:streak');
   } else if (fam === 'staff' || fam === 'book') {
