@@ -1167,6 +1167,73 @@ function makeGlbHeroRigAnimator(outer, inner, bones) {
   };
 }
 
+// 리깅된 GLB 동료 애니메이터: 주인공 리깅 애니메이터와 같은 Mixamo 8본 방식
+// (걷기 스윙 + 공격 휘두르기). 위치 밥은 동료 쪽(updateCompanions)이
+// 맡으므로 여기서는 뼈대·숙임·돌진만 한다. Head/Hands/Spine은 건드리지 않는다.
+function makeGlbCompanionRigAnimator(outer, inner, bones) {
+  const eoc = (x) => 1 - Math.pow(1 - x, 3);
+  const sm = (x) => x * x * (3 - 2 * x);
+  // 뼈대를 기본 자세로 되돌린 뒤 상대 회전을 곱한다 (rz=앞뒤, rx=좌우).
+  const setBone = (b, rz, rx) => {
+    if (!b) return;
+    b.quaternion.copy(b.userData.baseQuat);
+    if (rz) b.rotateZ(rz);
+    if (rx) b.rotateX(rx);
+  };
+  const restBones = () => {
+    for (const b of Object.values(bones)) if (b) b.quaternion.copy(b.userData.baseQuat);
+  };
+  return (p, dt) => {
+    const on = p.atkAnim > 0;
+    const k = on ? Math.min(1, 1 - p.atkAnim / (p.atkAnimMax || 0.22)) : 1;
+    if (on) {
+      const s = Math.sin(k * Math.PI);
+      outer.position.x += Math.sin(p.facing) * 0.3 * s;
+      outer.position.z += Math.cos(p.facing) * 0.3 * s;
+      inner.rotation.x = 0.08 * s; // 살짝 앞으로 숙이기
+      const kf = (stops) => {
+        if (k <= stops[0][0]) return stops[0][1];
+        for (let i = 1; i < stops.length; i++) {
+          if (k <= stops[i][0]) {
+            const t0 = stops[i - 1][0], v0 = stops[i - 1][1];
+            const t1 = stops[i][0], v1 = stops[i][1];
+            const e = stops[i][2] || sm;
+            return v0 + (v1 - v0) * e((k - t0) / (t1 - t0));
+          }
+        }
+        return stops[stops.length - 1][1];
+      };
+      // 오른팔 휘두르기: 와인드업 → 타격 → 팔로우스루 → 회복 (주인공과 같은 곡선)
+      const rx = kf([[0, 0], [0.32, -1.1, eoc], [0.62, -0.7, sm], [1, 0, sm]]);
+      const rz = kf([[0, 0], [0.32, 1.5, eoc], [0.62, 1.75, sm], [1, 0, sm]]);
+      setBone(bones.armR, rx, rz);
+      setBone(bones.foreArmR, rx * 0.5, 0);
+      setBone(bones.armL, 0, 0);
+      // 공격 중에는 다리를 디딤 자세로 고정한다
+      setBone(bones.upLegL, -0.12, 0);
+      setBone(bones.upLegR, 0.12, 0);
+      setBone(bones.legL, 0.1, 0);
+      setBone(bones.legR, 0.1, 0);
+    } else {
+      inner.rotation.x = 0;
+      if (p.moving) {
+        const w = Math.sin(p.walkT);
+        const legSwing = w * 0.55, armSwing = w * 0.2;
+        setBone(bones.upLegL, -legSwing, 0);
+        setBone(bones.upLegR, legSwing, 0);
+        setBone(bones.legL, Math.max(0, -w) * 0.7, 0);
+        setBone(bones.legR, Math.max(0, w) * 0.7, 0);
+        setBone(bones.armL, armSwing, 0);
+        setBone(bones.armR, -armSwing, 0);
+        setBone(bones.foreArmL, 0, 0);
+        setBone(bones.foreArmR, 0, 0);
+      } else {
+        restBones();
+      }
+    }
+  };
+}
+
 // [glb-sword-fix] 리깅된 시우 GLB의 검은 메쉬에 구워져 있다 (Tripo 입력 이미지가
 // 검을 든 모습이라 검 지오메트리가 모델 안에 들어 있다 — 게임 무기 오브젝트가
 // 아니다. buildGlbCharacter는 GLB 주인공의 weapon을 null로 둔다). 그래서
@@ -1448,7 +1515,14 @@ export async function loadGlbCompanion(THREE, url) {
   const gltf = await loadGlbWithLoader(LoaderClass, url);
   const src = gltf.scene;
   applyGlbSkinFix(src);
-  const { outer } = buildGlbCharacter(THREE, src, GLB_COMPANION_TARGET_HEIGHT, 2.16, 0.57, 'glbCompanion');
+  const { outer, inner } = buildGlbCharacter(THREE, src, GLB_COMPANION_TARGET_HEIGHT, 2.16, 0.57, 'glbCompanion');
+  // 리깅된 GLB면 뼈대 애니메이터를 단다 (주인공과 같은 Mixamo 8본 방식).
+  // 리그가 없으면 animate가 없어 전신 정적(기존 방식) 그대로 둔다.
+  const bones = findRigBones(src);
+  if (bones) {
+    outer.userData.animate = makeGlbCompanionRigAnimator(outer, inner, bones);
+    outer.userData.rigBones = bones;
+  }
   return outer;
 }
 
