@@ -720,6 +720,19 @@ game.toggleParty = function (id) {
   if (i >= 0) s.party.splice(i, 1);
   else {
     if (s.party.length >= 4) return { ok: false, msg: '동행은 최대 4명까지 가능해요' };
+    // 직업별 1명만 동행 (2026-11-27): 같은 직업이 이미 동행 중이면 추가 불가.
+    // 없는 직업 슬롯은 비워 둔다 (다른 직업의 동료로 채우지 않는다).
+    const c = s.companions.find((x) => x.id === id);
+    if (c) {
+      const taken = s.party.some((pid) => {
+        const p = s.companions.find((x) => x.id === pid);
+        return p && p.cls === c.cls;
+      });
+      if (taken) {
+        const role = (COMPANION_CLASSES[c.cls] || {}).role || '이 직업';
+        return { ok: false, msg: `이미 ${role} 동료가 동행 중이에요. 직업별로 1명만 데려갈 수 있어요` };
+      }
+    }
     s.party.push(id);
   }
   game.save();
