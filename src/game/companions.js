@@ -432,10 +432,14 @@ function updateCompanions(dt) {
     }
     c.mesh.rotation.z = 0;
     if (c.hitT <= 0) c.hp = Math.min(c.maxHp, c.hp + c.maxHp * 0.02 * dt);
-    const off = [[-1.8, 2.2], [1.8, 2.2], [0, 3.2]][i] || [0, 3];
+    // 대열 자리 (4인 파티 2x2 — 앞줄 탱커·근접, 뒷줄 마법·힐러; 전원 1.8m 이상 간격).
+    // 예전 3개짜리 배열은 4번째 동료가 폴백 (0,3)으로 가서 마법사 (0,3.2)와 0.2m
+    // 간격으로 겹쳐 붙어 있었다.
+    const off = [[-1.8, 2.2], [1.8, 2.2], [-0.9, 3.4], [0.9, 3.4]][i] || [0, 3];
     // 직업별 전투 행동 — 탱커/근접은 달라붙고, 마법/힐러는 대열 자리를 지킨다
     let tx = p.x + off[0], tz = p.z + off[1];
-    let stopDist = 1.2;
+    let stopDist = 0.3; // 대열 자리에는 정확히 선다 (예전 1.2m에서 멈추면 목표
+    // 1.2m 앞에서 멈춰 옆 동료 쪽으로 치우치고, 마법·힐러가 1.2m까지 붙었다)
     if (c.cls.id === 'tank' || c.cls.id === 'melee') {
       // 이미 쫓던 적은 14m 리시까지 유지 (단, 주인공이 인식한 몹일 때만),
       // 없으면 주인공 12m 안에서 주인공이 인식한 몹만 새로 찾는다 (석상은 제외)
@@ -529,6 +533,25 @@ function updateCompanions(dt) {
       }
     }
   });
+  // 대열 간격 안전망 — 두 동료가 0.8m 안으로 붙으면 서로 밀어낸다
+  // (대열 오프셋이 겹치는 실수가 다시 생겨도 화면에서 겹쳐 보이지 않게).
+  // 죽은 동료는 제외한다.
+  const alive = game.companions.filter((c) => c.hp > 0);
+  for (let a = 0; a < alive.length; a++) {
+    for (let b = a + 1; b < alive.length; b++) {
+      const A = alive[a], B = alive[b];
+      const dx = B.x - A.x, dz = B.z - A.z;
+      const dd = Math.hypot(dx, dz);
+      if (dd < 0.8 && dd > 1e-6) {
+        const push = (0.8 - dd) / 2;
+        const nx = dx / dd, nz = dz / dd;
+        A.x -= nx * push; A.z -= nz * push;
+        B.x += nx * push; B.z += nz * push;
+        A.mesh.position.set(A.x, groundY(A.x, A.z), A.z);
+        B.mesh.position.set(B.x, groundY(B.x, B.z), B.z);
+      }
+    }
+  }
 }
 
 // 주인공이 "인식한" 몹 — 동료는 이 몹만 공격한다.
