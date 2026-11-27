@@ -47,8 +47,9 @@ export function createGame(THREE) {
   renderer.setSize(window.innerWidth, window.innerHeight, false);
 
   const scene = new THREE.Scene();
-  // 3D 볼륨이 읽히는 원근 투영 — 고도 48°, 주인공 위치에서 보이는 세로 ≈18m
-  // (2D 탑뷰 시절과 같은 화면 크기). 주인공(2.9m)이 화면 높이의 ~16%로 크게 보인다.
+  // 3D 볼륨이 읽히는 원근 투영 — 고도 48°, 주인공 위치에서 보이는 세로 ≈21.5m
+  // (아바타 축소와 함께 카메라를 뒤로 빼서 세상이 더 넓게 보인다).
+  // 주인공(2.2m)이 화면 높이의 ~10%로 보인다 (예전 2.85m·18m·~16%).
   const CAM_FOV = 50;
   const camera = new THREE.PerspectiveCamera(CAM_FOV, window.innerWidth / Math.max(1, window.innerHeight), 0.1, 400);
   function updateCameraFrustum() {
@@ -56,14 +57,16 @@ export function createGame(THREE) {
     camera.updateProjectionMatrix();
   }
   updateCameraFrustum();
-  const hemi = new THREE.HemisphereLight(0xdfefff, 0x3a4a30, 0.62);
+  // 따뜻한 빛 (Eternal Hero 느낌 — 톤 매핑 없이 빛 색만 바꾼다):
+  // 하늘은 차가운 파랑에서 따뜻한 크림빛으로, 땅은 흙빛을 유지하되 살짝 따뜻하게.
+  const hemi = new THREE.HemisphereLight(0xffe9c4, 0x4a4232, 0.7);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xfff6e0, 0.92);
+  const sun = new THREE.DirectionalLight(0xffe0a8, 1.05);
   sun.position.set(16, 34, 14);
   sun.castShadow = true;
   sun.shadow.mapSize.set(lowPower ? 1024 : 2048, lowPower ? 1024 : 2048);
   sun.shadow.camera.left = -16; sun.shadow.camera.right = 16;
-  sun.shadow.camera.top = 16; sun.shadow.camera.bottom = -16; // 2D 탑뷰: 보이는 18m만 커버하면 된다 (그림자는 그대로, 해상도 효율은 2배)
+  sun.shadow.camera.top = 16; sun.shadow.camera.bottom = -16; // 보이는 세로 21.5m도 ±16m 그림자(32m 폭)가 넉넉히 커버한다 — 해상도 효율 유지
   sun.shadow.camera.near = 1; sun.shadow.camera.far = 110;
   sun.shadow.bias = -0.0016;
   scene.add(sun);
@@ -201,8 +204,8 @@ export function createGame(THREE) {
   let camPos = new THREE.Vector3(0, 18, 26);
   // 카메라 각도 완전 고정 (원근 투영, 고도 48°). 캐릭터가 움직여도 회전하지 않는다.
   function camRig() {
-    // 보이는 세로 18m: 거리 = 9 / tan(25°) ≈ 19.3m, 뒤로 12.9m, 높이 14.35m.
-    const dist = 9 / Math.tan((CAM_FOV / 2) * Math.PI / 180);
+    // 보이는 세로 21.5m: 거리 = 10.75 / tan(25°) ≈ 23.05m, 뒤로 15.4m, 높이 17.1m.
+    const dist = 10.75 / Math.tan((CAM_FOV / 2) * Math.PI / 180);
     const elev = 48 * Math.PI / 180;
     return { back: dist * Math.cos(elev), height: dist * Math.sin(elev) };
   }
