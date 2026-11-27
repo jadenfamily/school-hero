@@ -9,7 +9,7 @@ import {
 } from './data.js';
 import { districtAt, PATH_CENTERS, districtOutline, WORLD_BOUNDS } from './world.js';
 import { CloudAdapter } from './save.js';
-import { heroPortraitDataUrl, heroFullCanvasDataUrl, visualEquip, onAvatarPhotoReady, loadAvatarPhoto } from './sprites.js';
+import { heroPortraitDataUrl, heroFullCanvasDataUrl, visualEquip, onAvatarPhotoReady, preloadAvatarPhotos, avatarPhotoUrl } from './sprites.js';
 
 const $ = (id) => document.getElementById(id);
 const pct = (a, b) => `${Math.max(0, Math.min(100, b ? (a / b) * 100 : 0)).toFixed(1)}%`;
@@ -49,7 +49,10 @@ export function createUI(game, THREE) {
       imgEl.src = fullBody(avatarOf(game.state.avatar), game.state.equip, game.state.appearance, 200);
     }
   });
-  loadAvatarPhoto('base'); // 기본 교복 사진을 미리 받아둔다 (가방을 열면 바로 보임)
+  // 시작할 때 아바타 사진을 미리 받아둔다 — 기본 교복 사진(가방 아바타용)과
+  // 코스튬 사진 10장(의상 도감용)을 모두 캐시해, 가방을 열 때 사진이 바로 보이고
+  // 캔버스 만화가 먼저 그려지는 깜빡임이 생기지 않게 한다.
+  preloadAvatarPhotos();
 
   // ---------- HUD 프로필 (초상화) ----------
   const avatarEl = $('avatar');
@@ -815,6 +818,7 @@ export function createUI(game, THREE) {
 
   const HUB_ALL = [
     { id: 'bag', icon: '🎒', name: '가방' },
+    { id: 'codex', icon: '📖', name: '의상 도감' },
     { id: 'merge', icon: '⚗️', name: '합성' },
     { id: 'souls', icon: '🌳', name: '특성' },
     { id: 'stats', icon: '💪', name: '스탯' },
@@ -844,6 +848,7 @@ export function createUI(game, THREE) {
   ui.openHub = function (tab = 'bag') {
     if (tab === 'settings' && !game.isAdmin()) tab = 'bag';
     if (tab === 'bag') ui.openBag();
+    else if (tab === 'codex') ui.openCostumeCodex();
     else if (tab === 'merge') ui.openMerge();
     else if (tab === 'souls') ui.openSouls();
     else if (tab === 'stats') ui.openStats();
@@ -928,18 +933,16 @@ export function createUI(game, THREE) {
       return `<div class="row-line"><span><b>${def.icon} ${def.name}</b> × ${game.state.skillbooks[id]}<br><span class="hint">${sk ? `${sk.icon} ${sk.name} 스킬을 쓰는 동료 +1` : def.desc}</span></span><button class="btn gold" data-book="${id}">사용하기</button></div>`;
     }).join('')}</div>` : '';
 
+    // 아이템은 작은 등급색 아이콘 격자로 — 한 화면에 다 보이게, 스크롤 없이.
+    // 누르면 설명 팝업(itemDetail)이 뜬다. 진화 가능하면 빨간 점으로 표시한다.
     const grid = entries.length ? entries.map((it) => {
       const g = GRADES[it.grade] || GRADES[0];
       const evo = it.grade < 5 ? game.evoInfo(it.kind, it.fam, it.grade) : null;
       const ready = evo && evo.can;
-      const ratio = evo && evo.need ? Math.min(1, it.n / evo.need) : 0;
-      return `<div class="item ${ready ? 'evo-ready' : ''}" data-item="${it.key}" style="--g:${g.color};--gs:${g.glow}">
+      return `<div class="item ${ready ? 'evo-ready' : ''}" data-item="${it.key}" style="--g:${g.color};--gs:${g.glow}" title="${game.itemName(it.kind, it.fam, it.grade)} · ${g.name}">
         <div class="ico">${itemIcon(it.kind, it.fam)}</div>
-        <div class="nm">${game.itemName(it.kind, it.fam, it.grade)}</div>
-        <div class="sub">${g.name}</div>
-        <span class="cnt">×${it.n}</span>
-        ${evo ? `<div class="evo-bar"><i style="width:${ratio * 100}%"></i></div><div class="evo-txt">${ready ? `빨강 진화 가능 ×${Math.floor(it.n / evo.need)}` : `${it.n} / ${evo.need}`}</div>` : '<div class="evo-txt">신화</div>'}
-        ${ready ? `<button class="evo-btn" data-evolve="${it.key}">빨강 진화</button>` : ''}
+        ${it.n > 1 ? `<span class="cnt">×${it.n}</span>` : ''}
+        ${ready ? '<span class="evo-dot" title="빨강 진화 가능">●</span>' : ''}
       </div>`;
     }).join('') : `<div class="hint">아직 장비가 없어요. 몬스터를 처치해 보세요!</div>`;
 
@@ -953,32 +956,6 @@ export function createUI(game, THREE) {
       ['💨 회피', `${(d.evade * 100).toFixed(1)}%`],
     ].map(([n, v]) => `<span class="stat-chip"><small>${n}</small><b>${v}</b></span>`).join('');
 
-    const ap = s.appearance || { mode: 'armor', unlocked: [] };
-    const cosTotals = game.costumeBonus();
-    const totalBonusText = (() => {
-      const parts = Object.entries(cosTotals).filter(([, v]) => v).map(([k, v]) => `${COSTUME_STAT_LABEL[k] || k} +${v}${['crit', 'evade', 'moveSpeed', 'atkPct', 'defPct', 'hpPct', 'critDmg', 'mpPct', 'cdr'].includes(k) ? '%' : ''}`);
-      return parts.length ? `수집 보너스 · ${parts.join(' · ')}` : '수집 보너스 없음 · 외형을 모아 보세요';
-    })();
-    const codexCards = COSTUMES.map((c) => {
-      const owned = (ap.unlocked || []).includes(c.id);
-      const lv = game.costumeLevel(c.id);
-      const bonus = Object.entries(game.costumeScaledStats(c.id)).map(([k, v]) => `${COSTUME_STAT_LABEL[k] || k} +${v}%`).join(' · ');
-      return `<div class="codex-card ${owned ? 'owned' : 'locked'}">
-        <div class="cc-ico">${c.icon}</div>
-        <div class="cc-body"><div class="cc-name">${c.name} <span class="cc-cls">${c.cls}</span>${owned ? `<span class="cc-own">보유 Lv.${lv}</span>` : '<span class="cc-lock">미보유</span>'}</div>
-          <div class="cc-bonus">${bonus}</div><div class="hint">${c.desc}</div></div>
-      </div>`;
-    }).join('');
-    const lookOpts = [
-      `<button class="look-opt ${ap.mode === 'armor' ? 'on' : ''}" data-look="armor">🛡️ 장착 방어구</button>`,
-      `<button class="look-opt ${ap.mode === 'uniform' ? 'on' : ''}" data-look="uniform">🎽 기본 교복</button>`,
-      ...COSTUMES.map((c) => {
-        const owned = (ap.unlocked || []).includes(c.id);
-        const on = ap.mode === 'costume' && ap.costumeId === c.id;
-        const lv = owned ? ` Lv.${game.costumeLevel(c.id)}` : '';
-        return `<button class="look-opt ${on ? 'on' : ''} ${owned ? '' : 'locked'}" data-look="costume:${c.id}" title="${c.desc}">${c.icon} ${c.name}${lv}${owned ? '' : ' 🔒'}</button>`;
-      }),
-    ].join('');
     const html = `${head('🎒 가방', `Lv.${s.level} · ${A.name}`, 'bag')}
       <div class="bag-hero">
         <div class="bag-preview">
@@ -994,48 +971,21 @@ export function createUI(game, THREE) {
           <div class="cur-chips"><span class="cur-chip gold"><i></i>골드 <b>${fmt(s.gold)}</b></span>${soulChips()}</div>
         </div>
       </div>
-      <div class="look-box">
-        <div class="look-head"><b>👗 외형</b><span class="hint">외형을 바꾸면 가방 아바타와 게임 속 캐릭터 모습이 함께 바뀝니다</span>
-          <button class="mini-btn gold" data-gacha ${game.costumePoolStatus().allMaxed ? 'disabled' : ''}>${game.costumePoolStatus().allMaxed ? '모두 최대 레벨' : `🎲 외형 뽑기 ${COSTUME_PULL_COST}G`}</button></div>
-        <div class="look-opts">${lookOpts}</div>
-        <div class="codex-head"><b>📖 외형 도감</b><span class="codex-total">${totalBonusText}</span></div>
-        <div class="codex">${codexCards}</div>
-      </div>
       <div class="equip-block">${equipRows}</div>
       ${charmBtns ? `<div class="charm-box"><b>🧿 보유 부적</b><div class="charm-row">${charmBtns}</div><div class="hint">눌러서 장착 중인 부적을 교체할 수 있어요. 해독 부적은 늪지 독을 막고, 수중호흡 아티팩트는 한강 심해 유적을 열어줘요.</div></div>` : ''}
       ${bookBox}
-      <div class="hint" style="margin:6px 2px 9px">아이템을 누르면 <b>설명 · 스탯 비교</b>가 열리고, <b>[장착하기]</b>를 눌러야 장착됩니다. 같은 등급·같은 아이템을 모으면 <b style="color:#ff5566">빨강(신화)</b>으로 진화해요. <button class="link-btn" data-hub="merge">합성·진화 →</button></div>
+      <div class="hint" style="margin:6px 2px 9px">아이템을 누르면 <b>설명 · 스탯 비교</b>가 열리고, <b>[장착하기]</b>를 눌러야 장착됩니다. 같은 등급·같은 아이템을 모으면 <b style="color:#ff5566">빨강(신화)</b>으로 진화해요. <button class="link-btn" data-hub="merge">합성·진화 →</button> <button class="link-btn" data-hub="codex">📖 의상 도감 →</button></div>
       <div class="item-grid">${grid}</div>`;
 
     const sheet = openSheet(html, 'bag-sheet');
     sheet.querySelector('[data-name-edit]').addEventListener('click', () => ui.nameEdit());
     sheet.querySelector('[data-account]').addEventListener('click', () => ui.openAccount());
-    sheet.querySelectorAll('[data-look]').forEach((el) => el.addEventListener('click', () => {
-      const v = el.dataset.look;
-      const r = v.startsWith('costume:') ? game.setAppearance('costume', v.split(':')[1]) : game.setAppearance(v);
-      if (!r.ok) { ui.toast(r.msg, 'bad'); return; }
-      ui.openBag();
-    }));
-    sheet.querySelector('[data-gacha]').addEventListener('click', () => {
-      const r = game.pullCostume();
-      if (!r.ok) { ui.toast(r.msg, 'bad'); return; }
-      if (r.leveledUp) ui.toast(`${r.costume.icon} ${r.costume.name} 레벨업! Lv.${r.level}`, 'good');
-      else ui.toast(`${r.costume.icon} ${r.costume.name} 획득! 외형에서 착용할 수 있어요.`, 'gold');
-      ui.openBag();
-    });
     sheet.querySelectorAll('[data-item]').forEach((el) => {
-      el.addEventListener('click', (ev) => {
-        if (ev.target.closest('[data-evolve]')) return;
+      el.addEventListener('click', () => {
         const [kind, fam, g] = el.dataset.item.split(':');
         ui.itemDetail(kind, fam, parseInt(g, 10));
       });
     });
-    sheet.querySelectorAll('[data-evolve]').forEach((el) => el.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      const [kind, fam, g] = el.dataset.evolve.split(':');
-      const n = game.evolve(kind, fam, parseInt(g, 10));
-      if (n) ui.openBag();
-    }));
     sheet.querySelectorAll('[data-unequip]').forEach((el) => {
       el.addEventListener('click', () => { game.unequip(el.dataset.unequip); ui.openBag(); });
     });
@@ -1054,6 +1004,79 @@ export function createUI(game, THREE) {
         ui.openBag();
       });
     });
+  };
+
+  // ---------- 의상 도감 (수집 전용 · 가방과 별도 메뉴) ----------
+  // 의상은 수집품일 뿐 외형을 바꾸지 않는다 (2026-11-27). 뽑기로 얻으면 도감에
+  // 추가되고, 수집 보너스(스탯)가 적용된다. 보유 여부는 appearance.unlocked에
+  // 저장돼 있어 별도 세이브 필드가 필요 없다 (기존 진행·레벨·골드·아이템 유지).
+  ui.openCostumeCodex = function () {
+    const s = game.state;
+    const ap = s.appearance || { mode: 'armor', unlocked: [] };
+    const owned = (id) => (ap.unlocked || []).includes(id);
+    const ownedCount = COSTUMES.filter((c) => owned(c.id)).length;
+    const cosTotals = game.costumeBonus();
+    const totalBonusText = (() => {
+      const parts = Object.entries(cosTotals).filter(([, v]) => v).map(([k, v]) => `${COSTUME_STAT_LABEL[k] || k} +${v}${['crit', 'evade', 'moveSpeed', 'atkPct', 'defPct', 'hpPct', 'critDmg', 'mpPct', 'cdr'].includes(k) ? '%' : ''}`);
+      return parts.length ? `수집 보너스 · ${parts.join(' · ')}` : '수집 보너스 없음 · 의상을 모아 보세요';
+    })();
+    const cards = COSTUMES.map((c) => {
+      const has = owned(c.id);
+      const lv = has ? game.costumeLevel(c.id) : 0;
+      return `<div class="codex-card2 ${has ? 'owned' : 'locked'}" data-costume="${c.id}">
+        <div class="cc2-photo"><img src="${avatarPhotoUrl(c.id)}" alt="${c.name}" loading="lazy">${has ? '' : '<span class="cc2-lock">🔒 미보유</span>'}</div>
+        <div class="cc2-name">${c.name}</div>
+        <div class="cc2-sub">${c.cls} · ${has ? `보유 Lv.${lv}` : '미보유'}</div>
+      </div>`;
+    }).join('');
+    const pool = game.costumePoolStatus();
+    const html = `${head('📖 의상 도감', `${ownedCount} / ${COSTUMES.length} 수집`, 'codex')}
+      <div class="hint" style="margin-bottom:8px">의상은 수집품이에요. 뽑기로 얻으면 도감에 추가돼요 — 게임 속 모습은 바뀌지 않아요. <b style="color:#ffe08a">${totalBonusText}</b></div>
+      <div class="codex-top"><button class="btn gold" data-gacha ${pool.allMaxed ? 'disabled' : ''}>${pool.allMaxed ? '모두 최대 레벨' : `🎲 외형 뽑기 ${COSTUME_PULL_COST}G`}</button></div>
+      <div class="codex-grid">${cards}</div>`;
+    const sheet = openSheet(html, 'codex-sheet');
+    sheet.querySelector('[data-gacha]').addEventListener('click', () => {
+      const r = game.pullCostume();
+      if (!r.ok) { ui.toast(r.msg, 'bad'); return; }
+      if (r.leveledUp) ui.toast(`${r.costume.icon} ${r.costume.name} 레벨업! Lv.${r.level}`, 'good');
+      else ui.toast(`${r.costume.icon} ${r.costume.name} 획득! 의상 도감에 추가됐어요.`, 'gold');
+      ui.openCostumeCodex();
+    });
+    sheet.querySelectorAll('[data-costume]').forEach((el) => {
+      el.addEventListener('click', () => ui.costumeDetail(el.dataset.costume));
+    });
+  };
+
+  // 의상 상세 팝업 — 사진·이름·레벨·수집 보너스 (미보유는 사진이 흑백으로 보인다)
+  ui.costumeDetail = function (id) {
+    const c = COSTUME_MAP[id];
+    if (!c) return;
+    const ap = game.state.appearance || { unlocked: [] };
+    const has = (ap.unlocked || []).includes(id);
+    const lv = has ? game.costumeLevel(id) : 0;
+    const bonus = has
+      ? Object.entries(game.costumeScaledStats(id)).map(([k, v]) => `${COSTUME_STAT_LABEL[k] || k} +${v}%`).join(' · ')
+      : '아직 없어요 — 외형 뽑기로 얻을 수 있어요';
+    const el = document.createElement('div');
+    el.className = 'item-sheet';
+    el.innerHTML = `
+      <div class="islot">
+        <div class="islot-head">
+          <div class="islot-ico">${c.icon}</div>
+          <div class="islot-tt">
+            <div class="islot-name">${c.name}</div>
+            <div class="islot-sub">${c.cls} · ${has ? `보유 Lv.${lv}` : '미보유 🔒'}</div>
+          </div>
+          <button class="islot-x" data-close>✕</button>
+        </div>
+        <div class="codex-detail-photo ${has ? '' : 'locked'}"><img src="${avatarPhotoUrl(id)}" alt="${c.name}"></div>
+        <div class="islot-desc">${c.desc}</div>
+        <div class="opt-chips"><span class="opt-chip">${bonus}</span></div>
+        <div class="islot-actions"><button class="btn ghost" data-close>닫기</button></div>
+      </div>`;
+    document.getElementById('modalRoot').appendChild(el);
+    el.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => el.remove()));
+    el.addEventListener('click', (ev) => { if (ev.target === el) el.remove(); });
   };
 
   // ---------- 아이템 상세 · 스탯 비교 · 장착 확인 ----------
@@ -1104,6 +1127,13 @@ export function createUI(game, THREE) {
     const equipBtn = valid
       ? '<button class="btn gold" data-equip>장착하기</button>'
       : '<button class="btn gold" data-delete-item>삭제하기</button>';
+    // 빨강 진화 — 작은 아이콘 격자에서는 진화 버튼이 없어졌으니 팝업에서 진화한다.
+    const bagN = (s.bag && s.bag[`${kind}:${fam}:${grade}`]) || 0;
+    const evo = valid && grade < 5 ? game.evoInfo(kind, fam, grade) : null;
+    const evoBtn = evo && evo.can
+      ? `<button class="btn gold" data-evolve-item>🔴 빨강 진화 (${Math.floor(bagN / evo.need)}회 가능)</button>`
+      : '';
+    const evoHint = evo && !evo.can ? `<div class="hint" style="margin-top:8px">빨강 진화까지 ${bagN} / ${evo.need}개</div>` : '';
 
     const el = document.createElement('div');
     el.className = 'item-sheet';
@@ -1121,9 +1151,11 @@ export function createUI(game, THREE) {
         <div class="opt-chips">${optRows}</div>
         <div class="cmp-head"><b>${curName ? `현재 장착 · ${curName}` : '현재 장착 없음'}</b><span>장착하면</span></div>
         <div class="cmp-table">${rows.join('') || '<div class="hint">능력치 변화 없음</div>'}</div>
+        ${evoHint}
         <div class="islot-actions">
           <button class="btn ghost" data-close>닫기</button>
           ${equipBtn}
+          ${evoBtn}
         </div>
       </div>`;
     document.getElementById('modalRoot').appendChild(el);
@@ -1145,6 +1177,12 @@ export function createUI(game, THREE) {
       el.remove();
       ui.toast('알 수 없는 아이템을 삭제했어요.', 'good');
       ui.openBag();
+    });
+    const evoBtnEl = el.querySelector('[data-evolve-item]');
+    if (evoBtnEl) evoBtnEl.addEventListener('click', () => {
+      const n = game.evolve(kind, fam, grade);
+      el.remove();
+      if (n) { ui.toast('빨강(신화)으로 진화했어요!', 'gold'); ui.openBag(); }
     });
   };
 
