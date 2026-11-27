@@ -1027,7 +1027,7 @@ export function makePlayer(THREE, family = 'sword', av = null, equip = null, app
 // 걷기·공격할 때 팔·다리 뼈를 코드로 직접 움직인다 (makeGlbHeroRigAnimator).
 // 리깅이 없는 GLB가 들어오면 기존 전신 애니메이터(바운스 + 돌진)로 폴백한다.
 // 구워진 검은 로드 때 제거하고 장착 무기를 오른손에 붙인다 (attachGlbHandWeapon).
-// 코스튬 교체는 GLB에 반영되지 않는다 (테스트 한계).
+// 코스튬 교체는 applyGlbHeroCostume이 COSTUME_VISUAL 파츠를 GLB에 붙여 반영한다.
 // 얼굴은 +Z를 향한다 (절차적 플레이어의 앞면과 같은 방향 — 소프트웨어 렌더로 확인됨).
 export const GLB_HERO_TARGET_HEIGHT = 2.85; // 절차적 주인공과 같은 키 (makePlayer 1.9 × 1.5)
 const GLTF_LOADER_URLS = [
@@ -1456,12 +1456,36 @@ export async function loadGlbHero(THREE, url, opts = {}) {
   return outer;
 }
 
+// 손 뼈의 기본 자세(바인드) 기준 쿼터니언 — outer(캐릭터) 기준 상대값.
+// 애니메이터가 움직이는 팔·팔뚝 뼈는 저장된 baseQuat(바인드 자세)을 쓰고,
+// 손 뼈 자체는 애니메이터가 건드리지 않아 현재 쿼터니언이 곧 바인드다.
+// outer 자체의 facing 회전은 제외한다 (캐릭터 기준 방향이 필요하므로).
+// 무기 장착 시점(전투 중 팔이 들려 있을 때도)에도 기본 자세 기준이라
+// 결과가 일정하다.
+function glbHandRestQuat(THREE, outer, hand) {
+  const chain = [];
+  let o = hand;
+  while (o && o !== outer) { chain.unshift(o); o = o.parent; }
+  const q = new THREE.Quaternion();
+  for (const node of chain) {
+    const lq = (node.userData && node.userData.baseQuat) ? node.userData.baseQuat : node.quaternion;
+    q.multiply(lq);
+  }
+  return q;
+}
+
 // [glb-hand-weapon] GLB 주인공의 오른손 뼈에 게임 무기를 붙인다.
 // buildWeaponMesh로 만든 무기(자루가 원점, 날이 로컬 -Y)는 절차적
 // 주인공이 armR 피벗에 붙는 것과 같은 방식이다. GLB 손 뼈의 로컬 공간은
 // 원본 GLB 단위(약 1 단위)라 무기 그룹을 1/스케일로 줄여 게임 크기
-// (날 0.5m)로 맞춘다. 검날 방향은 구워진 검의 손 로컬 방향
-// (-0.104, 0.731, 0.675 — 프로브 실측)을 이용해 맞춘다.
+// (날 0.5m)로 맞춘다.
+// 날붙이(검·단검·도끼·메이스)는 기본 자세에서 날이 위·앞을 향하게 든다.
+// 구워진 검의 손 로컬 방향(-0.104, 0.731, 0.675 — 프로브 실측)은 기본
+// 자세에서 월드 아래를 향해서, 검날이 다리 옆으로 길게 늘어져 다리에
+// 붙은 것처럼 보였다 (기본 자세 실측: 날 방향 (0.32,-0.94,-0.13),
+// 날-허벅지 0.21m, 날끝-무릎 0.22m). 위·앞으로 들면 손에 든 게 또렷하다.
+// 지팡이·책·활·석궁은 -Y 끝이 아래를 향하는 게 맞아서 예전 방향을 유지한다
+// (지팡이 구슬 위로, 책은 손 아래로).
 // 장착 무기를 바꾸면 다시 불러 이전 무기를 떼고 새 무기를 붙인다.
 // 손 뼈 자체는 건드리지 않는다 (애니메이터가 팔·팔뚝만 움직인다).
 export function attachGlbHandWeapon(THREE, outer, fam, grade) {
@@ -1491,8 +1515,16 @@ export function attachGlbHandWeapon(THREE, outer, fam, grade) {
   const weaponGroup = new THREE.Group();
   weaponGroup.userData.glbHandWeapon = true;
   weaponGroup.add(buildWeaponMesh(THREE, fam || 'sword', M));
-  // 검날 방향: 구워진 검의 손 로컬 방향 (프로브 실측)
-  const bladeDir = new THREE.Vector3(-0.104, 0.731, 0.675).normalize();
+  // 날붙이는 기본 자세에서 날이 위·앞을 향하게, 나머지는 예전 방향 유지
+  let bladeDir;
+  if (fam === 'sword' || fam === 'dagger' || fam === 'axe' || fam === 'mace') {
+    const qRest = glbHandRestQuat(THREE, outer, hand);
+    const want = new THREE.Vector3(-0.2, 1, 0.5).normalize(); // 캐릭터 기준: 위·앞·바깥쪽
+    bladeDir = want.applyQuaternion(qRest.clone().invert()).normalize();
+  } else {
+    // 구워진 검의 손 로컬 방향 (프로브 실측) — 지팡이·책·활·석궁용
+    bladeDir = new THREE.Vector3(-0.104, 0.731, 0.675).normalize();
+  }
   weaponGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), bladeDir);
   // 손 뼈 로컬 공간은 원본 GLB 단위라 1/스케일로 줄인다
   outer.updateMatrixWorld(true);
@@ -1504,6 +1536,65 @@ export function attachGlbHandWeapon(THREE, outer, fam, grade) {
   outer.userData.weapon = weaponGroup.children[0] || null;
   outer.userData.weaponGroup = weaponGroup;
   return weaponGroup;
+}
+
+// [glb-costume] GLB 주인공에 코스튬 3D 파츠를 붙인다.
+// GLB는 고정 텍스처라 교복 자체는 못 바꾸지만, 절차적 주인공과 같은
+// COSTUME_VISUAL 파츠(후드·왕관·망토·어깨 갑주·로브 등)를 붙여 코스튬이
+// 보이게 한다. 절차적 주인공(키 1.9) 좌표계를 1.5배(키 2.85) 해서
+// inner(게임 미터 공간)에 붙인다 — 머리 앵커 1.44, 몸통 앵커 원점.
+// 코스튬을 바꾸면 이전 파츠 그룹을 통째로 떼고 새로 붙인다.
+// 기본 교복·교복 모드면 파츠가 없다 (그룹 제거만).
+// 뼈(Head/Hand/Spine)에는 붙이지 않는다 — 애니메이터가 건드리는
+// 팔·다리 뼈와도 무관한 inner 자식이라 움직임에 영향이 없다.
+export function applyGlbHeroCostume(THREE, outer, equip, appearance) {
+  if (!outer) return;
+  const inner = outer.userData && outer.userData.body;
+  if (!inner) return;
+  // 이전 코스튬 파츠 그룹 제거
+  for (const ch of [...inner.children]) {
+    if (ch.userData && ch.userData.glbCostumeGroup) {
+      inner.remove(ch);
+      ch.traverse((o) => {
+        if (!o.isMesh) return;
+        if (o.geometry) o.geometry.dispose();
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const mm of mats) if (mm && mm.dispose) mm.dispose();
+      });
+    }
+  }
+  const eq = visualEquip(equip, appearance);
+  const costumeId = eq && eq.armor && eq.armor.costume;
+  const vis = costumeId && COSTUME_VISUAL[costumeId] ? COSTUME_VISUAL[costumeId] : null;
+  if (!vis) { outer.userData.glbCostumeId = null; return; }
+  const armor = eq.armor;
+  const capeCol = (armor && armor.capeColor) || 0x2b3a66;
+  const trimCol = (armor && armor.trimColor) || null;
+  const outfitCol = vis.outfit != null ? vis.outfit : null;
+  const group = new THREE.Group();
+  group.userData.glbCostumeGroup = true;
+  group.scale.setScalar(1.5); // 절차적 주인공(1.9m) -> GLB 주인공(2.85m)
+  const headAnchor = new THREE.Group();
+  headAnchor.position.set(0, 1.44, 0);
+  const bodyAnchor = new THREE.Group();
+  group.add(headAnchor, bodyAnchor);
+  addCostumePieces(THREE, { head: headAnchor, body: bodyAnchor }, vis, { cape: capeCol, trim: trimCol, outfit: outfitCol });
+  // 후드는 돔(반구)이라 1.5배 그대로면 GLB 머리(얼굴 반지름 ~0.3m)를 통째로
+  // 삼키는 검은 공처럼 보인다 (뒷모습 실측). 얼굴에 맞게 0.72배로 줄인다 —
+  // 머리 위를 덮고 얼굴은 트인 후드 실루엣이 된다. 왕관·투구 등 다른
+  // 머리 파츠는 1.5배가 머리숱(뾰족한 머리)과 어울려 그대로 둔다.
+  group.traverse((o) => {
+    if (o.isMesh && o.userData && o.userData.costumePiece === 'hood') o.scale.setScalar(0.72);
+  });
+  if (vis.robe) {
+    // 마법사·드루이드 로브 (절차적 주인공 makeHumanoid3D와 같은 원뿔)
+    const robe = cone(THREE, 0.38, 0.62, outfitCol != null ? outfitCol : 0x6a4ac0, 8);
+    robe.userData.costumePiece = 'robe';
+    robe.position.y = 0.55;
+    bodyAnchor.add(robe);
+  }
+  inner.add(group);
+  outer.userData.glbCostumeId = costumeId;
 }
 
 // ---------- GLB 탱커 동료 테스트 (?companion=glb) ----------
