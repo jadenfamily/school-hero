@@ -1272,12 +1272,112 @@ function makeGlbHeroRigAnimator(outer, inner, bones) {
   };
 }
 
-export async function loadGlbHero(THREE, url) {
+// [glb-sword-fix] 리깅된 시우 GLB의 검은 메쉬에 구워져 있다 (Tripo 입력 이미지가
+// 검을 든 모습이라 검 지오메트리가 모델 안에 들어 있다 — 게임 무기 오브젝트가
+// 아니다. buildGlbCharacter는 GLB 주인공의 weapon을 null로 둔다). 그래서
+// 무기를 바꿔도 검은 그대로 보이고, 검날 정점의 스킨 가중치가 다리 뼈에
+// 24%나 걸려 있어 (검날 끝은 RightUpLeg 0.56) 걸을 때 검날이 다리를 따라가고
+// 공격할 때도 팔을 덜 따라간다. 검날 정점을 오른손 뼈에 100% 다시 묶어
+// 검 전체가 손에 고정되게 한다. 바인드 포즈에서는 모든 뼈가 기본 자세라
+// 정점 위치는 그대로이고, 애니메이션 중에만 검의 움직임이 바뀐다.
+// 검날 판별: 베이스컬러 텍스처에서 푸른 강철색(B>95, B>R+25, B>G+10, R<150)인
+// 정점 중 오른손 근처 상자 안에 있는 것. 손가락·팔뚝 정점이 섞여 들어와도
+// 해롭지 않다 — 손가락·팔뚝 뼈는 애니메이터가 건드리지 않아 손 뼈와
+// 완전히 같은 움직임이라, 손에 100% 묶어도 위치가 그대로이다.
+// (무기를 바꿔도 구워진 검이 보이는 것은 별개 한계 — 게임 무기 오브젝트는
+// GLB 주인공에 붙지 않는다. 완전히 없애려면 무기 없는 이미지로 Tripo에서
+// 다시 만드는 것이 깔끔하다.)
+function makeTexelSamplerFromImage(img) {
+  try {
+    if (!img || !img.complete || !img.naturalWidth || !img.naturalHeight) return null;
+    const cv = document.createElement('canvas');
+    cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+    const c2d = cv.getContext('2d');
+    if (!c2d) return null;
+    c2d.drawImage(img, 0, 0);
+    const data = c2d.getImageData(0, 0, cv.width, cv.height).data;
+    const W = cv.width, H = cv.height;
+    return (u, v) => {
+      const x = Math.min(W - 1, Math.max(0, (u * W) | 0));
+      const y = Math.min(H - 1, Math.max(0, ((1 - v) * H) | 0));
+      const o = (y * W + x) * 4;
+      return [data[o], data[o + 1], data[o + 2]];
+    };
+  } catch (e) { return null; }
+}
+
+// 검날 정점을 오른손 뼈에 100% 다시 묶는다. texelAt(u, v) -> [r, g, b].
+// (테스트에서 주입할 수 있게 샘플러를 인자로 받는다.)
+export function fixGlbSwordSkinning(THREE, src, texelAt) {
+  if (!texelAt) return 0;
+  let skinned = null;
+  src.traverse((o) => { if (!skinned && o.isSkinnedMesh && o.skeleton) skinned = o; });
+  if (!skinned) return 0;
+  const skel = skinned.skeleton;
+  const norm = (s) => (s || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+  // (norm()으로 양쪽을 정규화하므로 대소문자는 상관없음)
+  let handIdx = -1;
+  for (let i = 0; i < skel.bones.length; i++) {
+    if (norm(skel.bones[i].name) === norm('mixamorig:RightHand')) { handIdx = i; break; }
+  }
+  if (handIdx < 0) return 0;
+  const pos = skinned.geometry.attributes.position;
+  const uv = skinned.geometry.attributes.uv;
+  const skinIndex = skinned.geometry.attributes.skinIndex;
+  const skinWeight = skinned.geometry.attributes.skinWeight;
+  if (!pos || !uv || !skinIndex || !skinWeight) return 0;
+  // 검날이 붙지 말아야 할 뼈 (몸통·머리·반대쪽 다리) — norm()으로 정규화해 비교
+  const noTouch = new Set(['mixamorig:Hips', 'mixamorig:Spine', 'mixamorig:Spine1', 'mixamorig:Spine2', 'mixamorig:Neck', 'mixamorig:Head', 'mixamorig:LeftUpLeg', 'mixamorig:LeftLeg', 'mixamorig:LeftFoot', 'mixamorig:LeftShoulder'].map(norm));
+  src.updateMatrixWorld(true);
+  const hp = new THREE.Vector3();
+  skel.bones[handIdx].getWorldPosition(hp);
+  const v = new THREE.Vector3();
+  let fixed = 0;
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i).applyMatrix4(skinned.matrixWorld);
+    // 오른손 근처 상자 (검날이 손에서 다리 앞까지 걸쳐 있는 범위)
+    if (v.x < hp.x - 0.25 || v.x > hp.x + 0.38 || v.y < hp.y - 0.55 || v.y > hp.y + 0.10 || v.z < hp.z || v.z > hp.z + 0.40) continue;
+    // 가장 큰 가중치의 뼈가 몸통·머리·반대쪽 다리면 건드리지 않는다
+    let topIdx = -1, topW = -1;
+    for (let k = 0; k < 4; k++) {
+      const w = skinWeight.getComponent(i, k);
+      if (w > topW) { topW = w; topIdx = skinIndex.getComponent(i, k); }
+    }
+    if (topIdx < 0 || !skel.bones[topIdx] || noTouch.has(norm(skel.bones[topIdx].name))) continue;
+    const c = texelAt(uv.getX(i), uv.getY(i));
+    if (!c) continue;
+    // 푸른 강철색 검날 (남색 교복·검은 머리·피부는 이 색이 아니다)
+    if (!(c[2] > 95 && c[2] > c[0] + 25 && c[2] > c[1] + 10 && c[0] < 150)) continue;
+    skinIndex.setXYZW(i, handIdx, 0, 0, 0);
+    skinWeight.setXYZW(i, 1, 0, 0, 0);
+    fixed++;
+  }
+  if (fixed > 0) {
+    skinIndex.needsUpdate = true;
+    skinWeight.needsUpdate = true;
+  }
+  return fixed;
+}
+
+export async function loadGlbHero(THREE, url, opts = {}) {
   const LoaderClass = await importGlTFLoader();
   const gltf = await loadGlbWithLoader(LoaderClass, url);
   const src = gltf.scene;
   applyGlbSkinFix(src);
   const { outer, inner } = buildGlbCharacter(THREE, src, GLB_HERO_TARGET_HEIGHT, 2.4, 0.63, 'glbHero');
+  // [glb-sword-fix] 구워진 검날을 오른손에 다시 묶는다 (다리를 따라가지 않게)
+  let swordFixed = 0;
+  if (opts.fixSword !== false) {
+    outer.updateMatrixWorld(true);
+    let img = null;
+    src.traverse((o) => {
+      if (img || !o.isMesh) return;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of mats) { if (m && m.map && m.map.image) { img = m.map.image; break; } }
+    });
+    swordFixed = fixGlbSwordSkinning(THREE, src, makeTexelSamplerFromImage(img));
+  }
+  outer.userData.swordFixed = swordFixed;
   // 리깅된 GLB면 뼈대 애니메이터를, 아니면 기존 전신 애니메이터를 쓴다
   const bones = findRigBones(src);
   outer.userData.animate = bones
