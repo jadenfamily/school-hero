@@ -42,8 +42,9 @@ export function createUI(game, THREE) {
   const hexOf = hex;
 
   // 가방 아바타 실사 이미지 — 사진이 준비되면 캐시를 비우고 보이는 아바타를 교체한다
-  onAvatarPhotoReady(() => {
-    for (const k of [...fullCache.keys()]) if (k.startsWith('boyA|')) fullCache.delete(k);
+  onAvatarPhotoReady((key) => {
+    // 사진이 준비된 히어로의 가방 아바타 캐시만 비운다 (key는 히어로 id 또는 코스튬 id)
+    for (const k of [...fullCache.keys()]) if (k.startsWith(key + '|')) fullCache.delete(k);
     const imgEl = document.querySelector('.bag-avatar');
     if (imgEl && game.state) {
       imgEl.src = fullBody(avatarOf(game.state.avatar), game.state.equip, game.state.appearance, 200);
