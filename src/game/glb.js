@@ -9,10 +9,24 @@ export function installGlb(ctx) {
   const { game, THREE, scene } = ctx;
 
   // ---------- GLB 주인공 (기본 적용) ----------
-  // Tripo 시우 GLB(assets/siwoo.glb)를 플레이어로 쓴다. ?hero=glb는
-  // 예전 북마크용으로만 남겨두고, 없어도 GLB가 기본으로 로드된다.
+  // 아바타별 Tripo GLB를 플레이어로 쓴다. ?hero=glb는 예전 북마크용으로만
+  // 남겨두고, 없어도 GLB가 기본으로 로드된다.
+  // boyA=시우 siwoo.glb, boyB=도윤 doyun.glb, girlA=하늘 haneul.glb.
+  // girlB=서연은 GLB 재생성 대기 중(긴 머리+망토가 팔 뼈에 묶인 구버전)이라
+  // 임시로 시우 GLB를 쓴다 — 서연 GLB가 준비되면 seoyeon.glb로 교체.
+  // (아바타는 로그인 시 정해지고 바꾸면 페이지가 다시 로드되므로, 게임
+  // 시작 시 한 번만 로드하면 된다.)
   const HERO_GLB = true;
-  const GLB_HERO_URL = 'assets/siwoo.glb';
+  const HERO_GLB_URLS = {
+    boyA: 'assets/siwoo.glb',
+    boyB: 'assets/doyun.glb',
+    girlA: 'assets/haneul.glb',
+    girlB: 'assets/siwoo.glb', // 서연 GLB 준비 전 임시 (위 주석 참조)
+  };
+  function heroGlbUrl() {
+    const av = game.state && game.state.avatar;
+    return HERO_GLB_URLS[av] || 'assets/siwoo.glb';
+  }
 
   // ---------- GLB 동료 (기본 적용) ----------
   // Tripo 동료 GLB(assets/tank.glb / assets/melee.glb / assets/mage.glb /
@@ -30,7 +44,10 @@ export function installGlb(ctx) {
   function ensureGlbHero() {
     if (!HERO_GLB || glbHeroState !== 'off') return;
     glbHeroState = 'loading';
-    loadGlbHero(THREE, GLB_HERO_URL).then((mesh) => {
+    // 새 주인공 GLB는 검 없이 재생성된 것이라 fixSword를 끈다. 색 기반
+    // 검 판별(푸른 강철색)은 남색 교복에도 반응해서 시우 GLB 79개 정점을
+    // 오른손에 묶어버린다 (검출됨 2026-11-28) — 검 고정이 필요 없어졌다.
+    loadGlbHero(THREE, heroGlbUrl(), { fixSword: false }).then((mesh) => {
       glbHeroMesh = mesh;
       glbHeroState = 'ready';
       swapGlbHeroIn();
@@ -200,7 +217,8 @@ export function installGlb(ctx) {
   }
 
   // GLB 주인공 오른손에 장착 중인 게임 무기를 붙인다 (바꾸면 교체).
-  // 구워진 검은 loadGlbHero에서 이미 제거됐고, 이 게임 무기가 손에 든다.
+  // 주인공 GLB는 검 없이 재생성된 것이라 구워진 검은 없고, 이 게임
+  // 무기가 손에 든다 (무기 크기 1.5배는 world.js attachGlbHandWeapon).
   function updateGlbHeroWeapon() {
     if (!HERO_GLB || glbHeroState !== 'ready' || !glbHeroMesh) return;
     const w = game.state && game.state.equip && game.state.equip.weapon;
