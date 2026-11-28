@@ -9,7 +9,7 @@ import {
 } from './data.js';
 import { districtAt, PATH_CENTERS, districtOutline, WORLD_BOUNDS } from './world.js';
 import { CloudAdapter } from './save.js';
-import { heroPortraitDataUrl, heroFullCanvasDataUrl, visualEquip, onAvatarPhotoReady, preloadAvatarPhotos, avatarPhotoUrl } from './sprites.js';
+import { heroPortraitDataUrl, heroFullCanvasDataUrl, visualEquip, onAvatarPhotoReady, preloadAvatarPhotos, avatarPhotoUrl, costumePhotoUrl } from './sprites.js';
 
 const $ = (id) => document.getElementById(id);
 const pct = (a, b) => `${Math.max(0, Math.min(100, b ? (a / b) * 100 : 0)).toFixed(1)}%`;
@@ -1019,6 +1019,7 @@ export function createUI(game, THREE) {
   // 저장돼 있어 별도 세이브 필드가 필요 없다 (기존 진행·레벨·골드·아이템 유지).
   ui.openCostumeCodex = function () {
     const s = game.state;
+    const heroId = (s.avatar) || 'boyA';
     const ap = s.appearance || { mode: 'armor', unlocked: [] };
     const owned = (id) => (ap.unlocked || []).includes(id);
     const ownedCount = COSTUMES.filter((c) => owned(c.id)).length;
@@ -1031,7 +1032,7 @@ export function createUI(game, THREE) {
       const has = owned(c.id);
       const lv = has ? game.costumeLevel(c.id) : 0;
       return `<div class="codex-card2 ${has ? 'owned' : 'locked'}" data-costume="${c.id}">
-        <div class="cc2-photo"><img src="${avatarPhotoUrl(c.id)}" alt="${c.name}" loading="lazy">${has ? '' : '<span class="cc2-lock">🔒 미보유</span>'}</div>
+        <div class="cc2-photo"><img src="${costumePhotoUrl(heroId, c.id)}" alt="${c.name}" loading="lazy">${has ? '' : '<span class="cc2-lock">🔒 미보유</span>'}</div>
         <div class="cc2-name">${c.name}</div>
         <div class="cc2-sub">${c.cls} · ${has ? `보유 Lv.${lv}` : '미보유'}</div>
       </div>`;
@@ -1058,6 +1059,7 @@ export function createUI(game, THREE) {
   ui.costumeDetail = function (id) {
     const c = COSTUME_MAP[id];
     if (!c) return;
+    const heroId = (game.state.avatar) || 'boyA';
     const ap = game.state.appearance || { unlocked: [] };
     const has = (ap.unlocked || []).includes(id);
     const lv = has ? game.costumeLevel(id) : 0;
@@ -1076,7 +1078,7 @@ export function createUI(game, THREE) {
           </div>
           <button class="islot-x" data-close>✕</button>
         </div>
-        <div class="codex-detail-photo ${has ? '' : 'locked'}"><img src="${avatarPhotoUrl(id)}" alt="${c.name}"></div>
+        <div class="codex-detail-photo ${has ? '' : 'locked'}"><img src="${costumePhotoUrl(heroId, id)}" alt="${c.name}"></div>
         <div class="islot-desc">${c.desc}</div>
         <div class="opt-chips"><span class="opt-chip">${bonus}</span></div>
         <div class="islot-actions"><button class="btn ghost" data-close>닫기</button></div>
