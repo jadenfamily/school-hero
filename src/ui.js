@@ -949,7 +949,7 @@ export function createUI(game, THREE) {
     }).join('') : `<div class="hint">아직 장비가 없어요. 몬스터를 처치해 보세요!</div>`;
 
     const statChips = [
-      ['❤ 체력', `${fmt(Math.round(game.player ? game.player.hp : d.maxHp))}/${fmt(d.maxHp)}`],
+      ['❤ 체력', `${Math.round(game.player ? game.player.hp : d.maxHp)}/${Math.round(d.maxHp)}`],
       ['⚔ 공격', fmt(d.attack)],
       ['🛡 방어', fmt(d.defense)],
       ['🎯 치명타', `${(d.critChance * 100).toFixed(1)}%`],
