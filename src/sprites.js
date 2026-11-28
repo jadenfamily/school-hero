@@ -1971,6 +1971,18 @@ export function avatarPhotoKey(eq) {
 export function avatarPhotoUrl(key) {
   return AVATAR_PHOTO_URL[key] || AVATAR_PHOTO_URL.base;
 }
+// 의상 도감용: 현재 히어로의 코스튬 사진을 찾는다.
+// 1) 히어로별 코스튬 사진이 있으면 그걸 쓴다 (예: girlA-knight → avatar-haneul-knight.png).
+// 2) 기존 코스튬 사진(knight/mage/…)은 시우(boyA) 전용이라 시우일 때만 쓴다.
+// 3) 없으면 그 히어로의 기본 사진 — 다른 히어로의 얼굴을 보여주지 않는다.
+// 히어로별 코스튬 사진이 생기면 AVATAR_PHOTO_URL에 '히어로ID-코스튬ID' 키로
+// 추가하면 자동으로 쓰인다 (예: 'girlA-knight').
+export function costumePhotoUrl(heroId, costumeId) {
+  const perHero = AVATAR_PHOTO_URL[heroId + '-' + costumeId];
+  if (perHero) return perHero;
+  if (heroId === 'boyA' && AVATAR_PHOTO_URL[costumeId]) return AVATAR_PHOTO_URL[costumeId];
+  return AVATAR_PHOTO_URL[heroId] || AVATAR_PHOTO_URL.base;
+}
 function notifyAvatarPhoto(key) {
   for (const cb of [...avatarPhotoListeners]) { try { cb(key); } catch (e) { /* 무시 */ } }
 }
