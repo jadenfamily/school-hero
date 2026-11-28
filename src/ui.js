@@ -1838,7 +1838,7 @@ export function createUI(game, THREE) {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     let vw = 0, vh = 0;
     const fitS = () => Math.min(vw / 480, vh / 384);
-    const startS = () => fitS() * 2.4;
+    const startS = () => fitS() * 3.5;
     const view = { s: 1, ox: 0, oy: 0 };
     const X = (wx) => (wx - WORLD_BOUNDS.minX) * view.s + view.ox;
     const Y = (wz) => (wz - WORLD_BOUNDS.minZ) * view.s + view.oy;
