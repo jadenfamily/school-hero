@@ -333,7 +333,7 @@ input,textarea,select{font-family:inherit}
 
 /* 말걸기 · 귀환 */
 .talk-btn{
-  position:absolute;right:clamp(8px,2.4vw,16px);bottom:calc(var(--bar-h) + 70px + var(--safe-b));
+  position:absolute;right:calc(clamp(52px,14vw,76px)/2 - 14px);bottom:calc(var(--bar-h) + 70px + var(--safe-b));
   padding:8px 14px;border-radius:14px;border:2px solid rgba(255,220,120,.75);
   background:linear-gradient(180deg,#ffd966,#f0a92e);color:#3a2400;font-weight:900;font-size:12px;font-family:inherit;
   box-shadow:0 8px 22px rgba(240,170,40,.35);cursor:pointer;z-index:8
@@ -342,10 +342,10 @@ input,textarea,select{font-family:inherit}
 /* 말걸기·귀환 버튼 분리 (UI 묶음): 예전에는 두 버튼이 같은 .talk-btn 위치를
    써서 NPC 앞에서 겹쳤다. 오른쪽에 세로로 쌓는다 — 위에서부터 말걸기,
    귀환 순. 퀘스트 버튼은 하단 바 가방 왼쪽으로 옮겼다. */
-#talkBtn{bottom:calc(var(--bar-h) + 124px + var(--safe-b))}
+#talkBtn{bottom:calc(var(--bar-h) + 64px + var(--safe-b))}
 /* 귀환 = 포탈 아이콘 버튼 (글자 대신 소용돌이 포탈) */
 #leaveBtn{
-  bottom:calc(var(--bar-h) + 78px + var(--safe-b));
+  bottom:calc(var(--bar-h) + 8px + var(--safe-b));
   width:48px;height:48px;padding:0;border-radius:50%;
   border:2px solid rgba(190,170,255,.9);
   background:conic-gradient(from 210deg,#7b5cff,#2ec5ff,#7b5cff,#b46cff,#2ec5ff,#7b5cff);
@@ -772,6 +772,7 @@ input.num{width:58px;padding:5px 6px;border-radius:8px;border:1px solid rgba(255
 @media (min-width:900px){
   .bottom-bar{padding-left:18px;padding-right:18px}
   .skill-bar{gap:8px}
+  .talk-btn{right:calc(clamp(52px,14vw,76px)/2 - 6px)}
 }
 
 
