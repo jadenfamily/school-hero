@@ -1642,7 +1642,7 @@ export function createUI(game, THREE) {
         <li><b>숨겨진 상자</b> · 바위·나무·폐허 뒤를 살펴보세요. 가까이 가면 <b>📦 열기</b> 버튼이 떠요</li>
         <li><b>가방</b> · 장비·합성·진화·특성·스탯·스킬·동료를 이 창에서 모두 관리해요</li>
         <li><b>보스</b> · 중간보스 4시간 · 에픽보스 6시간 · 지역 필드보스 24시간마다 다시 등장해요</li>
-        <li><b>퀘스트</b> · 오른쪽 📜 퀘스트에서 구역 이야기를 확인하세요</li>
+        <li><b>퀘스트</b> · 하단 📜 퀘스트에서 구역 이야기를 확인하세요</li>
       </ul>
       <button class="btn ghost" data-reset style="width:100%;margin-top:12px">처음부터 다시 시작</button>`;
     const sheet = openSheet(html, 'hub-sheet');
@@ -1653,20 +1653,56 @@ export function createUI(game, THREE) {
   };
 
   // ---------- 퀘스트 ----------
+  // 완료된 구역은 아래 "완료된 목록"으로 묶고 기본은 접힌 상태.
+  // 각 지역 카드를 누르면 그 구역의 퀘스트 단계(완료/진행 중/미시작)가 펼쳐진다.
+  if (!ui._questOpen) ui._questOpen = {};
+  if (typeof ui._questDoneOpen !== 'boolean') ui._questDoneOpen = false;
   ui.openQuests = function () {
-    const rows = PLAYABLE.map((z) => {
+    const card = (z) => {
       const q = game.questInfo(z.id);
       const step = q.def.steps[Math.min(q.step, q.def.steps.length - 1)];
       const status = q.done ? '완료' : !q.accepted ? '시작 전' : `${Math.min(q.progress, step.n)}/${step.n}`;
       const unlocked = game.state.unlocked.includes(z.id);
-      return `<div class="quest-card ${q.done ? 'done' : ''}">
-        <div class="qn"><span>${z.icon} ${z.name}</span><span style="color:${q.done ? '#7dffb0' : '#a9b6cf'}">${status}</span></div>
+      const open = !!ui._questOpen[z.id];
+      const steps = q.def.steps.map((st, i) => {
+        const cls = q.done || i < q.step ? 'done' : (!q.accepted ? 'next' : i === q.step ? 'now' : 'next');
+        const ic = cls === 'done' ? '✔' : cls === 'now' ? '▶' : '·';
+        const cnt = cls === 'now' ? `<span class="qs-n">${Math.min(q.progress, st.n)}/${st.n}</span>`
+          : (st.n > 1 && cls === 'done' ? `<span class="qs-n">×${st.n}</span>` : '');
+        return `<div class="qstep ${cls}"><span class="qs-ic">${ic}</span><span>${st.text}</span>${cnt}</div>`;
+      }).join('');
+      return `<div class="quest-card ${q.done ? 'done' : ''} ${open ? 'open' : ''}" data-qzone="${z.id}">
+        <div class="qn"><span>${z.icon} ${z.name}</span><span style="color:${q.done ? '#7dffb0' : '#a9b6cf'}">${status} <i class="qchev">▸</i></span></div>
         <div class="qs">${q.done ? '모든 퀘스트를 마쳤어요.' : `${q.accepted ? '' : 'NPC에게 말을 걸어 시작 · '}${step.text}`}</div>
         <div class="qbar"><i style="width:${q.done ? 100 : (Math.min(q.progress, step.n) / step.n) * 100}%"></i></div>
         ${!unlocked ? `<div class="hint" style="margin-top:6px">🔒 이전 구역 보스를 처치하면 열립니다</div>` : ''}
+        <div class="qsteps ${open ? '' : 'hidden'}">${steps}</div>
       </div>`;
-    }).join('');
-    openSheet(`${head('📜 퀘스트', '구역별 이야기')}${rows}`, 'hub-sheet');
+    };
+    const active = PLAYABLE.filter((z) => !game.questInfo(z.id).done);
+    const done = PLAYABLE.filter((z) => game.questInfo(z.id).done);
+    const doneSection = done.length ? `
+      <div class="qdone-head ${ui._questDoneOpen ? 'open' : ''}" data-qdone-toggle>
+        <span>✅ 완료된 목록 (${done.length})</span><span class="qchev">▸</span>
+      </div>
+      <div class="qdone-body ${ui._questDoneOpen ? '' : 'hidden'}" data-qdone-body>${done.map(card).join('')}</div>` : '';
+    const sheet = openSheet(`${head('📜 퀘스트', '구역별 이야기')}${active.map(card).join('')}${doneSection}`, 'hub-sheet');
+    sheet.querySelectorAll('[data-qzone]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const id = Number(el.dataset.qzone);
+        ui._questOpen[id] = !ui._questOpen[id];
+        el.classList.toggle('open', ui._questOpen[id]);
+        const st = el.querySelector('.qsteps');
+        if (st) st.classList.toggle('hidden', !ui._questOpen[id]);
+      });
+    });
+    const dh = sheet.querySelector('[data-qdone-toggle]');
+    if (dh) dh.addEventListener('click', () => {
+      ui._questDoneOpen = !ui._questDoneOpen;
+      dh.classList.toggle('open', ui._questDoneOpen);
+      const body = sheet.querySelector('[data-qdone-body]');
+      if (body) body.classList.toggle('hidden', !ui._questDoneOpen);
+    });
   };
 
   ui.openQuestDialog = function (q) {
@@ -2041,7 +2077,7 @@ export function createUI(game, THREE) {
   let fjId = null, fjOX = 0, fjOY = 0;
   function uiTargetBlocked(t) {
     if (!t || !t.closest) return false;
-    return !!t.closest('button, a, input, textarea, select, .player-card, .map-col, .bottom-bar, .side-menu, .quest-track, .talk-btn, .chest-open-btn, .boss-bar, .toasts, .zone-banner, #modalRoot, .float-joy, .enemy-tag, .grave-tag, .dmg');
+    return !!t.closest('button, a, input, textarea, select, .player-card, .map-col, .bottom-bar, .quest-track, .talk-btn, .chest-open-btn, .boss-bar, .toasts, .zone-banner, #modalRoot, .float-joy, .enemy-tag, .grave-tag, .dmg');
   }
   function fjStart(ev) {
     if (fjId !== null) return;
