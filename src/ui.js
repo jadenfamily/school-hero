@@ -952,7 +952,7 @@ export function createUI(game, THREE) {
       ['❤ 체력', `${Math.round(game.player ? game.player.hp : d.maxHp)}/${Math.round(d.maxHp)}`],
       ['⚔ 공격', fmt(d.attack)],
       ['🛡 방어', fmt(d.defense)],
-      ['🎯 치명타', `${(d.critChance * 100).toFixed(1)}%`],
+      ['💥 치명타', `${(d.critChance * 100).toFixed(1)}%`],
       ['👟 이동', d.moveSpeed.toFixed(1)],
       ['⚡ 공속', `${(d.atkSpeed * 100).toFixed(0)}%`],
       ['💨 회피', `${(d.evade * 100).toFixed(1)}%`],
