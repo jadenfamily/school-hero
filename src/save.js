@@ -22,7 +22,7 @@ export const SAVE_VERSION_KEY = 'sh.save.meta.v1';
 
 export function validateState(s) {
   if (!s || typeof s !== 'object') return 'empty';
-  if (!Number.isFinite(s.level) || s.level < 1 || s.level > 300) return 'level';
+  if (!Number.isFinite(s.level) || s.level < 1 || s.level > 9999) return 'level';
   if (s.statPts < 0 || s.statPts > s.level * 4 + 30) return 'statPoints';
   if (!Number.isFinite(s.gold) || s.gold < 0 || s.gold > 5000000) return 'gold';
   for (const k of ['str', 'dex', 'vit', 'int']) {
