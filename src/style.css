@@ -398,9 +398,9 @@ input,textarea,select{font-family:inherit}
 .bh-top{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
 .bh-name{font-size:15px;font-weight:900;margin-right:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .bh-lv{font-size:10px;font-weight:800;color:#8fd8ff;background:rgba(80,150,255,.15);border:1px solid rgba(120,180,255,.35);padding:1px 7px;border-radius:8px}
-.stat-chips{display:grid;grid-template-columns:repeat(auto-fit,minmax(74px,1fr));gap:4px}
-.stat-chip{display:flex;flex-direction:column;gap:1px;padding:2px 4px;background:none;border:0;border-radius:0;box-shadow:none;text-shadow:none}
-.stat-chip small{font-size:8px;color:var(--txt-dim);font-weight:700;text-shadow:none}
+.stat-chips{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.stat-chip{display:flex;flex-direction:row;align-items:baseline;gap:4px;padding:2px 4px;background:none;border:0;border-radius:0;box-shadow:none;text-shadow:none}
+.stat-chip small{font-size:9px;color:var(--txt-dim);font-weight:700;text-shadow:none}
 .stat-chip b{font-size:11px;color:#fff;font-weight:800;white-space:nowrap;text-shadow:none}
 .stat-chip.hp{grid-column:1/-1}
 .cur-chips{display:flex;flex-wrap:wrap;gap:4px}
@@ -731,7 +731,7 @@ input.num{width:58px;padding:5px 6px;border-radius:8px;border:1px solid rgba(255
   .zi-title{font-size:18px}
   .bag-preview{width:clamp(110px,30vw,140px)}
   .bh-name{font-size:13px}
-  .stat-chips{grid-template-columns:repeat(auto-fit,minmax(66px,1fr))}
+  .stat-chips{grid-template-columns:1fr 1fr}
   .hub-tabs{grid-template-columns:repeat(4,minmax(0,1fr))}
   .hub-tab{font-size:9px;padding:6px 2px}
   .hub-tab span{font-size:12px}
